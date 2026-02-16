@@ -36,10 +36,12 @@ func LoginPocketID(c *gin.Context) {
 	}
 
 	state := auth.GenerateState()
-	loginURL := oidcAuth.GetLoginURL(state)
+	codeVerifier := auth.GenerateCodeVerifier()
+	loginURL := oidcAuth.GetLoginURL(state, codeVerifier)
 
 	c.SetCookie("oidc_state", state, 3600, "/", "", false, true)
 	c.SetCookie("oidc_redirect", redirectURI, 3600, "/", "", false, true)
+	c.SetCookie("oidc_code_verifier", codeVerifier, 3600, "/", "", false, false)
 
 	c.Redirect(http.StatusFound, loginURL)
 }
@@ -63,7 +65,9 @@ func CallbackPocketID(c *gin.Context) {
 		redirectURL = redirectURI
 	}
 
-	if err := oidcAuth.HandleCallbackAndRedirect(c, jwtSecret, redirectURL); err != nil {
+	codeVerifier, _ := c.Cookie("oidc_code_verifier")
+
+	if err := oidcAuth.HandleCallbackAndRedirect(c, jwtSecret, redirectURL, codeVerifier); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}

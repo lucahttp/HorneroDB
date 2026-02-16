@@ -137,7 +137,7 @@ function Header({ onLogout, activeTab, setActiveTab, user }) {
   )
 }
 
-function Dashboard({ onLogout }) {
+function Dashboard({ onLogout, user }) {
   const navigate = useNavigate()
   const [workspaces, setWorkspaces] = useState([])
   const [loading, setLoading] = useState(true)
