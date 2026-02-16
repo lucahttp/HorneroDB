@@ -49,7 +49,7 @@ func NewPocketIDAuth(cfg *config.OIDCProvider) (*OIDCAuth, error) {
 }
 
 func (o *OIDCAuth) GetLoginURL(state string) string {
-	return o.config.IssuerURL + "/oauth/authorize?" +
+	return o.config.IssuerURL + "/authorize?" +
 		"client_id=" + o.config.ClientID +
 		"&redirect_uri=" + o.config.RedirectURL +
 		"&response_type=code" +

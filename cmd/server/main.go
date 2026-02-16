@@ -4,6 +4,8 @@ import (
 	"log"
 	"os"
 
+	"github.com/joho/godotenv"
+
 	"hornerodb/internal/config"
 	"hornerodb/internal/database"
 	"hornerodb/internal/handlers/api"
@@ -15,6 +17,9 @@ import (
 )
 
 func main() {
+	// Load .env file
+	godotenv.Load()
+
 	// Load config
 	cfg := config.Load()
 
