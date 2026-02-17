@@ -5,6 +5,7 @@ import axios from 'axios'
 import { ThemeToggle, Button, Badge } from './components/index.jsx'
 import { PermissionMatrix } from './components/PermissionMatrix.jsx'
 import { ToastProvider, notify } from './components/Toast.jsx'
+import horneroLogo from './assets/hornero solo.png'
 import './index.css'
 
 const API_URL = 'http://localhost:8080/api/v1'
@@ -65,7 +66,7 @@ function Login() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
         >
-          <div style={{ fontSize: '5rem', marginBottom: '1rem' }}>🐦</div>
+          <img src={horneroLogo} alt="HorneroDB" style={{ width: '180px', height: '180px', objectFit: 'contain', marginBottom: '1rem', filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.1))' }} />
           <h1 style={{ fontSize: '3rem', fontWeight: 900, color: '#FFFFFF', letterSpacing: '-0.03em', marginBottom: '0.5rem' }}>
             HorneroDB
           </h1>
@@ -158,7 +159,7 @@ function Sidebar({ user, onLogout, workspaceId }) {
     <div className="sidebar">
       <div className="sidebar-header">
         <Link to="/dashboard" className="sidebar-logo">
-          <span>🐦</span>
+          <img src={horneroLogo} alt="Logo" style={{ width: '32px', height: '32px', objectFit: 'contain' }} />
           <span>HorneroDB</span>
         </Link>
       </div>
@@ -266,7 +267,7 @@ function Dashboard({ user, onLogout }) {
         background: 'var(--bg-elevated)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <span style={{ fontSize: '1.5rem' }}>🐦</span>
+          <img src={horneroLogo} alt="Logo" style={{ width: '40px', height: '40px', objectFit: 'contain' }} />
           <span style={{ fontSize: '1.25rem', fontWeight: 800, letterSpacing: '-0.02em' }}>HorneroDB</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -700,7 +701,7 @@ function TableView() {
       <div className="sidebar">
         <div className="sidebar-header">
           <Link to={`/workspace/${workspaceId}`} className="sidebar-logo">
-            <span>🐦</span>
+            <img src={horneroLogo} alt="Logo" style={{ width: '32px', height: '32px', objectFit: 'contain' }} />
             <span>HorneroDB</span>
           </Link>
         </div>
@@ -1002,7 +1003,7 @@ function Settings() {
       <div className="sidebar">
         <div className="sidebar-header">
           <Link to={`/workspace/${workspaceId}`} className="sidebar-logo">
-            <span>🐦</span>
+            <img src={horneroLogo} alt="Logo" style={{ width: '32px', height: '32px', objectFit: 'contain' }} />
             <span>HorneroDB</span>
           </Link>
         </div>
