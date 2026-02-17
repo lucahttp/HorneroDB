@@ -226,6 +226,19 @@ func (o *OIDCAuth) HandleCallback(c *gin.Context, jwtSecret string) error {
 }
 
 func handleUserWithClaims(c *gin.Context, jwtSecret string, claims UserClaims, tokenResp *TokenResponse) error {
+	// Upsert User in local DB
+	user := metadata.User{
+		ID:          claims.Sub,
+		Email:       claims.Email,
+		Name:        claims.Name,
+		Picture:     claims.Picture,
+		LastLoginAt: time.Now(),
+	}
+
+	if err := database.DB.Table("_hornero_users").Save(&user).Error; err != nil {
+		fmt.Printf("Warning: Failed to upsert user %s: %v\n", claims.Sub, err)
+	}
+
 	roleName := "user"
 	workspaceID := ""
 
@@ -276,6 +289,7 @@ func handleUserWithClaims(c *gin.Context, jwtSecret string, claims UserClaims, t
 			"name":         claims.Name,
 			"role":         roleName,
 			"workspace_id": workspaceID,
+			"picture":      claims.Picture,
 		},
 	})
 

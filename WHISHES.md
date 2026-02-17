@@ -129,10 +129,20 @@ quiero saber que opciones de seguridad tienes pocketbase, nocodb (creo que son m
 
 
 
-### sigue roto [Error]
+### agregar usuarios sigue roto [Error]
 
-    ### Tables in Workspace [Error]
 
-    cuando estas dentro de un workspace y ves las tablas de datos vas a ver arriba de todo en una esquina un icono de editar y otro de borrar. nada que ver deberia de aparecer en la tabla de datos al mantener el mouse encima de la fila de datos o al mantener precionado el touch arriba de la tabla de datos.
+POST http://localhost:8080/api/v1/workspaces/6d1a2f07-ee97-488d-a9f2-1eec6fd4dd70/users 404 (Not Found)
+AxiosInterceptor.jsx:20 Global API Error: AxiosError: Request failed with status code 404
+    at settle (axios.js?v=d4df10c7:1281:12)
+    at XMLHttpRequest.onloadend (axios.js?v=d4df10c7:1638:7)
+SettingsUsers.jsx:61 AxiosError: Request failed with status code 404
+    at async handleImport (SettingsUsers.jsx:51:13)
 
-creo que ya se que es, carga bien al principio y despujes se buggea
+
+"User not found in PocketID or Local DB"
+
+
+### no puedo asignar roles a las api keys [Feature]
+
+quiero poder asignar roles a las api keys

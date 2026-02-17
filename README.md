@@ -16,6 +16,14 @@ Self-hostable alternative to Airtable, NocoDB, PocketBase and Baserow. Secure by
 - **Multi-tenant** — Isolated workspaces for different teams or projects
 - **Simplified Deployment** — Warm up database + setup the auth service of your preference and you are ready to go
 
+
+
+[Run it in Play with Docker](https://labs.play-with-docker.com/?stack=https://raw.githubusercontent.com/lucahttp/HorneroDB/refs/heads/main/docker-compose.yml&stack_name=HorneroDB)
+
+
+[!["Run it in Play with Docker"](misc/playwithdocker.png)](https://labs.play-with-docker.com/?stack=https://raw.githubusercontent.com/lucahttp/HorneroDB/refs/heads/main/docker-compose.yml&stack_name=HorneroDB)
+
+
 ## 🚀 Quick Start
 
 ### Docker

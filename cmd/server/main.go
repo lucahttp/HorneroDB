@@ -132,9 +132,12 @@ func main() {
 			workspaceGroup.DELETE("/roles/:role_id", api.DeleteRole)
 
 			// === USUARIOS Y ROLES ===
-			workspaceGroup.GET("/users", api.ListUserRoles)
+			workspaceGroup.GET("/users", api.ListWorkspaceUsers)
+			workspaceGroup.POST("/users", api.ImportUser)
+			// workspaceGroup.GET("/users/roles", api.ListUserRoles) // Deprecated? Kept for backward compat if needed or just use ListWorkspaceUsers which includes roles
 			workspaceGroup.POST("/users/:user_id/role", api.AssignRoleToUser)
 			workspaceGroup.DELETE("/users/:user_id/role", api.RemoveRoleFromUser)
+			workspaceGroup.DELETE("/users/:user_id", api.RemoveRoleFromUser) // Short alias to remove from workspace (which is removing role)
 
 			// === API KEYS ===
 			workspaceGroup.GET("/keys", api.ListAPIKeys)

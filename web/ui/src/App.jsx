@@ -12,10 +12,11 @@ import { ErrorProvider } from './context/ErrorContext.jsx'
 import { ErrorModal } from './components/ErrorModal.jsx'
 import { AxiosInterceptor } from './components/AxiosInterceptor.jsx'
 import { IconProvider } from './components/IconProvider.jsx'
+import SettingsUsers from './components/SettingsUsers'
 import {
   Lock, Folder, ClipboardCheck, ReportColumns, RulerCombine,
   Settings as SettingsIcon, ShieldCheck, Key, Trash, EditPencil, Xmark,
-  LogOut, Table2Columns, EmojiSingLeftNote
+  LogOut, Table2Columns, EmojiSingLeftNote, Group
 } from 'iconoir-react'
 import horneroLogo from './assets/hornero solo.png'
 import './index.css'
@@ -964,6 +965,7 @@ function Settings() {
   const [showCreateKey, setShowCreateKey] = useState(false)
   const [newRoleName, setNewRoleName] = useState('')
   const [newKeyName, setNewKeyName] = useState('')
+  const [newKeyRole, setNewKeyRole] = useState('')
 
   useEffect(() => {
     loadData()
@@ -1011,11 +1013,13 @@ function Settings() {
     try {
       const res = await axios.post(`${API_URL}/workspaces/${workspaceId}/keys`, {
         name: newKeyName,
+        role_id: newKeyRole,
         expires_in_days: 365
       })
       notify(t('api_key_created', { key: res.data.key }), 'success')
       setShowCreateKey(false)
       setNewKeyName('')
+      setNewKeyRole('')
       loadData()
     } catch (err) {
       console.error(err)
@@ -1081,6 +1085,13 @@ function Settings() {
           {/* Tabs */}
           <div className="tabs">
             <button
+              className={`tab ${activeSection === 'users' ? 'active' : ''}`}
+              onClick={() => setActiveSection('users')}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+            >
+              <Group width="1rem" height="1rem" /> {t('users')}
+            </button>
+            <button
               className={`tab ${activeSection === 'roles' ? 'active' : ''}`}
               onClick={() => setActiveSection('roles')}
               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
@@ -1100,6 +1111,8 @@ function Settings() {
             <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem 0' }}>
               <div className="loading-spinner" />
             </div>
+          ) : activeSection === 'users' ? (
+            <SettingsUsers workspaceId={workspaceId} roles={roles} notify={notify} />
           ) : activeSection === 'roles' ? (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
@@ -1232,6 +1245,19 @@ function Settings() {
                   placeholder={t('api_key_placeholder')}
                   autoFocus
                 />
+              </div>
+              <div className="form-group">
+                <label className="form-label">{t('role_label')}</label>
+                <select
+                  className="form-select"
+                  value={newKeyRole}
+                  onChange={e => setNewKeyRole(e.target.value)}
+                >
+                  <option value="">{t('select_role') || 'Sin rol (Solo lectura pública)'}</option>
+                  {roles.map(r => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
               </div>
             </div>
             <div className="modal-footer">

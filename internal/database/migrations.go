@@ -52,6 +52,12 @@ func Migrate() error {
 		return err
 	}
 
+	// User Cache
+	err = DB.Table("_hornero_users").AutoMigrate(&metadata.User{})
+	if err != nil {
+		return err
+	}
+
 	// Create additional indexes for performance
 	if err := createIndexes(); err != nil {
 		log.Printf("Warning: some indexes may not be created: %v", err)
