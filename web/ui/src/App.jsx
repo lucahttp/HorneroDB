@@ -8,6 +8,7 @@ import { ToastProvider, notify } from './components/Toast.jsx'
 import { ErrorProvider } from './context/ErrorContext.jsx'
 import { ErrorModal } from './components/ErrorModal.jsx'
 import { AxiosInterceptor } from './components/AxiosInterceptor.jsx'
+import { IconProvider } from './components/IconProvider.jsx'
 import horneroLogo from './assets/hornero solo.png'
 import './index.css'
 
@@ -37,20 +38,22 @@ function App() {
 
   return (
     <ErrorProvider>
-      <AxiosInterceptor />
-      <ErrorModal />
-      <BrowserRouter>
-        <ToastProvider>
-          <Routes>
-            <Route path="/" element={<Login />} />
-            <Route path="/callback" element={<Callback onLogin={setToken} onUser={setUser} />} />
-            <Route path="/dashboard" element={token ? <Dashboard user={user} onLogout={handleLogout} /> : <Login />} />
-            <Route path="/workspace/:workspaceId" element={token ? <Workspace user={user} onLogout={handleLogout} /> : <Login />} />
-            <Route path="/workspace/:workspaceId/tables/:tableId" element={token ? <TableView user={user} /> : <Login />} />
-            <Route path="/workspace/:workspaceId/settings" element={token ? <Settings /> : <Login />} />
-          </Routes>
-        </ToastProvider>
-      </BrowserRouter>
+      <IconProvider>
+        <AxiosInterceptor />
+        <ErrorModal />
+        <BrowserRouter>
+          <ToastProvider>
+            <Routes>
+              <Route path="/" element={<Login />} />
+              <Route path="/callback" element={<Callback onLogin={setToken} onUser={setUser} />} />
+              <Route path="/dashboard" element={token ? <Dashboard user={user} onLogout={handleLogout} /> : <Login />} />
+              <Route path="/workspace/:workspaceId" element={token ? <Workspace user={user} onLogout={handleLogout} /> : <Login />} />
+              <Route path="/workspace/:workspaceId/tables/:tableId" element={token ? <TableView user={user} /> : <Login />} />
+              <Route path="/workspace/:workspaceId/settings" element={token ? <Settings /> : <Login />} />
+            </Routes>
+          </ToastProvider>
+        </BrowserRouter>
+      </IconProvider>
     </ErrorProvider>
   )
 }
