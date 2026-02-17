@@ -90,4 +90,8 @@ Comprehensive OpenAPI 3.0 documentation available at [`docs/openapi.yaml`](docs/
 
 ---
 
+## 🐦  Fun fact
+The ornero is Argentina's national bird. They build nests made of mud and twigs shaped like mud ovens.
+
+
 Made in Argentina with ❤️
