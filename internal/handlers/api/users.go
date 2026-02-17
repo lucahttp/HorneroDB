@@ -92,15 +92,47 @@ func ImportUser(c *gin.Context) {
 					Email: pUser.Email,
 					Name:  pUser.FirstName + " " + pUser.LastName,
 				}
-				database.DB.Table("_hornero_users").FirstOrCreate(&user)
+				if err := database.DB.Table("_hornero_users").FirstOrCreate(&user).Error; err != nil {
+					c.JSON(500, gin.H{"error": "Failed to create user: " + err.Error()})
+					return
+				}
 			} else {
-				c.JSON(404, gin.H{"error": "User not found in PocketID or Local DB"})
-				return
+				// PocketID lookup failed or empty -> Create Invite Placeholder
+				fmt.Printf("DEBUG: PocketID lookup failed/empty. Creating placeholder for %s\n", input.Email)
+
+				// Check if email already exists
+				var existing metadata.User
+				if err := database.DB.Table("_hornero_users").Where("email = ?", input.Email).First(&existing).Error; err == nil {
+					user = existing
+				} else {
+					user = metadata.User{
+						ID:    uuid.New().String(),
+						Email: input.Email,
+						Name:  input.Email, // Temporary name
+					}
+					if err := database.DB.Table("_hornero_users").Create(&user).Error; err != nil {
+						c.JSON(500, gin.H{"error": "Failed to create invite user: " + err.Error()})
+						return
+					}
+				}
 			}
 		} else {
-			fmt.Println("DEBUG: PocketID Integration NOT Enabled")
-			c.JSON(404, gin.H{"error": "User not found. They must login first."})
-			return
+			// PocketID Disabled -> Create Invite Placeholder
+			fmt.Println("DEBUG: PocketID Integration NOT Enabled. Creating placeholder.")
+			var existing metadata.User
+			if err := database.DB.Table("_hornero_users").Where("email = ?", input.Email).First(&existing).Error; err == nil {
+				user = existing
+			} else {
+				user = metadata.User{
+					ID:    uuid.New().String(),
+					Email: input.Email,
+					Name:  input.Email,
+				}
+				if err := database.DB.Table("_hornero_users").Create(&user).Error; err != nil {
+					c.JSON(500, gin.H{"error": "Failed to create invite user: " + err.Error()})
+					return
+				}
+			}
 		}
 	}
 

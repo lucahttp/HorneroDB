@@ -27,16 +27,30 @@ func WorkspaceAuth() gin.HandlerFunc {
 
 		// Get user ID from context (set by AuthRequired)
 		userID := GetUserID(c)
-		if userID == "" {
-			// If authenticating with API Key, we might already have the role in context
-			// But for now, let's assume we need to look it up if it's a user
-			if GetAuthSource(c) == "apikey" {
-				c.Next()
+		authSource := GetAuthSource(c)
+
+		if userID == "" && authSource != "apikey" {
+			c.JSON(401, gin.H{"error": "unauthorized"})
+			c.Abort()
+			return
+		}
+
+		// SPECIAL HANDLING FOR API KEYS
+		if authSource == "apikey" {
+			// effectiveUserID is actually the API Key ID here
+			// Check if keys workspace matches current workspace
+			keyWorkspaceID := GetUserWorkspace(c)
+			if keyWorkspaceID != workspaceIDStr {
+				c.JSON(403, gin.H{"error": "access denied: key belongs to another workspace"})
+				c.Abort()
 				return
 			}
 
-			c.JSON(401, gin.H{"error": "unauthorized"})
-			c.Abort()
+			// API keys have their role embedded in the token/context by AuthRequired -> setAPIKeyContext
+			// We just need to ensure the role name is set in context for downstream handlers
+			// AuthRequired sets "role" (name) in context.
+			// So we are good to go!
+			c.Next()
 			return
 		}
 

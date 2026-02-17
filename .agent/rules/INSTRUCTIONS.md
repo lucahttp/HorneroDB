@@ -1,3 +1,7 @@
+---
+trigger: always_on
+---
+
 # AI Development Guidelines
 
 ## Core Principles
