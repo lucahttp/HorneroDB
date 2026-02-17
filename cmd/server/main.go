@@ -25,7 +25,10 @@ func main() {
 	godotenv.Load()
 
 	// Load config
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
 
 	// Connect to database
 	dbConfig := &database.Config{

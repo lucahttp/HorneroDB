@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"time"
 )
@@ -28,32 +29,52 @@ type DatabaseConfig struct {
 }
 
 type AuthConfig struct {
-	JWTSecret        string
-	PocketIDConfig   OIDCProvider
-	EntraIDConfig    OIDCProvider
-	KeycloakConfig   OIDCProvider
+	JWTSecret      string
+	PocketIDConfig OIDCProvider
+	EntraIDConfig  OIDCProvider
+	KeycloakConfig OIDCProvider
 }
 
 type OIDCProvider struct {
-	Enabled       bool
-	ClientID      string
-	ClientSecret  string
-	IssuerURL     string
-	RedirectURL   string
+	Enabled      bool
+	ClientID     string
+	ClientSecret string
+	IssuerURL    string
+	RedirectURL  string
 }
 
 type S3Config struct {
-	Enabled      bool
-	Endpoint     string
-	AccessKey    string
-	SecretKey    string
-	Bucket       string
-	Region       string
-	UseSSL       bool
+	Enabled   bool
+	Endpoint  string
+	AccessKey string
+	SecretKey string
+	Bucket    string
+	Region    string
+	UseSSL    bool
 }
 
-func Load() *Config {
-	return &Config{
+func Load() (*Config, error) {
+	// Check for production mode
+	isProduction := os.Getenv("NODE_ENV") == "production" || os.Getenv("ENV") == "production"
+
+	// Get JWT secret
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		// Use default only in development
+		if isProduction {
+			return nil, fmt.Errorf("JWT_SECRET environment variable is required in production")
+		}
+		jwtSecret = "change-me-in-production"
+	} else if isProduction && jwtSecret == "change-me-in-production" {
+		return nil, fmt.Errorf("JWT_SECRET must be changed from default value in production")
+	}
+
+	// Validate JWT secret length for production
+	if isProduction && len(jwtSecret) < 32 {
+		return nil, fmt.Errorf("JWT_SECRET must be at least 32 characters in production")
+	}
+
+	config := &Config{
 		Server: ServerConfig{
 			Port:         getEnv("SERVER_PORT", "8080"),
 			ReadTimeout:  30 * time.Second,
@@ -68,25 +89,27 @@ func Load() *Config {
 			SSLMode:  getEnv("DB_SSLMODE", "disable"),
 		},
 		Auth: AuthConfig{
-			JWTSecret: getEnv("JWT_SECRET", "change-me-in-production"),
+			JWTSecret: jwtSecret,
 			PocketIDConfig: OIDCProvider{
-				Enabled:       getEnv("POCKETID_ENABLED", "false") == "true",
-				ClientID:      getEnv("POCKETID_CLIENT_ID", ""),
-				ClientSecret:  getEnv("POCKETID_CLIENT_SECRET", ""),
-				IssuerURL:     getEnv("POCKETID_ISSUER_URL", ""),
-				RedirectURL:   getEnv("POCKETID_REDIRECT_URL", "http://localhost:8080/auth/pocketid/callback"),
+				Enabled:      getEnv("POCKETID_ENABLED", "false") == "true",
+				ClientID:     getEnv("POCKETID_CLIENT_ID", ""),
+				ClientSecret: getEnv("POCKETID_CLIENT_SECRET", ""),
+				IssuerURL:    getEnv("POCKETID_ISSUER_URL", ""),
+				RedirectURL:  getEnv("POCKETID_REDIRECT_URL", "http://localhost:8080/api/v1/auth/oidc/callback"),
 			},
 		},
 		S3: S3Config{
-			Enabled:  getEnv("S3_ENABLED", "false") == "true",
-			Endpoint: getEnv("S3_ENDPOINT", ""),
+			Enabled:   getEnv("S3_ENABLED", "false") == "true",
+			Endpoint:  getEnv("S3_ENDPOINT", ""),
 			AccessKey: getEnv("S3_ACCESS_KEY", ""),
 			SecretKey: getEnv("S3_SECRET_KEY", ""),
-			Bucket:   getEnv("S3_BUCKET", "hornero"),
-			Region:   getEnv("S3_REGION", "us-east-1"),
-			UseSSL:   getEnv("S3_USE_SSL", "true") == "true",
+			Bucket:    getEnv("S3_BUCKET", "hornero"),
+			Region:    getEnv("S3_REGION", "us-east-1"),
+			UseSSL:    getEnv("S3_USE_SSL", "true") == "true",
 		},
 	}
+
+	return config, nil
 }
 
 func getEnv(key, defaultValue string) string {

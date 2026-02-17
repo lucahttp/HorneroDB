@@ -26,7 +26,7 @@ func CreateColumn(c *gin.Context) {
 
 	var input struct {
 		Name       string `json:"name" binding:"required"`
-		Slug       string `json:"slug" binding:"required"`
+		Slug       string `json:"slug"`
 		FieldType  string `json:"field_type" binding:"required"`
 		Meta       string `json:"meta"`
 		OrderIndex int    `json:"order_index"`
@@ -34,6 +34,19 @@ func CreateColumn(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Sanitize and validate slug
+	slug := input.Slug
+	if slug == "" {
+		slug = SanitizeSlug(input.Name)
+	} else {
+		slug = SanitizeSlug(slug)
+	}
+
+	if !ValidateSlug(slug) {
+		c.JSON(400, gin.H{"error": "invalid slug: must start with letter, only alphanumeric and underscores"})
 		return
 	}
 
@@ -51,11 +64,10 @@ func CreateColumn(c *gin.Context) {
 	}
 
 	column := metadata.Column{
-		TableID:    tblID,
-		Name:       input.Name,
-		Slug:       input.Slug,
-		FieldType:  input.FieldType,
-		OrderIndex: input.OrderIndex,
+		TableID:   tblID,
+		Name:      input.Name,
+		Slug:      slug,
+		FieldType: input.FieldType,
 	}
 
 	result := database.DB.Table("_hornero_columns").Create(&column)
@@ -65,11 +77,14 @@ func CreateColumn(c *gin.Context) {
 	}
 
 	// Add column to physical table
-	colSQL := getColumnSQL(input.FieldType, input.Slug)
+	colSQL := getColumnSQL(input.FieldType)
 	if colSQL != "" {
-		tableName := "data_" + workspaceID + "_" + table.Slug
-		alterSQL := `ALTER TABLE "` + tableName + `" ADD COLUMN IF NOT EXISTS "` + input.Slug + `" ` + colSQL
+		// Safe because we validated the slug
+		safeTableName := "data_" + workspaceID + "_" + table.Slug
+		alterSQL := `ALTER TABLE "` + safeTableName + `" ADD COLUMN IF NOT EXISTS "` + slug + `" ` + colSQL
 		if err := database.DB.Exec(alterSQL).Error; err != nil {
+			// Rollback: delete the metadata column if physical column creation fails
+			database.DB.Table("_hornero_columns").Delete(&column)
 			c.JSON(500, gin.H{"error": "failed to add column: " + err.Error()})
 			return
 		}
@@ -78,7 +93,7 @@ func CreateColumn(c *gin.Context) {
 	c.JSON(201, column)
 }
 
-func getColumnSQL(fieldType, slug string) string {
+func getColumnSQL(fieldType string) string {
 	switch fieldType {
 	case "text":
 		return "VARCHAR(255)"
@@ -145,11 +160,19 @@ func DeleteColumn(c *gin.Context) {
 	}
 
 	// Delete from metadata
-	database.DB.Table("_hornero_columns").Delete(&metadata.Column{}, "id = ?", columnID)
+	result := database.DB.Table("_hornero_columns").Delete(&metadata.Column{}, "id = ?", columnID)
+	if result.Error != nil {
+		c.JSON(500, gin.H{"error": "failed to delete column: " + result.Error.Error()})
+		return
+	}
 
-	// Drop column from physical table
-	tableName := "data_" + table.WorkspaceID.String() + "_" + table.Slug
-	database.DB.Exec(`ALTER TABLE "` + tableName + `" DROP COLUMN IF EXISTS "` + column.Slug + `"`)
+	// Drop column from physical table - safe because we got it from DB
+	safeTableName := "data_" + table.WorkspaceID.String() + "_" + table.Slug
+	dropResult := database.DB.Exec(`ALTER TABLE "` + safeTableName + `" DROP COLUMN IF EXISTS "` + column.Slug + `"`)
+	if dropResult.Error != nil {
+		c.JSON(500, gin.H{"error": "warning: failed to drop column: " + dropResult.Error.Error()})
+		return
+	}
 
 	c.JSON(200, gin.H{"message": "deleted"})
 }

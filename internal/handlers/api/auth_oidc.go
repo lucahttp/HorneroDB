@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"sync"
 
 	"hornerodb/internal/config"
 	"hornerodb/internal/services/auth"
@@ -9,19 +10,28 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var oidcAuth *auth.OIDCAuth
-var jwtSecret string
+// Thread-safe OIDC auth initialization
+var (
+	oidcAuth  *auth.OIDCAuth
+	jwtSecret string
+	once      sync.Once
+	initErr   error
+)
 
 func InitAuth(cfg *config.AuthConfig, secret string) error {
-	jwtSecret = secret
-	if cfg.PocketIDConfig.Enabled {
-		var err error
-		oidcAuth, err = auth.NewPocketIDAuth(&cfg.PocketIDConfig)
-		if err != nil {
-			return err
+	// Use sync.Once to ensure thread-safe initialization
+	once.Do(func() {
+		jwtSecret = secret
+		if cfg.PocketIDConfig.Enabled {
+			var err error
+			oidcAuth, err = auth.NewPocketIDAuth(&cfg.PocketIDConfig)
+			if err != nil {
+				initErr = err
+			}
 		}
-	}
-	return nil
+	})
+
+	return initErr
 }
 
 func LoginPocketID(c *gin.Context) {

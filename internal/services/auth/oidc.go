@@ -208,34 +208,15 @@ func (o *OIDCAuth) HandleCallback(c *gin.Context, jwtSecret string) error {
 	fmt.Printf("Token response: %+v\n", tokenResp)
 	fmt.Printf("ID Token: %s\n", tokenResp.IDToken)
 
-	// Verify ID token
+	// Verify ID token - MUST verify cryptographically
 	idToken, err := o.VerifyIDToken(ctx, tokenResp.IDToken)
 	if err != nil {
-		// If verification fails, try to extract claims directly from the token
-		fmt.Printf("Verification failed: %v, trying direct parse\n", err)
-
-		// Try to parse the token directly without verification (for debugging)
-		parts := strings.Split(tokenResp.IDToken, ".")
-		if len(parts) != 3 {
-			return fmt.Errorf("malformed id_token: expected 3 parts, got %d", len(parts))
-		}
-
-		// Decode the payload directly
-		payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-		if err != nil {
-			return fmt.Errorf("failed to decode token payload: %w", err)
-		}
-
-		var claims UserClaims
-		if err := json.Unmarshal(payload, &claims); err != nil {
-			return fmt.Errorf("failed to parse claims: %w", err)
-		}
-
-		// Continue with the claims we extracted
-		return handleUserWithClaims(c, jwtSecret, claims, tokenResp)
+		// SECURITY: Do NOT allow fallback to unverified parsing
+		// Token verification is mandatory for security
+		return fmt.Errorf("failed to verify ID token: %w", err)
 	}
 
-	// Extract claims
+	// Extract claims from verified token
 	var claims UserClaims
 	if err := idToken.Claims(&claims); err != nil {
 		return fmt.Errorf("failed to extract claims: %w", err)
@@ -324,26 +305,18 @@ func (o *OIDCAuth) HandleCallbackAndRedirect(c *gin.Context, jwtSecret, redirect
 	fmt.Printf("DEBUG - ID Token value: '%s'\n", tokenResp.IDToken)
 	fmt.Printf("DEBUG - Access Token value: '%s'\n", tokenResp.AccessToken)
 
-	// Try to verify ID token
+	// Try to verify ID token - MUST verify cryptographically
 	idToken, err := o.VerifyIDToken(ctx, tokenResp.IDToken)
-	var claims UserClaims
 	if err != nil {
-		// Parse token directly without verification
-		parts := strings.Split(tokenResp.IDToken, ".")
-		if len(parts) != 3 {
-			return fmt.Errorf("malformed id_token: expected 3 parts, got %d", len(parts))
-		}
-		payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-		if err != nil {
-			return fmt.Errorf("failed to decode token: %w", err)
-		}
-		if err := json.Unmarshal(payload, &claims); err != nil {
-			return fmt.Errorf("failed to parse claims: %w", err)
-		}
-	} else {
-		if err := idToken.Claims(&claims); err != nil {
-			return fmt.Errorf("failed to extract claims: %w", err)
-		}
+		// SECURITY: Do NOT allow fallback to unverified parsing
+		// Token verification is mandatory for security
+		return fmt.Errorf("failed to verify ID token: %w", err)
+	}
+
+	// Extract claims from verified token
+	var claims UserClaims
+	if err := idToken.Claims(&claims); err != nil {
+		return fmt.Errorf("failed to extract claims: %w", err)
 	}
 
 	roleName := "user"
