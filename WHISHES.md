@@ -125,3 +125,14 @@ agregar tambien para apps programaticas una source IP si no es desde un front en
 ### Manage Users 1.3 bis [Research]
 
 quiero saber que opciones de seguridad tienes pocketbase, nocodb (creo que son muy pocas por eso creamos HorneroDB) y ademas quiero agregar un apartado dentro de configuracion que sea un dashboard de seguridad que muestre los logs de seguridad y api calls como en pocketbase.
+
+
+
+
+### sigue roto [Error]
+
+    ### Tables in Workspace [Error]
+
+    cuando estas dentro de un workspace y ves las tablas de datos vas a ver arriba de todo en una esquina un icono de editar y otro de borrar. nada que ver deberia de aparecer en la tabla de datos al mantener el mouse encima de la fila de datos o al mantener precionado el touch arriba de la tabla de datos.
+
+creo que ya se que es, carga bien al principio y despujes se buggea

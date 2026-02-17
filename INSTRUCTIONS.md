@@ -32,6 +32,7 @@ When modifying interfaces or their usage:
 1. Update documentation first
 2. Ensure the design is clear and simple to use
 3. Then implement the changes
+4. Ensure the feature or change is being implemented in the Frontend and Backend (Ojitooo ehhhhh) !IMPORTANT
 
 Why: Writing docs first forces you to think through the API from the user's perspective before coding.
 
