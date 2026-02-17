@@ -146,3 +146,13 @@ SettingsUsers.jsx:61 AxiosError: Request failed with status code 404
 ### no puedo asignar roles a las api keys [Feature]
 
 quiero poder asignar roles a las api keys
+
+
+### quiero poder hacer llamadas a la api [Error]
+
+$session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+Invoke-WebRequest -UseBasicParsing -Uri "http://localhost:8080/api/v1/workspaces/6d1a2f07-ee97-488d-a9f2-1eec6fd4dd70/data/turnos" `
+-WebSession $session `
+-Headers @{
+  "Authorization"="key_6d1a2f07CiWF8NjD6QAFoLgr82NMmUIpS3F9jEJZ"
+}

@@ -18,13 +18,19 @@ Self-hostable alternative to Airtable, NocoDB, PocketBase and Baserow. Secure by
 
 
 
+
+
+## 🚀 Quick Start
+
+
+### Quick deploy in the Playground provided by the Docker friends
+
 [Run it in Play with Docker](https://labs.play-with-docker.com/?stack=https://raw.githubusercontent.com/lucahttp/HorneroDB/refs/heads/main/docker-compose.yml&stack_name=HorneroDB)
 
 
 [!["Run it in Play with Docker"](misc/playwithdocker.png)](https://labs.play-with-docker.com/?stack=https://raw.githubusercontent.com/lucahttp/HorneroDB/refs/heads/main/docker-compose.yml&stack_name=HorneroDB)
 
 
-## 🚀 Quick Start
 
 ### Prerequisites
 - `.env` variables setup (PocketID values are generated after running Docker)
@@ -99,7 +105,7 @@ Comprehensive OpenAPI 3.0 documentation available at [`docs/openapi.yaml`](docs/
 ---
 
 ## 🐦  Fun fact
-The ornero is Argentina's national bird. They build nests made of mud and twigs shaped like mud ovens.
+The [Hornero](https://en.wikipedia.org/wiki/Hornero) is Argentina's national bird. They build nests made of mud and twigs shaped like mud ovens.
 
 
 Made in Argentina with ❤️
