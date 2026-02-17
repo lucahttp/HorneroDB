@@ -1,6 +1,9 @@
 package api
 
 import (
+	"encoding/json"
+	"log"
+
 	"hornerodb/internal/database"
 	"hornerodb/internal/models/metadata"
 
@@ -37,58 +40,78 @@ func CreateWorkspace(c *gin.Context) {
 	}
 
 	workspace := metadata.Workspace{
-		Name:    input.Name,
-		Slug:    input.Slug,
-		OwnerID: ownerID,
+		Name:     input.Name,
+		Slug:     input.Slug,
+		OwnerID:  ownerID,
+		Settings: metadata.JSON("{}"),
 	}
 
 	result := database.DB.Table("_hornero_workspaces").Create(&workspace)
 	if result.Error != nil {
+		log.Printf("Error creating workspace: %v", result.Error)
 		c.JSON(500, gin.H{"error": result.Error.Error()})
 		return
 	}
 
 	// Create default admin role with full access to all tables
+	adminPermissions := map[string]interface{}{
+		"*": map[string]interface{}{
+			"create": "all",
+			"read":   "all",
+			"update": "all",
+			"delete": "all",
+		},
+	}
+	adminPermissionsJSON, _ := json.Marshal(adminPermissions)
+
 	adminRole := metadata.Role{
 		WorkspaceID: workspace.ID,
 		Name:        "admin",
 		Description: "Administrator with full access",
-		Permissions: map[string]interface{}{
-			"*": map[string]interface{}{
-				"create": "all",
-				"read":   "all",
-				"update": "all",
-				"delete": "all",
-			},
-		},
-		IsDefault: true,
+		Permissions: metadata.JSON(adminPermissionsJSON),
+		IsDefault:   true,
 	}
-	database.DB.Table("_hornero_roles").Create(&adminRole)
+	if err := database.DB.Table("_hornero_roles").Create(&adminRole).Error; err != nil {
+		log.Printf("Error creating admin role: %v", err)
+	}
 
 	// Create default user role with limited access
+	userPermissions := map[string]interface{}{
+		"*": map[string]interface{}{
+			"create": "own",
+			"read":   "own",
+			"update": "own",
+			"delete": "none",
+		},
+	}
+	userPermissionsJSON, _ := json.Marshal(userPermissions)
+
 	userRole := metadata.Role{
 		WorkspaceID: workspace.ID,
 		Name:        "user",
 		Description: "Standard user",
-		Permissions: map[string]interface{}{
-			"*": map[string]interface{}{
-				"create": "own",
-				"read":   "own",
-				"update": "own",
-				"delete": "none",
-			},
-		},
+		Permissions: metadata.JSON(userPermissionsJSON),
 	}
-	database.DB.Table("_hornero_roles").Create(&userRole)
-
-	// Assign admin role to owner
-	userRoleAssignment := metadata.UserRole{
-		WorkspaceID: workspace.ID,
-		UserID:      input.OwnerID,
-		RoleID:      adminRole.ID,
+	if err := database.DB.Table("_hornero_roles").Create(&userRole).Error; err != nil {
+		log.Printf("Error creating user role: %v", err)
 	}
-	database.DB.Table("_hornero_user_roles").Create(&userRoleAssignment)
 
+	// Assign admin role to owner - get the admin role first to ensure we have the ID, Using .First is safer than dependent on creation order
+	var savedAdminRole metadata.Role
+	if err := database.DB.Table("_hornero_roles").
+		Where("workspace_id = ? AND name = ?", workspace.ID, "admin").
+		First(&savedAdminRole).Error; err == nil {
+		userRoleAssignment := metadata.UserRole{
+			WorkspaceID: workspace.ID,
+			UserID:      input.OwnerID,
+			RoleID:      savedAdminRole.ID,
+		}
+		if err := database.DB.Table("_hornero_user_roles").Create(&userRoleAssignment).Error; err != nil {
+			log.Printf("Error assigning role to owner (non-fatal): %v", err)
+		}
+	}
+
+	log.Printf("Created workspace %s with ID %s", workspace.Name, workspace.ID)
 	c.JSON(201, workspace)
 }
 
@@ -112,6 +135,15 @@ func UpdateWorkspace(c *gin.Context) {
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
+	}
+
+	if settings, ok := input["settings"]; ok {
+		settingsJSON, err := json.Marshal(settings)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "invalid settings format"})
+			return
+		}
+		input["settings"] = metadata.JSON(settingsJSON)
 	}
 
 	result := database.DB.Table("_hornero_workspaces").Where("id = ?", workspaceID).Updates(input)

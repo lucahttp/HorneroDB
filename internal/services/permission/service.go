@@ -1,6 +1,7 @@
 package permission
 
 import (
+	"encoding/json"
 	"hornerodb/internal/database"
 	"hornerodb/internal/models/metadata"
 
@@ -48,18 +49,23 @@ func (s *Service) GetRolePermissions(workspaceID uuid.UUID, roleName string) (ma
 		return result, nil
 	}
 
-	for tableSlug, perms := range role.Permissions {
-		permMap, ok := perms.(map[string]interface{})
+	var permMap map[string]interface{}
+	if err := json.Unmarshal(role.Permissions, &permMap); err != nil {
+		return result, nil // or error
+	}
+
+	for tableSlug, perms := range permMap {
+		permObj, ok := perms.(map[string]interface{})
 		if !ok {
 			continue
 		}
 
 		access := TableAccess{
-			Create:  getAccessLevel(permMap["create"]),
-			Read:    getAccessLevel(permMap["read"]),
-			Update:  getAccessLevel(permMap["update"]),
-			Delete:  getAccessLevel(permMap["delete"]),
-			Columns: getColumns(permMap["columns"]),
+			Create:  getAccessLevel(permObj["create"]),
+			Read:    getAccessLevel(permObj["read"]),
+			Update:  getAccessLevel(permObj["update"]),
+			Delete:  getAccessLevel(permObj["delete"]),
+			Columns: getColumns(permObj["columns"]),
 		}
 		result[tableSlug] = access
 	}

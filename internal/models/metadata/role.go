@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type PermissionLevel string
@@ -25,18 +26,25 @@ type TablePermissions struct {
 type RolePermissions map[string]TablePermissions
 
 type Role struct {
-	ID          uuid.UUID              `gorm:"type:uuid;primaryKey" json:"id"`
-	WorkspaceID uuid.UUID              `gorm:"type:uuid;index" json:"workspace_id"`
-	Name        string                 `gorm:"type:varchar(100);not null" json:"name"`
-	Description string                 `gorm:"type:text" json:"description"`
-	Permissions map[string]interface{} `gorm:"type:jsonb" json:"permissions"`
-	IsDefault   bool                   `gorm:"default:false" json:"is_default"`
-	CreatedAt   time.Time              `json:"created_at"`
-	UpdatedAt   time.Time              `json:"updated_at"`
+	ID          uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
+	WorkspaceID uuid.UUID `gorm:"type:uuid;index" json:"workspace_id"`
+	Name        string    `gorm:"type:varchar(100);not null" json:"name"`
+	Description string    `gorm:"type:text" json:"description"`
+	Permissions JSON      `gorm:"type:jsonb" json:"permissions"`
+	IsDefault   bool      `gorm:"default:false" json:"is_default"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 func (r *Role) TableName() string {
 	return "_hornero_roles"
+}
+
+func (r *Role) BeforeCreate(tx *gorm.DB) (err error) {
+	if r.ID == uuid.Nil {
+		r.ID = uuid.New()
+	}
+	return
 }
 
 // Asignación de rol a usuario
@@ -50,6 +58,13 @@ type UserRole struct {
 
 func (u *UserRole) TableName() string {
 	return "_hornero_user_roles"
+}
+
+func (u *UserRole) BeforeCreate(tx *gorm.DB) (err error) {
+	if u.ID == uuid.Nil {
+		u.ID = uuid.New()
+	}
+	return
 }
 
 // API Keys para acceso programático
@@ -67,4 +82,11 @@ type APIKey struct {
 
 func (a *APIKey) TableName() string {
 	return "_hornero_api_keys"
+}
+
+func (a *APIKey) BeforeCreate(tx *gorm.DB) (err error) {
+	if a.ID == uuid.Nil {
+		a.ID = uuid.New()
+	}
+	return
 }

@@ -6,19 +6,29 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type JSON json.RawMessage
 
-func (j JSON) Scan(value interface{}) error {
-	switch v := value.(type) {
-	case []byte:
-		return json.Unmarshal(v, &j)
-	case string:
-		return json.Unmarshal([]byte(v), &j)
-	default:
+func (j *JSON) Scan(value interface{}) error {
+	if value == nil {
+		*j = nil
 		return nil
 	}
+	var bytes []byte
+	switch v := value.(type) {
+	case []byte:
+		bytes = v
+	case string:
+		bytes = []byte(v)
+	default:
+		return nil // or error
+	}
+
+	result := json.RawMessage(bytes)
+	*j = JSON(result)
+	return nil
 }
 
 func (j JSON) MarshalJSON() ([]byte, error) {
@@ -36,11 +46,18 @@ func (j JSON) Value() (driver.Value, error) {
 }
 
 type Workspace struct {
-	ID        uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
+	ID        uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
 	Name      string    `gorm:"type:varchar(255);not null" json:"name"`
 	Slug      string    `gorm:"type:varchar(100);uniqueIndex;not null" json:"slug"`
 	OwnerID   uuid.UUID `gorm:"type:uuid;not null" json:"owner_id"`
-	Settings  JSON      `gorm:"type:jsonb;default:'{}'" json:"settings"`
+	Settings  JSON      `gorm:"type:jsonb" json:"settings"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (w *Workspace) BeforeCreate(tx *gorm.DB) (err error) {
+	if w.ID == uuid.Nil {
+		w.ID = uuid.New()
+	}
+	return
 }

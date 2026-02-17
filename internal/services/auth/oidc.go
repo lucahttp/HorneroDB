@@ -248,30 +248,33 @@ func handleUserWithClaims(c *gin.Context, jwtSecret string, claims UserClaims, t
 	roleName := "user"
 	workspaceID := ""
 
-	// Try to find user role in database
-	var userRole metadata.UserRole
-	err := database.DB.Table("_hornero_user_roles").
-		Where("user_id = ?", claims.Sub).
-		First(&userRole).Error
+	// FIRST: Check if user is owner of any workspace
+	var ws metadata.Workspace
+	err := database.DB.Table("_hornero_workspaces").
+		Where("owner_id = ?", claims.Sub).
+		First(&ws).Error
 
-	if err == nil && userRole.RoleID != uuid.Nil {
-		// Get role name
-		var role metadata.Role
-		err = database.DB.Table("_hornero_roles").
-			Where("id = ?", userRole.RoleID).
-			First(&role).Error
-		if err == nil {
-			roleName = role.Name
-		}
-		workspaceID = userRole.WorkspaceID.String()
+	if err == nil {
+		// User is owner of a workspace - give admin role
+		workspaceID = ws.ID.String()
+		roleName = "admin"
+		fmt.Printf("DEBUG: User %s is owner of workspace %s\n", claims.Sub, workspaceID)
 	} else {
-		// Get first workspace where user is owner
-		var ws metadata.Workspace
-		err = database.DB.Table("_hornero_workspaces").
-			Where("owner_id = ?", claims.Sub).
-			First(&ws).Error
-		if err == nil {
-			workspaceID = ws.ID.String()
+		// SECOND: Check if user has a role assigned in any workspace
+		var userRole metadata.UserRole
+		err = database.DB.Table("_hornero_user_roles").
+			Where("user_id = ?", claims.Sub).
+			First(&userRole).Error
+
+		if err == nil && userRole.RoleID != uuid.Nil {
+			var role metadata.Role
+			err = database.DB.Table("_hornero_roles").
+				Where("id = ?", userRole.RoleID).
+				First(&role).Error
+			if err == nil {
+				roleName = role.Name
+			}
+			workspaceID = userRole.WorkspaceID.String()
 		}
 	}
 
@@ -346,27 +349,33 @@ func (o *OIDCAuth) HandleCallbackAndRedirect(c *gin.Context, jwtSecret, redirect
 	roleName := "user"
 	workspaceID := ""
 
-	var userRole metadata.UserRole
-	err = database.DB.Table("_hornero_user_roles").
-		Where("user_id = ?", claims.Sub).
-		First(&userRole).Error
+	// FIRST: Check if user is owner of any workspace
+	var ws metadata.Workspace
+	err = database.DB.Table("_hornero_workspaces").
+		Where("owner_id = ?", claims.Sub).
+		First(&ws).Error
 
-	if err == nil && userRole.RoleID != uuid.Nil {
-		var role metadata.Role
-		err = database.DB.Table("_hornero_roles").
-			Where("id = ?", userRole.RoleID).
-			First(&role).Error
-		if err == nil {
-			roleName = role.Name
-		}
-		workspaceID = userRole.WorkspaceID.String()
+	if err == nil {
+		// User is owner of a workspace - give admin role
+		workspaceID = ws.ID.String()
+		roleName = "admin"
+		fmt.Printf("DEBUG: User %s is owner of workspace %s\n", claims.Sub, workspaceID)
 	} else {
-		var ws metadata.Workspace
-		err = database.DB.Table("_hornero_workspaces").
-			Where("owner_id = ?", claims.Sub).
-			First(&ws).Error
-		if err == nil {
-			workspaceID = ws.ID.String()
+		// SECOND: Check if user has a role assigned in any workspace
+		var userRole metadata.UserRole
+		err = database.DB.Table("_hornero_user_roles").
+			Where("user_id = ?", claims.Sub).
+			First(&userRole).Error
+
+		if err == nil && userRole.RoleID != uuid.Nil {
+			var role metadata.Role
+			err = database.DB.Table("_hornero_roles").
+				Where("id = ?", userRole.RoleID).
+				First(&role).Error
+			if err == nil {
+				roleName = role.Name
+			}
+			workspaceID = userRole.WorkspaceID.String()
 		}
 	}
 

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"hornerodb/internal/database"
 	"hornerodb/internal/models/metadata"
 
@@ -44,11 +45,13 @@ func CreateRole(c *gin.Context) {
 		return
 	}
 
+	permissionsJSON, _ := json.Marshal(input.Permissions)
+
 	role := metadata.Role{
 		WorkspaceID: wsID,
 		Name:        input.Name,
 		Description: input.Description,
-		Permissions: input.Permissions,
+		Permissions: metadata.JSON(permissionsJSON),
 	}
 
 	result := database.DB.Table("_hornero_roles").Create(&role)
@@ -80,6 +83,15 @@ func UpdateRole(c *gin.Context) {
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
+	}
+
+	if permissions, ok := input["permissions"]; ok {
+		permissionsJSON, err := json.Marshal(permissions)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "invalid permissions format"})
+			return
+		}
+		input["permissions"] = metadata.JSON(permissionsJSON)
 	}
 
 	result := database.DB.Table("_hornero_roles").Where("id = ?", roleID).Updates(input)

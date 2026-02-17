@@ -79,55 +79,62 @@ func main() {
 	protected := v1.Group("")
 	protected.Use(middleware.AuthRequired(cfg.Auth.JWTSecret))
 	{
-		// === WORKSPACES ===
+		// === WORKSPACES ROUTES ===
+		// Routes that don't need workspace-specific auth (e.g., creating a workspace)
 		protected.GET("/workspaces", api.ListWorkspaces)
 		protected.POST("/workspaces", api.CreateWorkspace)
-		protected.GET("/workspaces/:workspace_id", api.GetWorkspace)
-		protected.PUT("/workspaces/:workspace_id", api.UpdateWorkspace)
-		protected.DELETE("/workspaces/:workspace_id", api.DeleteWorkspace)
 
-		// === TABLES ===
-		protected.GET("/workspaces/:workspace_id/tables", api.ListTables)
-		protected.POST("/workspaces/:workspace_id/tables", api.CreateTable)
-		protected.GET("/workspaces/:workspace_id/tables/:table_id", api.GetTable)
-		protected.PUT("/workspaces/:workspace_id/tables/:table_id", api.UpdateTable)
-		protected.DELETE("/workspaces/:workspace_id/tables/:table_id", api.DeleteTable)
+		// Routes that REQUIRE workspace authorization (checking ownership/roles internally)
+		workspaceGroup := protected.Group("/workspaces/:workspace_id")
+		workspaceGroup.Use(middleware.WorkspaceAuth())
+		{
+			workspaceGroup.GET("", api.GetWorkspace)
+			workspaceGroup.PUT("", api.UpdateWorkspace)
+			workspaceGroup.DELETE("", api.DeleteWorkspace)
 
-		// === COLUMNS ===
-		protected.GET("/workspaces/:workspace_id/tables/:table_id/columns", api.ListColumns)
-		protected.POST("/workspaces/:workspace_id/tables/:table_id/columns", api.CreateColumn)
-		protected.PUT("/workspaces/:workspace_id/tables/:table_id/columns/:column_id", api.UpdateColumn)
-		protected.DELETE("/workspaces/:workspace_id/tables/:table_id/columns/:column_id", api.DeleteColumn)
+			// === TABLES ===
+			workspaceGroup.GET("/tables", api.ListTables)
+			workspaceGroup.POST("/tables", api.CreateTable)
+			workspaceGroup.GET("/tables/:table_id", api.GetTable)
+			workspaceGroup.PUT("/tables/:table_id", api.UpdateTable)
+			workspaceGroup.DELETE("/tables/:table_id", api.DeleteTable)
 
-		// === DATA (RECORDS) ===
-		protected.GET("/workspaces/:workspace_id/data/:table_slug", api.ListRecords)
-		protected.POST("/workspaces/:workspace_id/data/:table_slug", api.CreateRecord)
-		protected.GET("/workspaces/:workspace_id/data/:table_slug/:id", api.GetRecord)
-		protected.PUT("/workspaces/:workspace_id/data/:table_slug/:id", api.UpdateRecord)
-		protected.DELETE("/workspaces/:workspace_id/data/:table_slug/:id", api.DeleteRecord)
+			// === COLUMNS ===
+			workspaceGroup.GET("/tables/:table_id/columns", api.ListColumns)
+			workspaceGroup.POST("/tables/:table_id/columns", api.CreateColumn)
+			workspaceGroup.PUT("/tables/:table_id/columns/:column_id", api.UpdateColumn)
+			workspaceGroup.DELETE("/tables/:table_id/columns/:column_id", api.DeleteColumn)
 
-		// === PERMISSIONS (legacy) ===
-		protected.GET("/workspaces/:workspace_id/permissions", api.ListPermissions)
-		protected.POST("/workspaces/:workspace_id/permissions", api.CreatePermission)
-		protected.PUT("/workspaces/:workspace_id/permissions/:permission_id", api.UpdatePermission)
-		protected.DELETE("/workspaces/:workspace_id/permissions/:permission_id", api.DeletePermission)
+			// === DATA (RECORDS) ===
+			workspaceGroup.GET("/data/:table_slug", api.ListRecords)
+			workspaceGroup.POST("/data/:table_slug", api.CreateRecord)
+			workspaceGroup.GET("/data/:table_slug/:id", api.GetRecord)
+			workspaceGroup.PUT("/data/:table_slug/:id", api.UpdateRecord)
+			workspaceGroup.DELETE("/data/:table_slug/:id", api.DeleteRecord)
 
-		// === ROLES DE SEGURIDAD (Dataverse style) ===
-		protected.GET("/workspaces/:workspace_id/roles", api.ListRoles)
-		protected.POST("/workspaces/:workspace_id/roles", api.CreateRole)
-		protected.GET("/workspaces/:workspace_id/roles/:role_id", api.GetRole)
-		protected.PUT("/workspaces/:workspace_id/roles/:role_id", api.UpdateRole)
-		protected.DELETE("/workspaces/:workspace_id/roles/:role_id", api.DeleteRole)
+			// === PERMISSIONS (legacy) ===
+			workspaceGroup.GET("/permissions", api.ListPermissions)
+			workspaceGroup.POST("/permissions", api.CreatePermission)
+			workspaceGroup.PUT("/permissions/:permission_id", api.UpdatePermission)
+			workspaceGroup.DELETE("/permissions/:permission_id", api.DeletePermission)
 
-		// === USUARIOS Y ROLES ===
-		protected.GET("/workspaces/:workspace_id/users", api.ListUserRoles)
-		protected.POST("/workspaces/:workspace_id/users/:user_id/role", api.AssignRoleToUser)
-		protected.DELETE("/workspaces/:workspace_id/users/:user_id/role", api.RemoveRoleFromUser)
+			// === ROLES DE SEGURIDAD (Dataverse style) ===
+			workspaceGroup.GET("/roles", api.ListRoles)
+			workspaceGroup.POST("/roles", api.CreateRole)
+			workspaceGroup.GET("/roles/:role_id", api.GetRole)
+			workspaceGroup.PUT("/roles/:role_id", api.UpdateRole)
+			workspaceGroup.DELETE("/roles/:role_id", api.DeleteRole)
 
-		// === API KEYS ===
-		protected.GET("/workspaces/:workspace_id/keys", api.ListAPIKeys)
-		protected.POST("/workspaces/:workspace_id/keys", api.CreateAPIKey)
-		protected.DELETE("/workspaces/:workspace_id/keys/:key_id", api.DeleteAPIKey)
+			// === USUARIOS Y ROLES ===
+			workspaceGroup.GET("/users", api.ListUserRoles)
+			workspaceGroup.POST("/users/:user_id/role", api.AssignRoleToUser)
+			workspaceGroup.DELETE("/users/:user_id/role", api.RemoveRoleFromUser)
+
+			// === API KEYS ===
+			workspaceGroup.GET("/keys", api.ListAPIKeys)
+			workspaceGroup.POST("/keys", api.CreateAPIKey)
+			workspaceGroup.DELETE("/keys/:key_id", api.DeleteAPIKey)
+		}
 
 		// === AUTH ===
 		protected.GET("/auth/me", api.GetCurrentUser)
@@ -141,5 +148,7 @@ func main() {
 	// Start server
 	log.Printf("🚀 HorneroDB starting on port %s", cfg.Server.Port)
 	log.Printf("📋 Run with 'mcp' flag for MCP server mode")
-	r.Run(":" + cfg.Server.Port)
+	if err := r.Run(":" + cfg.Server.Port); err != nil {
+		log.Fatal(err)
+	}
 }
