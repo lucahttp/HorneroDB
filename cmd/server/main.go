@@ -2,7 +2,9 @@ package main
 
 import (
 	"log"
+	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -12,6 +14,7 @@ import (
 	"hornerodb/internal/handlers/api"
 	"hornerodb/internal/handlers/mcp"
 	"hornerodb/internal/middleware"
+	"hornerodb/web"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -144,6 +147,32 @@ func main() {
 	// === AUTH OIDC (public) ===
 	v1.GET("/auth/oidc/login", api.LoginPocketID)
 	v1.GET("/auth/oidc/callback", api.CallbackPocketID)
+
+	// === STATIC FILES (PROD) ===
+	if os.Getenv("HORNERO_ENV") == "production" {
+		distFS, err := web.GetDistFS()
+		if err != nil {
+			log.Printf("Warning: Failed to load embedded UI: %v", err)
+		} else {
+			fileServer := http.FileServer(http.FS(distFS))
+			r.NoRoute(func(c *gin.Context) {
+				path := c.Request.URL.Path
+				// Check if file exists in FS
+				f, err := distFS.Open(strings.TrimPrefix(path, "/"))
+				if err == nil {
+					defer f.Close()
+					stat, _ := f.Stat()
+					if !stat.IsDir() {
+						fileServer.ServeHTTP(c.Writer, c.Request)
+						return
+					}
+				}
+				// Fallback to index.html for SPA
+				c.FileFromFS("index.html", http.FS(distFS))
+			})
+			log.Println("📦 Serving embedded UI (production mode)")
+		}
+	}
 
 	// Start server
 	log.Printf("🚀 HorneroDB starting on port %s", cfg.Server.Port)

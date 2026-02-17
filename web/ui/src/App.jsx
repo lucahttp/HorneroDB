@@ -247,6 +247,37 @@ function Dashboard({ user, onLogout }) {
     }
   }
 
+  const renameWorkspace = async (id, currentName, e) => {
+    e.stopPropagation()
+    e.preventDefault()
+    const newName = prompt('Nuevo nombre:', currentName)
+    if (!newName || newName.trim() === currentName) return
+
+    try {
+      await axios.put(`${API_URL}/workspaces/${id}`, { name: newName })
+      setWorkspaces(prev => prev.map(w => w.id === id ? { ...w, name: newName } : w))
+      notify('Workspace renombrado', 'success')
+    } catch (err) {
+      console.error(err)
+      notify('Error al renombrar', 'error')
+    }
+  }
+
+  const deleteWorkspace = async (id, name, e) => {
+    e.stopPropagation()
+    e.preventDefault()
+    if (!confirm(`¿Seguro que querés borrar el workspace "${name}"?\nSe perderán todas las tablas y datos.`)) return
+
+    try {
+      await axios.delete(`${API_URL}/workspaces/${id}`)
+      setWorkspaces(prev => prev.filter(w => w.id !== id))
+      notify('Workspace eliminado', 'success')
+    } catch (err) {
+      console.error(err)
+      notify('Error al eliminar workspace', 'error')
+    }
+  }
+
   if (loading) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
@@ -323,8 +354,47 @@ function Dashboard({ user, onLogout }) {
                   <div
                     className="card cursor-pointer"
                     onClick={() => navigate(`/workspace/${ws.id}`)}
-                    style={{ minHeight: '140px', display: 'flex', flexDirection: 'column' }}
+                    style={{ minHeight: '140px', display: 'flex', flexDirection: 'column', position: 'relative' }}
                   >
+                    <button
+                      onClick={(e) => renameWorkspace(ws.id, ws.name, e)}
+                      className="btn btn-ghost btn-sm"
+                      style={{
+                        position: 'absolute', top: '10px', right: '40px',
+                        opacity: 0.6, hover: { opacity: 1 }, padding: '4px', zIndex: 10
+                      }}
+                      title="Renombrar"
+                    >
+                      <svg style={{ width: '1rem', height: '1rem', color: 'var(--text-secondary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={(e) => renameWorkspace(ws.id, ws.name, e)}
+                      className="btn btn-ghost btn-sm"
+                      style={{
+                        position: 'absolute', top: '10px', right: '40px',
+                        opacity: 0.6, hover: { opacity: 1 }, padding: '4px', zIndex: 10
+                      }}
+                      title="Renombrar"
+                    >
+                      <svg style={{ width: '1rem', height: '1rem', color: 'var(--text-secondary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={(e) => deleteWorkspace(ws.id, ws.name, e)}
+                      className="btn btn-ghost btn-sm"
+                      style={{
+                        position: 'absolute', top: '10px', right: '10px',
+                        opacity: 0.6, hover: { opacity: 1 }, padding: '4px', zIndex: 10
+                      }}
+                      title="Eliminar workspace"
+                    >
+                      <svg style={{ width: '1rem', height: '1rem', color: 'var(--danger)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
                       <div style={{
                         width: '3rem',
@@ -464,6 +534,39 @@ function Workspace({ user, onLogout, workspaceProp }) {
     }
   }
 
+  const renameTable = async (id, currentName, e) => {
+    e.stopPropagation()
+    e.preventDefault()
+    const newName = prompt('Nuevo nombre:', currentName)
+    if (!newName || newName.trim() === currentName) return
+
+    try {
+      const wsId = workspaceId || workspace?.id
+      await axios.put(`${API_URL}/workspaces/${wsId}/tables/${id}`, { name: newName })
+      setTables(prev => prev.map(t => t.id === id ? { ...t, name: newName } : t))
+      notify('Tabla renombrada', 'success')
+    } catch (err) {
+      console.error(err)
+      notify('Error al renombrar', 'error')
+    }
+  }
+
+  const deleteTable = async (id, name, e) => {
+    e.stopPropagation()
+    e.preventDefault()
+    if (!confirm(`¿Seguro que querés borrar la tabla "${name}"?\nSe perderán todos los datos.`)) return
+
+    try {
+      const wsId = workspaceId || workspace?.id
+      await axios.delete(`${API_URL}/workspaces/${wsId}/tables/${id}`)
+      setTables(prev => prev.filter(t => t.id !== id))
+      notify('Tabla eliminada', 'success')
+    } catch (err) {
+      console.error(err)
+      notify('Error al eliminar tabla', 'error')
+    }
+  }
+
   const wsId = workspaceId || workspace?.id
 
   if (loading || !wsId) {
@@ -551,6 +654,45 @@ function Workspace({ user, onLogout, workspaceProp }) {
                         @{table.slug}
                       </div>
                     </div>
+                    <button
+                      onClick={(e) => renameTable(table.id, table.name, e)}
+                      className="btn btn-ghost btn-sm"
+                      style={{
+                        position: 'absolute', top: '10px', right: '40px',
+                        padding: '4px', opacity: 0.6
+                      }}
+                      title="Renombrar"
+                    >
+                      <svg style={{ width: '1rem', height: '1rem', color: 'var(--text-secondary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={(e) => renameTable(table.id, table.name, e)}
+                      className="btn btn-ghost btn-sm"
+                      style={{
+                        position: 'absolute', top: '10px', right: '40px',
+                        padding: '4px', opacity: 0.6
+                      }}
+                      title="Renombrar"
+                    >
+                      <svg style={{ width: '1rem', height: '1rem', color: 'var(--text-secondary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={(e) => deleteTable(table.id, table.name, e)}
+                      className="btn btn-ghost btn-sm"
+                      style={{
+                        position: 'absolute', top: '10px', right: '10px',
+                        padding: '4px', opacity: 0.6
+                      }}
+                      title="Eliminar tabla"
+                    >
+                      <svg style={{ width: '1rem', height: '1rem', color: 'var(--danger)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
                   </motion.div>
                 ))}
 
@@ -658,6 +800,18 @@ function TableView() {
     } catch (err) {
       console.error(err)
       notify('Error al crear registro', 'error')
+    }
+  }
+
+  const deleteRecord = async (id) => {
+    if (!confirm('¿Borrar este registro?')) return
+    try {
+      await axios.delete(`${API_URL}/workspaces/${workspaceId}/data/${table.slug}/${id}`)
+      setRecords(prev => prev.filter(r => r.id !== id))
+      notify('Registro eliminado', 'success')
+    } catch (err) {
+      console.error(err)
+      notify('Error al eliminar registro', 'error')
     }
   }
 
@@ -802,6 +956,18 @@ function TableView() {
                         {columns.map(col => (
                           <td key={col.id}>{String(record[col.slug] || '-')}</td>
                         ))}
+                        <td style={{ width: '50px' }}>
+                          <button
+                            onClick={() => deleteRecord(record.id)}
+                            className="btn btn-ghost btn-sm"
+                            style={{ color: 'var(--danger)', padding: '4px' }}
+                            title="Borrar"
+                          >
+                            <svg style={{ width: '1rem', height: '1rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

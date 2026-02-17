@@ -4,19 +4,19 @@ Low-code database estilo Airtable/NocoDB/Dataverse, hecho en Go.
 
 ## Características
 
-- ✅ Multi-workspace (multi-tenant)
 - ✅ Tablas dinámicas (creá tablas desde la API)
 - ✅ Permisos a nivel tabla, columna y row
 - ✅ API REST auto-generada
 - ✅ Auth OIDC (PocketID, EntraID, Keycloak)
 - ✅ S3 para archivos
 - ✅ Servidor MCP para agentes IA
+- ✅ Multi-workspace (multi-tenant)
 
 ## Requisitos
 
-- Go 1.21+
-- PostgreSQL 14+
-- Docker (opcional, para desarrollo)
+- Go
+- Node
+- Docker (opcional, para correr PocketID y PostgreSQL en desarrollo)
 
 ## Quick Start
 
@@ -27,7 +27,7 @@ cd hornerodb
 cp .env.example .env
 ```
 
-### 2. Iniciar PostgreSQL
+### 2. Iniciar PostgreSQL y PocketID
 
 ```bash
 docker-compose up -d
@@ -39,6 +39,10 @@ docker-compose up -d
 go build -o bin/hornerodb ./cmd/server
 ./bin/hornerodb
 ```
+
+*o si estas en VS Code o Antigravity podes usar el boton de play
+
+
 
 ### 4. Probar la API
 
