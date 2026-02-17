@@ -18,11 +18,32 @@ Self-hostable alternative to Airtable, NocoDB, PocketBase and Baserow. Secure by
 
 ## 🚀 Quick Start
 
-### Docker
+### Prerequisites
+- `.env` variables setup (PocketID values are generated after running Docker)
+- Docker
+
+
+`* for development you need this runtimes to run it locally`
+- NodeJS
+- Go
+
+
+
+
+### Docker way
 
 ```bash
+# create .env file
+cp .env.example .env
+
+# put you values
+
+# run docker compose to get PocketID and PostgreSQL running
 docker-compose up -d
 ```
+Visit `http://localhost:5173` (default port).
+
+
 
 ### Manual
 
