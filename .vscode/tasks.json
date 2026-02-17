@@ -4,7 +4,10 @@
         {
             "label": "go-build",
             "type": "shell",
-            "command": "go build -o bin/hornerodb.exe ./cmd/server/main.go",
+            "command": "go build -o bin/hornerodb ./cmd/server",
+            "windows": {
+                "command": "go build -o bin/hornerodb.exe ./cmd/server"
+            },
             "problemMatcher": [
                 "$go"
             ],
@@ -16,14 +19,18 @@
         {
             "label": "go-run",
             "type": "shell",
-            "command": "go run ./cmd/server/main.go",
+            "command": "./bin/hornerodb",
+            "windows": {
+                "command": "./bin/hornerodb.exe"
+            },
             "problemMatcher": [
                 "$go"
             ],
             "group": {
                 "kind": "build",
                 "isDefault": true
-            }
+            },
+            "isBackground": true
         },
         {
             "label": "npm-install",
