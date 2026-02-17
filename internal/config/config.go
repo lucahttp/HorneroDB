@@ -15,6 +15,7 @@ type Config struct {
 
 type ServerConfig struct {
 	Port         string
+	PublicURL    string
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
 }
@@ -77,6 +78,7 @@ func Load() (*Config, error) {
 	config := &Config{
 		Server: ServerConfig{
 			Port:         getEnv("SERVER_PORT", "8080"),
+			PublicURL:    getEnv("SERVER_PUBLIC_URL", "http://localhost:5173"),
 			ReadTimeout:  30 * time.Second,
 			WriteTimeout: 30 * time.Second,
 		},

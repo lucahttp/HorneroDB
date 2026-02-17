@@ -40,9 +40,17 @@ func LoginPocketID(c *gin.Context) {
 		return
 	}
 
+	// Load config to get Public URL if available, or default to localhost
+	// In a real scenario, this should come from a configured PUBLIC_URL
+	cfg, _ := config.Load()
+	baseURL := "http://localhost:5173"
+	if cfg.Server.PublicURL != "" {
+		baseURL = cfg.Server.PublicURL
+	}
+
 	redirectURI := c.Query("redirect")
 	if redirectURI == "" {
-		redirectURI = "http://localhost:5173/callback"
+		redirectURI = baseURL + "/callback"
 	}
 
 	state := auth.GenerateState()
