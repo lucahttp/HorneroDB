@@ -93,3 +93,35 @@ quiero poder gestionar nuevos usuarios y que permisos tienen dentro de cada work
 ### Languaje dropdown [Feature]
 al lado del toggle theme de dark / light quiero que este, y que sea un dropdown que te permita cambiar el idioma de la app.
 quiero que recuerde el idioma que el usuario eligio
+
+
+### Manage Users  [Feature]
+
+quiero poder gestionar los usuarios del workspace, que pueda crear, editar y borrar usuarios.
+
+la idea seria que el admin pueda ver los usuarios de todos los workspaces y que se pueda ver los permisos de cada usuario.
+
+y que el owner pueda ver los usuarios de su workspace y que se pueda ver los permisos de cada usuario
+
+ademas poder agregar roles y permisos a los usuarios
+
+adenas lo mas importante es que el admin o el workspace owner pueda agregar usuarios a su workspace usando pocketid en un principio, que genere el usuario usando la api de pocketid y que lo agregue a el grupo correspondiente.
+
+https://pocket-id.org/docs/setup/user-management
+https://pocket-id.org/docs/api
+
+
+### Manage Users 1.1 [Feature]
+
+en configuracion al lado de "Roles de Seguridad" y "API Keys" quiero que aparezcan los usuarios de cada workspace,
+quiero poder controlar que permiso tienen asignado los usuarios como las API Keys.
+
+### Manage Users 1.2 bis [Feature]
+
+quiero poder gestionar desde que web o app se llaman a las API Keys de cada workspace.
+agregar tambien para apps programaticas una source IP si no es desde un front end y es por ejemplo desde un agente de IA o un MCP.
+
+
+### Manage Users 1.3 bis [Research]
+
+quiero saber que opciones de seguridad tienes pocketbase, nocodb (creo que son muy pocas por eso creamos HorneroDB) y ademas quiero agregar un apartado dentro de configuracion que sea un dashboard de seguridad que muestre los logs de seguridad y api calls como en pocketbase.

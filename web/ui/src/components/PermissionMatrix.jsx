@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button, Badge } from './index.jsx'
 import { Lock, Globe } from 'iconoir-react'
+import { useTranslation } from 'react-i18next'
 
 const ACCESS_LEVELS = [
   { value: 'all', color: 'success' },

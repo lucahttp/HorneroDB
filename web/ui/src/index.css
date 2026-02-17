@@ -362,6 +362,24 @@ body {
   background: var(--primary-light);
 }
 
+.row-actions {
+  opacity: 0;
+  transition: opacity 0.2s;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.table tr:hover .row-actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .row-actions {
+    opacity: 1;
+  }
+}
+
 /* ═══════════════════════════════════════════
    BUTTONS — giffgaff pill style
    ═══════════════════════════════════════════ */

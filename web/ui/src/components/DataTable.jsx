@@ -256,7 +256,7 @@ export function DataTable({
   const allSelected = records.length > 0 && selectedRows.size === records.length
 
   return (
-    <div className="table-container" style={{ position: 'relative' }}>
+    <div className="table-container" style={{ position: 'relative', overflowX: 'auto' }}>
       {/* Bulk actions toolbar */}
       {hasSelection && (
         <div className="bulk-toolbar">
@@ -302,9 +302,9 @@ export function DataTable({
               )
             })}
             {/* "+" column header */}
-            <th style={{ width: '200px', padding: 0 }}>
+            <th style={{ width: '50px', padding: 0 }}>
               {showAddColumn ? (
-                <div className="column-add-form">
+                <div className="column-add-form" style={{ right: 0, left: 'auto' }}>
                   <input
                     ref={newColInputRef}
                     type="text"
@@ -347,6 +347,7 @@ export function DataTable({
                 >+</button>
               )}
             </th>
+            <th style={{ width: '80px' }}></th>
           </tr>
         </thead>
         <tbody>
@@ -392,6 +393,18 @@ export function DataTable({
                   )
                 })}
                 <td></td>
+                <td style={{ padding: '0.5rem' }}>
+                  <div className="row-actions">
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      style={{ padding: '4px' }}
+                      onClick={() => onDeleteRecord(record.id)}
+                      title={t('delete_record')}
+                    >
+                      <Trash width="1rem" height="1rem" style={{ color: 'var(--danger)' }} />
+                    </button>
+                  </div>
+                </td>
               </tr>
             )
           })}
@@ -409,6 +422,7 @@ export function DataTable({
                 {renderGhostInput(col, colIndex)}
               </td>
             ))}
+            <td></td>
             <td></td>
           </tr>
         </tbody>

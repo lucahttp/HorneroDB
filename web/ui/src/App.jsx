@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { BrowserRouter, Routes, Route, Link, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import axios from 'axios'
+import { LanguageSelector } from './components/LanguageSelector.jsx'
 import { ThemeToggle, Button, Badge } from './components/index.jsx'
 import { PermissionMatrix } from './components/PermissionMatrix.jsx'
 import { DataTable } from './components/DataTable.jsx'
@@ -316,6 +317,7 @@ function Dashboard({ user, onLogout }) {
           <span style={{ fontSize: '1.25rem', fontWeight: 800, letterSpacing: '-0.02em' }}>HorneroDB</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <LanguageSelector />
           <ThemeToggle />
           <div className="avatar" style={{ width: '2rem', height: '2rem', fontSize: '0.8rem' }}>
             {user?.email?.charAt(0).toUpperCase() || 'U'}
@@ -594,6 +596,7 @@ function Workspace({ user, onLogout, workspaceProp }) {
                 </p>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <LanguageSelector />
                 <ThemeToggle />
               </div>
             </div>
@@ -1071,7 +1074,7 @@ function Settings() {
       <div className="main-content">
         <div className="main-body">
           <h1 style={{ fontSize: '1.75rem', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <Settings width="2rem" height="2rem" /> {t('settings')}
+            <SettingsIcon width="2rem" height="2rem" /> {t('settings')}
           </h1>
 
           {/* Tabs */}
