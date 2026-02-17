@@ -17,7 +17,15 @@ Self-hostable alternative to Airtable, NocoDB, PocketBase and Baserow. Secure by
 - **Simplified Deployment** — Warm up database + setup the auth service of your preference and you are ready to go
 
 
+## 🆚 Comparison
 
+| Feature | 🐦 HorneroDB | 🟢 Supabase | 🧊 PocketBase | ⚡ NocoDB | 🧩 Airtable | 🗄️ Dataverse | 🛶 Baserow | 🔥 Firebase |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Permissions** | **Granular (Row/Col)** | PG RLS | Collection | Table | Base | Deep | Table | Rules |
+| **Security** | **SSO + Passkeys** | Enterprise | Email/Pass | Enterprise | Enterprise | Entra ID | Enterprise | Native |
+| **API** | **Auto-Secure** | REST/GQL | SDK | REST/GQL | REST | OData | REST | SDK |
+| **Self-Host** | **Docker** | Docker | Binary | Docker | ❌ | ❌ | Docker | ❌ |
+| **Cost** | **Free** | Free | Free | Free | $$$ | $$$ | Free | $$$ |
 
 
 ## 🚀 Quick Start
