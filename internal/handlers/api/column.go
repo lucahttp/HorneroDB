@@ -68,8 +68,11 @@ func CreateColumn(c *gin.Context) {
 	colSQL := getColumnSQL(input.FieldType, input.Slug)
 	if colSQL != "" {
 		tableName := "data_" + workspaceID + "_" + table.Slug
-		alterSQL := "ALTER TABLE " + tableName + " ADD COLUMN IF NOT EXISTS " + input.Slug + " " + colSQL
-		database.DB.Exec(alterSQL)
+		alterSQL := `ALTER TABLE "` + tableName + `" ADD COLUMN IF NOT EXISTS "` + input.Slug + `" ` + colSQL
+		if err := database.DB.Exec(alterSQL).Error; err != nil {
+			c.JSON(500, gin.H{"error": "failed to add column: " + err.Error()})
+			return
+		}
 	}
 
 	c.JSON(201, column)
@@ -146,7 +149,7 @@ func DeleteColumn(c *gin.Context) {
 
 	// Drop column from physical table
 	tableName := "data_" + table.WorkspaceID.String() + "_" + table.Slug
-	database.DB.Exec("ALTER TABLE " + tableName + " DROP COLUMN IF EXISTS " + column.Slug)
+	database.DB.Exec(`ALTER TABLE "` + tableName + `" DROP COLUMN IF EXISTS "` + column.Slug + `"`)
 
 	c.JSON(200, gin.H{"message": "deleted"})
 }

@@ -119,7 +119,7 @@ func DeleteTable(c *gin.Context) {
 
 	// Drop the physical table
 	tableName := "data_" + table.WorkspaceID.String() + "_" + table.Slug
-	database.DB.Exec("DROP TABLE IF EXISTS " + tableName)
+	database.DB.Exec(`DROP TABLE IF EXISTS "` + tableName + `"`)
 
 	c.JSON(200, gin.H{"message": "deleted"})
 }

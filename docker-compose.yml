@@ -1,13 +1,8 @@
-version: '3.8'
-
 services:
   postgres:
-    image: postgres:16
+    image: postgres:18-alpine
     container_name: hornerodb-postgres
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: hornero
+    env_file: .env
     ports:
       - "5432:5432"
     volumes:

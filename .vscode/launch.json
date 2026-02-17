@@ -1,0 +1,35 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Backend (Go)",
+            "type": "go",
+            "request": "launch",
+            "mode": "exec",
+            "program": "${workspaceFolder}/bin/hornerodb.exe",
+            "preLaunchTask": "go-build"
+        },
+        {
+            "name": "Frontend (Vite)",
+            "type": "node-terminal",
+            "request": "launch",
+            "command": "npm run dev",
+            "cwd": "${workspaceFolder}/web/ui",
+            "serverReadyAction": {
+                "pattern": "Local:.*(https?://\\S+)",
+                "uriFormat": "%s",
+                "action": "openExternally"
+            }
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Full Stack (Go + Vite)",
+            "configurations": [
+                "Backend (Go)",
+                "Frontend (Vite)"
+            ],
+            "stopAll": true
+        }
+    ]
+}

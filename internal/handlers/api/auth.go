@@ -10,6 +10,7 @@ import (
 
 func GetCurrentUser(c *gin.Context) {
 	c.JSON(200, gin.H{
+		"id":           middleware.GetUserID(c),
 		"user_id":      middleware.GetUserID(c),
 		"email":        c.GetString("email"),
 		"role":         middleware.GetUserRole(c),

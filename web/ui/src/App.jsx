@@ -12,7 +12,7 @@ const API_URL = 'http://localhost:8080/api/v1'
 function App() {
   const [token, setToken] = useState(localStorage.getItem('hornero_token'))
   const [user, setUser] = useState(null)
-  
+
   useEffect(() => {
     if (token) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
@@ -47,6 +47,9 @@ function App() {
   )
 }
 
+/* ═══════════════════════════════════════════
+   LOGIN PAGE
+   ═══════════════════════════════════════════ */
 function Login() {
   const handleLogin = () => {
     window.location.href = `${API_URL}/auth/oidc/login?redirect=${encodeURIComponent(window.location.origin + '/callback')}`
@@ -54,40 +57,52 @@ function Login() {
 
   return (
     <div className="login-container">
+      {/* Left panel — bold yellow brand */}
       <div className="login-left">
-        <motion.div 
-          className="text-center"
+        <motion.div
+          style={{ textAlign: 'center' }}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
         >
-          <div className="text-8xl mb-6">🐦</div>
-          <h1 className="text-white text-4xl font-bold">HorneroDB</h1>
-          <p className="text-gray-400 mt-4 text-lg">Tu base de datos personal</p>
+          <div style={{ fontSize: '5rem', marginBottom: '1rem' }}>🐦</div>
+          <h1 style={{ fontSize: '3rem', fontWeight: 900, color: '#FFFFFF', letterSpacing: '-0.03em', marginBottom: '0.5rem' }}>
+            HorneroDB
+          </h1>
+          <p style={{ fontSize: '1.125rem', color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
+            Tu base de datos personal
+          </p>
         </motion.div>
       </div>
+
+      {/* Right panel — login form */}
       <div className="login-right">
-        <motion.div 
-          className="w-full max-w-md"
+        <motion.div
+          style={{ width: '100%', maxWidth: '400px' }}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.2 }}
         >
-          <h2 className="text-3xl font-bold mb-2">Bienvenido</h2>
-          <p className="text-gray-500 mb-8">Iniciá sesión para continuar</p>
-          
-          <button 
+          <h2 style={{ fontSize: '2rem', fontWeight: 800, marginBottom: '0.5rem', letterSpacing: '-0.02em' }}>
+            Bienvenido 👋
+          </h2>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem', fontSize: '1rem' }}>
+            Iniciá sesión para continuar
+          </p>
+
+          <button
             onClick={handleLogin}
-            className="w-full bg-primary text-gray-900 font-semibold py-3 px-6 rounded-xl hover:bg-[#1EB8E6] transition-all duration-200 flex items-center justify-center gap-3"
+            className="btn btn-primary btn-lg"
+            style={{ width: '100%', gap: '0.75rem', fontSize: '1rem', padding: '0.875rem 1.5rem' }}
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg style={{ width: '1.25rem', height: '1.25rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
             Iniciar sesión con PocketID
           </button>
-          
-          <p className="text-gray-400 text-sm text-center mt-8">
-            Acceso seguro con OIDC
+
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.8125rem', textAlign: 'center', marginTop: '2rem' }}>
+            🔒 Acceso seguro con OIDC
           </p>
         </motion.div>
       </div>
@@ -95,13 +110,16 @@ function Login() {
   )
 }
 
+/* ═══════════════════════════════════════════
+   CALLBACK
+   ═══════════════════════════════════════════ */
 function Callback({ onLogin, onUser }) {
   const navigate = useNavigate()
-  
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const token = params.get('token')
-    
+
     if (token) {
       localStorage.setItem('hornero_token', token)
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
@@ -118,12 +136,15 @@ function Callback({ onLogin, onUser }) {
   }, [])
 
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="loading-spinner"></div>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
+      <div className="loading-spinner" />
     </div>
   )
 }
 
+/* ═══════════════════════════════════════════
+   SIDEBAR
+   ═══════════════════════════════════════════ */
 function Sidebar({ user, onLogout, workspaceId }) {
   const navigate = useNavigate()
   const { pathname } = window.location
@@ -141,7 +162,7 @@ function Sidebar({ user, onLogout, workspaceId }) {
           <span>HorneroDB</span>
         </Link>
       </div>
-      
+
       <nav className="sidebar-nav">
         {links.map(link => (
           <button
@@ -149,7 +170,7 @@ function Sidebar({ user, onLogout, workspaceId }) {
             className={`sidebar-link ${pathname === link.path ? 'active' : ''}`}
             onClick={() => navigate(link.path)}
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg style={{ width: '1.25rem', height: '1.25rem', flexShrink: 0 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={link.icon} />
             </svg>
             {link.label}
@@ -158,20 +179,25 @@ function Sidebar({ user, onLogout, workspaceId }) {
       </nav>
 
       <div className="sidebar-footer">
-        <div className="flex items-center gap-3 px-2 py-2">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0' }}>
           <div className="avatar">
             {user?.email?.charAt(0).toUpperCase() || 'U'}
           </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm text-white truncate">{user?.email || 'Usuario'}</div>
-            <div className="text-xs text-gray-500">{user?.role || 'user'}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '0.875rem', color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {user?.email || 'Usuario'}
+            </div>
+            <div style={{ fontSize: '0.75rem', color: '#666' }}>
+              {user?.role || 'user'}
+            </div>
           </div>
         </div>
-        <button 
+        <button
           onClick={onLogout}
-          className="w-full mt-3 px-3 py-2 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors flex items-center gap-2"
+          className="sidebar-link"
+          style={{ marginTop: '0.5rem', fontSize: '0.8125rem', color: '#888', padding: '0.5rem 1rem' }}
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg style={{ width: '1rem', height: '1rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
           </svg>
           Cerrar sesión
@@ -181,7 +207,11 @@ function Sidebar({ user, onLogout, workspaceId }) {
   )
 }
 
+/* ═══════════════════════════════════════════
+   DASHBOARD — workspace selector
+   ═══════════════════════════════════════════ */
 function Dashboard({ user, onLogout }) {
+  const navigate = useNavigate()
   const [workspaces, setWorkspaces] = useState([])
   const [loading, setLoading] = useState(true)
   const [showCreate, setShowCreate] = useState(false)
@@ -190,7 +220,7 @@ function Dashboard({ user, onLogout }) {
 
   useEffect(() => {
     axios.get(`${API_URL}/workspaces`)
-      .then(res => setWorkspaces(res.data))
+      .then(res => setWorkspaces(Array.isArray(res.data) ? res.data : []))
       .catch(() => setWorkspaces([]))
       .finally(() => setLoading(false))
   }, [])
@@ -202,12 +232,12 @@ function Dashboard({ user, onLogout }) {
       await axios.post(`${API_URL}/workspaces`, {
         name: newName,
         slug: newName.toLowerCase().replace(/\s+/g, '-'),
-        owner_id: user?.id || '00000000-0000-0000-0000-000000000001'
+        owner_id: user?.id || user?.user_id
       })
       setShowCreate(false)
       setNewName('')
       const res = await axios.get(`${API_URL}/workspaces`)
-      setWorkspaces(res.data)
+      setWorkspaces(Array.isArray(res.data) ? res.data : [])
     } catch (err) {
       console.error(err)
       notify('Error al crear workspace', 'error')
@@ -218,69 +248,176 @@ function Dashboard({ user, onLogout }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="loading-spinner"></div>
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
+        <div className="loading-spinner" />
       </div>
     )
   }
 
-  if (workspaces.length === 0) {
-    return (
-      <div className="min-h-screen flex">
-        <Sidebar user={user} onLogout={onLogout} workspaceId="new" />
-        <div className="main-content flex items-center justify-center">
-          <motion.div 
-            className="text-center"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            <div className="text-6xl mb-4">📁</div>
-            <h2 className="text-2xl font-bold mb-2">Sin workspaces</h2>
-            <p className="text-gray-500 mb-6">Creá tu primer workspace para comenzar</p>
-            <Button onClick={() => setShowCreate(true)}>
-              + Crear workspace
-            </Button>
-          </motion.div>
+  return (
+    <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
+      {/* Top bar */}
+      <header style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '1rem 2rem',
+        borderBottom: 'var(--border-thick) solid var(--border-color)',
+        background: 'var(--bg-elevated)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <span style={{ fontSize: '1.5rem' }}>🐦</span>
+          <span style={{ fontSize: '1.25rem', fontWeight: 800, letterSpacing: '-0.02em' }}>HorneroDB</span>
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <ThemeToggle />
+          <div className="avatar" style={{ width: '2rem', height: '2rem', fontSize: '0.8rem' }}>
+            {user?.email?.charAt(0).toUpperCase() || 'U'}
+          </div>
+          <button onClick={onLogout} className="btn btn-ghost btn-sm" style={{ fontSize: '0.8125rem' }}>
+            Salir
+          </button>
+        </div>
+      </header>
 
-        {showCreate && (
-          <div className="modal-overlay" onClick={() => setShowCreate(false)}>
-            <div className="modal" onClick={e => e.stopPropagation()}>
-              <div className="modal-header">
-                <h3 className="modal-title">Nuevo Workspace</h3>
-                <button className="btn btn-ghost btn-sm" onClick={() => setShowCreate(false)}>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-              <div className="modal-body">
-                <div className="form-group">
-                  <label className="form-label">Nombre</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    value={newName}
-                    onChange={e => setNewName(e.target.value)}
-                    placeholder="Mi Empresa"
-                    autoFocus
-                  />
+      {/* Content */}
+      <div style={{ flex: 1, maxWidth: '960px', width: '100%', margin: '0 auto', padding: '3rem 2rem' }}>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem' }}>
+            <div>
+              <h1 style={{ fontSize: '2rem', fontWeight: 900, letterSpacing: '-0.03em', marginBottom: '0.25rem' }}>
+                Tus Workspaces
+              </h1>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '1rem' }}>
+                Seleccioná un workspace para comenzar
+              </p>
+            </div>
+            <Button onClick={() => setShowCreate(true)}>
+              + Nuevo workspace
+            </Button>
+          </div>
+
+          {workspaces.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">📁</div>
+              <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+                Sin workspaces
+              </h3>
+              <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+                Creá tu primer workspace para organizar tus datos
+              </p>
+              <Button onClick={() => setShowCreate(true)}>
+                + Crear workspace
+              </Button>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.25rem' }}>
+              {workspaces.map((ws, index) => (
+                <motion.div
+                  key={ws.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.06 }}
+                >
+                  <div
+                    className="card cursor-pointer"
+                    onClick={() => navigate(`/workspace/${ws.id}`)}
+                    style={{ minHeight: '140px', display: 'flex', flexDirection: 'column' }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                      <div style={{
+                        width: '3rem',
+                        height: '3rem',
+                        borderRadius: '12px',
+                        background: 'var(--primary-light)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        border: '2px solid var(--primary)',
+                        fontSize: '1.25rem',
+                      }}>
+                        {ws.name?.charAt(0)?.toUpperCase() || '📁'}
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: '1.0625rem' }}>{ws.name}</div>
+                        <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                          @{ws.slug}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ flex: 1 }} />
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      borderTop: '1px solid var(--border-light)',
+                      paddingTop: '0.75rem',
+                      marginTop: '0.5rem',
+                    }}>
+                      <Badge variant="primary">Workspace</Badge>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        Abrir →
+                      </span>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+
+              {/* Create new card */}
+              <div
+                className="card border-dashed cursor-pointer"
+                onClick={() => setShowCreate(true)}
+                style={{ minHeight: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <div style={{ fontSize: '2rem', marginBottom: '0.25rem' }}>+</div>
+                  <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>Nuevo workspace</div>
                 </div>
               </div>
-              <div className="modal-footer">
-                <Button variant="secondary" onClick={() => setShowCreate(false)}>Cancelar</Button>
-                <Button onClick={handleCreate} loading={creating} disabled={!newName.trim()}>Crear</Button>
+            </div>
+          )}
+        </motion.div>
+      </div>
+
+      {/* Create Workspace Modal */}
+      {showCreate && (
+        <div className="modal-overlay" onClick={() => setShowCreate(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">Nuevo Workspace</h3>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreate(false)} style={{ borderRadius: '8px' }}>
+                <svg style={{ width: '1.25rem', height: '1.25rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label className="form-label">Nombre</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={newName}
+                  onChange={e => setNewName(e.target.value)}
+                  placeholder="Mi Empresa"
+                  autoFocus
+                />
               </div>
             </div>
+            <div className="modal-footer">
+              <Button variant="secondary" onClick={() => setShowCreate(false)}>Cancelar</Button>
+              <Button onClick={handleCreate} loading={creating} disabled={!newName.trim()}>Crear</Button>
+            </div>
           </div>
-        )}
-      </div>
-    )
-  }
-
-  return <Workspace user={user} onLogout={onLogout} workspaceProp={workspaces[0]} />
+        </div>
+      )}
+    </div>
+  )
 }
 
+/* ═══════════════════════════════════════════
+   WORKSPACE
+   ═══════════════════════════════════════════ */
 function Workspace({ user, onLogout, workspaceProp }) {
   const { workspaceId } = useParams()
   const navigate = useNavigate()
@@ -297,7 +434,7 @@ function Workspace({ user, onLogout, workspaceProp }) {
       axios.get(`${API_URL}/workspaces/${wsId}`)
         .then(res => setWorkspace(res.data))
         .catch(console.error)
-      
+
       axios.get(`${API_URL}/workspaces/${wsId}/tables`)
         .then(res => setTables(res.data))
         .catch(() => setTables([]))
@@ -310,9 +447,9 @@ function Workspace({ user, onLogout, workspaceProp }) {
     setCreating(true)
     try {
       const wsId = workspaceId || workspace?.id
-      await axios.post(`${API_URL}/workspaces/${wsId}/tables`, { 
-        name: tableName, 
-        slug: tableName.toLowerCase().replace(/\s+/g, '_') 
+      await axios.post(`${API_URL}/workspaces/${wsId}/tables`, {
+        name: tableName,
+        slug: tableName.toLowerCase().replace(/\s+/g, '_')
       })
       setShowCreateTable(false)
       setTableName('')
@@ -330,50 +467,57 @@ function Workspace({ user, onLogout, workspaceProp }) {
 
   if (loading || !wsId) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="loading-spinner"></div>
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
+        <div className="loading-spinner" />
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen flex">
+    <div style={{ minHeight: '100vh', display: 'flex' }}>
       <Sidebar user={user} onLogout={onLogout} workspaceId={wsId} />
-      
+
       <div className="main-content">
         <div className="main-body">
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
           >
-            <div className="flex items-center justify-between mb-8">
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem' }}>
               <div>
-                <h1 className="text-2xl font-bold">{workspace?.name || 'Workspace'}</h1>
-                <p className="text-gray-500">@{workspace?.slug}</p>
+                <h1 style={{ fontSize: '1.75rem', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '0.25rem' }}>
+                  {workspace?.name || 'Workspace'}
+                </h1>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', fontFamily: 'var(--font-mono)' }}>
+                  @{workspace?.slug}
+                </p>
               </div>
-              <div className="flex items-center gap-3">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <ThemeToggle />
               </div>
             </div>
 
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-semibold">Tablas</h2>
+            {/* Tables section header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+              <h2 style={{ fontSize: '1.125rem', fontWeight: 700 }}>Tablas</h2>
               <Button size="sm" onClick={() => setShowCreateTable(true)}>
                 + Nueva tabla
               </Button>
             </div>
 
+            {/* Tables grid */}
             {tables.length === 0 ? (
               <div className="empty-state">
                 <div className="empty-icon">📋</div>
-                <h3 className="text-lg font-medium mb-2">Sin tablas todavía</h3>
-                <p className="text-gray-500 mb-4">Creá tu primera tabla para organizar datos</p>
+                <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>Sin tablas todavía</h3>
+                <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>Creá tu primera tabla para organizar datos</p>
                 <Button onClick={() => setShowCreateTable(true)}>
                   + Crear primera tabla
                 </Button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem' }}>
                 {tables.map((table, index) => (
                   <motion.div
                     key={table.id}
@@ -381,30 +525,43 @@ function Workspace({ user, onLogout, workspaceProp }) {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.05 }}
                   >
-                    <div 
+                    <div
                       className="card cursor-pointer"
                       onClick={() => navigate(`/workspace/${wsId}/tables/${table.id}`)}
                     >
-                      <div className="flex items-center gap-3 mb-2">
-                        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                          <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+                        <div style={{
+                          width: '2.5rem',
+                          height: '2.5rem',
+                          borderRadius: '10px',
+                          background: 'var(--primary-light)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          border: '2px solid var(--primary)',
+                        }}>
+                          <svg style={{ width: '1.25rem', height: '1.25rem', color: 'var(--primary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
                           </svg>
                         </div>
-                        <div className="font-semibold">{table.name}</div>
+                        <div style={{ fontWeight: 700 }}>{table.name}</div>
                       </div>
-                      <div className="text-sm text-gray-500">@{table.slug}</div>
+                      <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                        @{table.slug}
+                      </div>
                     </div>
                   </motion.div>
                 ))}
-                
-                <div 
-                  className="card border-dashed cursor-pointer flex items-center justify-center min-h-[120px]"
+
+                {/* New table card */}
+                <div
+                  className="card border-dashed cursor-pointer"
                   onClick={() => setShowCreateTable(true)}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '120px' }}
                 >
-                  <div className="text-center text-gray-400">
-                    <div className="text-2xl mb-1">+</div>
-                    <div className="text-sm">Nueva tabla</div>
+                  <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+                    <div style={{ fontSize: '1.75rem', marginBottom: '0.25rem' }}>+</div>
+                    <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>Nueva tabla</div>
                   </div>
                 </div>
               </div>
@@ -413,13 +570,14 @@ function Workspace({ user, onLogout, workspaceProp }) {
         </div>
       </div>
 
+      {/* Create Table Modal */}
       {showCreateTable && (
         <div className="modal-overlay" onClick={() => setShowCreateTable(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">Nueva Tabla</h3>
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreateTable(false)}>
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreateTable(false)} style={{ borderRadius: '8px' }}>
+                <svg style={{ width: '1.25rem', height: '1.25rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
@@ -436,7 +594,7 @@ function Workspace({ user, onLogout, workspaceProp }) {
                   autoFocus
                 />
                 <p className="form-hint">
-                  Se creará como: <code className="font-mono">{tableName.toLowerCase().replace(/\s+/g, '_') || '...'}</code>
+                  Se creará como: <code style={{ fontFamily: 'var(--font-mono)', background: 'var(--bg-surface)', padding: '0.125rem 0.375rem', borderRadius: '4px', fontSize: '0.8125rem' }}>{tableName.toLowerCase().replace(/\s+/g, '_') || '...'}</code>
                 </p>
               </div>
             </div>
@@ -451,10 +609,13 @@ function Workspace({ user, onLogout, workspaceProp }) {
   )
 }
 
+/* ═══════════════════════════════════════════
+   TABLE VIEW
+   ═══════════════════════════════════════════ */
 function TableView() {
   const { workspaceId, tableId } = useParams()
   const navigate = useNavigate()
-  
+
   const [table, setTable] = useState(null)
   const [columns, setColumns] = useState([])
   const [records, setRecords] = useState([])
@@ -478,7 +639,7 @@ function TableView() {
       ])
       setTable(tableRes.data)
       setColumns(columnsRes.data)
-      
+
       const recordsRes = await axios.get(`${API_URL}/workspaces/${workspaceId}/data/${tableRes.data.slug}`)
       setRecords(recordsRes.data.data || [])
     } catch (err) {
@@ -527,14 +688,15 @@ function TableView() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="loading-spinner"></div>
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
+        <div className="loading-spinner" />
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen flex">
+    <div style={{ minHeight: '100vh', display: 'flex' }}>
+      {/* Sidebar */}
       <div className="sidebar">
         <div className="sidebar-header">
           <Link to={`/workspace/${workspaceId}`} className="sidebar-logo">
@@ -544,32 +706,36 @@ function TableView() {
         </div>
         <nav className="sidebar-nav">
           <button className="sidebar-link" onClick={() => navigate(`/workspace/${workspaceId}`)}>
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg style={{ width: '1.25rem', height: '1.25rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
             Datos
           </button>
           <button className="sidebar-link" onClick={() => navigate(`/workspace/${workspaceId}/settings`)}>
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg style={{ width: '1.25rem', height: '1.25rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
             </svg>
             Configuración
           </button>
         </nav>
       </div>
-      
+
+      {/* Main content */}
       <div className="main-content">
         <div className="main-body">
-          <button 
+          {/* Back button */}
+          <button
             onClick={() => navigate(`/workspace/${workspaceId}`)}
-            className="btn btn-ghost mb-4"
+            className="btn btn-ghost btn-sm"
+            style={{ marginBottom: '1.25rem' }}
           >
             ← Volver
           </button>
 
-          <div className="flex items-center justify-between mb-6">
-            <h1 className="text-2xl font-bold">{table?.name}</h1>
-            <div className="flex gap-2">
+          {/* Table header */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+            <h1 style={{ fontSize: '1.75rem', fontWeight: 800, letterSpacing: '-0.02em' }}>{table?.name}</h1>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
               <Button size="sm" variant="secondary" onClick={() => setShowCreateColumn(true)}>
                 + Columna
               </Button>
@@ -579,28 +745,30 @@ function TableView() {
             </div>
           </div>
 
+          {/* Tabs */}
           <div className="tabs">
-            <button 
+            <button
               className={`tab ${activeTab === 'data' ? 'active' : ''}`}
               onClick={() => setActiveTab('data')}
             >
-              Datos
+              📊 Datos
             </button>
-            <button 
+            <button
               className={`tab ${activeTab === 'columns' ? 'active' : ''}`}
               onClick={() => setActiveTab('columns')}
             >
-              Columnas ({columns.length})
+              📐 Columnas ({columns.length})
             </button>
           </div>
 
+          {/* Data Tab */}
           {activeTab === 'data' && (
             <div className="table-container">
               {records.length === 0 ? (
                 <div className="empty-state">
                   <div className="empty-icon">📝</div>
-                  <h3 className="text-lg font-medium mb-2">Sin datos</h3>
-                  <p className="text-gray-500 mb-4">Agregá el primer registro</p>
+                  <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>Sin datos</h3>
+                  <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>Agregá el primer registro</p>
                   <Button onClick={() => setShowCreateRecord(true)}>
                     + Agregar registro
                   </Button>
@@ -618,7 +786,18 @@ function TableView() {
                   <tbody>
                     {records.map((record, i) => (
                       <tr key={i}>
-                        <td><code className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">{String(record.id)?.slice(0, 8)}</code></td>
+                        <td>
+                          <code style={{
+                            fontSize: '0.75rem',
+                            fontFamily: 'var(--font-mono)',
+                            background: 'var(--bg-surface)',
+                            padding: '0.25rem 0.5rem',
+                            borderRadius: '4px',
+                            border: '1px solid var(--border-light)',
+                          }}>
+                            {String(record.id)?.slice(0, 8)}
+                          </code>
+                        </td>
                         {columns.map(col => (
                           <td key={col.id}>{String(record[col.slug] || '-')}</td>
                         ))}
@@ -630,13 +809,16 @@ function TableView() {
             </div>
           )}
 
+          {/* Columns Tab */}
           {activeTab === 'columns' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1rem' }}>
               {columns.map(col => (
                 <div key={col.id} className="card">
-                  <div className="font-semibold">{col.name}</div>
-                  <div className="text-sm text-gray-500">@{col.slug}</div>
-                  <Badge variant="primary" className="mt-2">{col.field_type}</Badge>
+                  <div style={{ fontWeight: 700, marginBottom: '0.25rem' }}>{col.name}</div>
+                  <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: '0.75rem' }}>
+                    @{col.slug}
+                  </div>
+                  <Badge variant="primary">{col.field_type}</Badge>
                 </div>
               ))}
             </div>
@@ -644,12 +826,13 @@ function TableView() {
         </div>
       </div>
 
+      {/* Create Record Modal */}
       {showCreateRecord && (
         <div className="modal-overlay" onClick={() => setShowCreateRecord(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">Nuevo Registro</h3>
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreateRecord(false)}>✕</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreateRecord(false)} style={{ borderRadius: '8px' }}>✕</button>
             </div>
             <div className="modal-body">
               {columns.map(col => (
@@ -672,12 +855,13 @@ function TableView() {
         </div>
       )}
 
+      {/* Create Column Modal */}
       {showCreateColumn && (
         <div className="modal-overlay" onClick={() => setShowCreateColumn(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">Nueva Columna</h3>
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreateColumn(false)}>✕</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreateColumn(false)} style={{ borderRadius: '8px' }}>✕</button>
             </div>
             <div className="modal-body">
               <div className="form-group">
@@ -693,7 +877,7 @@ function TableView() {
               </div>
               <div className="form-group">
                 <label className="form-label">Tipo de dato</label>
-                <select 
+                <select
                   className="form-select"
                   value={newColumnType}
                   onChange={e => setNewColumnType(e.target.value)}
@@ -715,8 +899,12 @@ function TableView() {
   )
 }
 
+/* ═══════════════════════════════════════════
+   SETTINGS
+   ═══════════════════════════════════════════ */
 function Settings() {
   const { workspaceId } = useParams()
+  const navigate = useNavigate()
   const [activeSection, setActiveSection] = useState('roles')
   const [roles, setRoles] = useState([])
   const [tables, setTables] = useState([])
@@ -809,7 +997,8 @@ function Settings() {
   }
 
   return (
-    <div className="min-h-screen flex">
+    <div style={{ minHeight: '100vh', display: 'flex' }}>
+      {/* Sidebar */}
       <div className="sidebar">
         <div className="sidebar-header">
           <Link to={`/workspace/${workspaceId}`} className="sidebar-logo">
@@ -819,13 +1008,13 @@ function Settings() {
         </div>
         <nav className="sidebar-nav">
           <button className="sidebar-link" onClick={() => navigate(`/workspace/${workspaceId}`)}>
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg style={{ width: '1.25rem', height: '1.25rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
             Datos
           </button>
           <button className="sidebar-link active">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg style={{ width: '1.25rem', height: '1.25rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
             </svg>
             Configuración
@@ -833,34 +1022,38 @@ function Settings() {
         </nav>
       </div>
 
+      {/* Main content */}
       <div className="main-content">
         <div className="main-body">
-          <h1 className="text-2xl font-bold mb-6">Configuración</h1>
+          <h1 style={{ fontSize: '1.75rem', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '1.5rem' }}>
+            ⚙️ Configuración
+          </h1>
 
+          {/* Tabs */}
           <div className="tabs">
-            <button 
+            <button
               className={`tab ${activeSection === 'roles' ? 'active' : ''}`}
               onClick={() => setActiveSection('roles')}
             >
-              Roles de Seguridad
+              🔐 Roles de Seguridad
             </button>
-            <button 
+            <button
               className={`tab ${activeSection === 'keys' ? 'active' : ''}`}
               onClick={() => setActiveSection('keys')}
             >
-              API Keys
+              🔑 API Keys
             </button>
           </div>
 
           {loading ? (
-            <div className="flex justify-center py-12">
-              <div className="loading-spinner"></div>
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem 0' }}>
+              <div className="loading-spinner" />
             </div>
           ) : activeSection === 'roles' ? (
             <div>
-              <div className="flex items-center justify-between mb-6">
-                <p className="text-gray-500">Gestiona los roles y permisos de acceso</p>
-                <div className="flex gap-2">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+                <p style={{ color: 'var(--text-secondary)' }}>Gestiona los roles y permisos de acceso</p>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <Button size="sm" variant="secondary" onClick={() => setShowPermissionMatrix(true)}>
                     ⚙️ Editar Permisos
                   </Button>
@@ -873,17 +1066,19 @@ function Settings() {
               {roles.length === 0 ? (
                 <div className="empty-state">
                   <div className="empty-icon">🔐</div>
-                  <h3 className="text-lg font-medium mb-2">Sin roles</h3>
-                  <p className="text-gray-500">Creá roles para gestionar permisos</p>
+                  <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>Sin roles</h3>
+                  <p style={{ color: 'var(--text-secondary)' }}>Creá roles para gestionar permisos</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem' }}>
                   {roles.map(role => (
                     <div key={role.id} className="card">
-                      <div className="font-semibold">{role.name}</div>
-                      <div className="text-sm text-gray-500">{role.description || 'Sin descripción'}</div>
+                      <div style={{ fontWeight: 700, marginBottom: '0.25rem' }}>{role.name}</div>
+                      <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                        {role.description || 'Sin descripción'}
+                      </div>
                       {role.is_default && (
-                        <Badge variant="primary" className="mt-2">Default</Badge>
+                        <Badge variant="primary" className="" style={{ marginTop: '0.75rem' }}>Default</Badge>
                       )}
                     </div>
                   ))}
@@ -892,8 +1087,8 @@ function Settings() {
             </div>
           ) : (
             <div>
-              <div className="flex items-center justify-between mb-6">
-                <p className="text-gray-500">Genera claves para acceso programático</p>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+                <p style={{ color: 'var(--text-secondary)' }}>Genera claves para acceso programático</p>
                 <Button size="sm" onClick={() => setShowCreateKey(true)}>
                   + Nueva API Key
                 </Button>
@@ -902,20 +1097,23 @@ function Settings() {
               {apiKeys.length === 0 ? (
                 <div className="empty-state">
                   <div className="empty-icon">🔑</div>
-                  <h3 className="text-lg font-medium mb-2">Sin API keys</h3>
-                  <p className="text-gray-500">Creá una key para usar la API</p>
+                  <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>Sin API keys</h3>
+                  <p style={{ color: 'var(--text-secondary)' }}>Creá una key para usar la API</p>
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {apiKeys.map(key => (
-                    <div key={key.id} className="flex items-center justify-between p-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl">
+                    <div key={key.id} className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <div>
-                        <div className="font-medium">{key.name}</div>
-                        <div className="text-sm text-gray-500 font-mono">{key.prefix}...{key.key_hash?.slice(-8)}</div>
+                        <div style={{ fontWeight: 700 }}>{key.name}</div>
+                        <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                          {key.prefix}...{key.key_hash?.slice(-8)}
+                        </div>
                       </div>
-                      <button 
+                      <button
                         onClick={() => deleteAPIKey(key.id)}
-                        className="btn btn-ghost btn-sm text-red-500"
+                        className="btn btn-ghost btn-sm"
+                        style={{ color: 'var(--danger)' }}
                       >
                         🗑️
                       </button>
@@ -928,12 +1126,13 @@ function Settings() {
         </div>
       </div>
 
+      {/* Create Role Modal */}
       {showCreateRole && (
         <div className="modal-overlay" onClick={() => setShowCreateRole(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">Nuevo Rol</h3>
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreateRole(false)}>✕</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreateRole(false)} style={{ borderRadius: '8px' }}>✕</button>
             </div>
             <div className="modal-body">
               <div className="form-group">
@@ -956,12 +1155,13 @@ function Settings() {
         </div>
       )}
 
+      {/* Create API Key Modal */}
       {showCreateKey && (
         <div className="modal-overlay" onClick={() => setShowCreateKey(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3 className="modal-title">Nueva API Key</h3>
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreateKey(false)}>✕</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreateKey(false)} style={{ borderRadius: '8px' }}>✕</button>
             </div>
             <div className="modal-body">
               <div className="form-group">
@@ -984,6 +1184,7 @@ function Settings() {
         </div>
       )}
 
+      {/* Permission Matrix */}
       {showPermissionMatrix && (
         <PermissionMatrix
           workspaceId={workspaceId}

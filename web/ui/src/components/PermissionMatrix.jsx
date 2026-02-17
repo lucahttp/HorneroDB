@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Modal, Button } from './index.jsx'
+import { Modal, Button, Badge } from './index.jsx'
 
 const ACCESS_LEVELS = [
   { value: 'all', label: 'Todas', color: 'success' },
@@ -7,12 +7,12 @@ const ACCESS_LEVELS = [
   { value: 'none', label: 'Ninguna', color: 'error' },
 ]
 
-export function PermissionMatrix({ 
-  workspaceId, 
-  tables = [], 
-  roles = [], 
+export function PermissionMatrix({
+  workspaceId,
+  tables = [],
+  roles = [],
   onSave,
-  onClose 
+  onClose
 }) {
   const [selectedRole, setSelectedRole] = useState(roles[0]?.id || '')
   const [permissions, setPermissions] = useState({})
@@ -40,7 +40,7 @@ export function PermissionMatrix({
     setSaving(true)
     try {
       const finalPermissions = {}
-      
+
       tables.forEach(table => {
         const tablePerm = permissions[table.slug]
         if (tablePerm) {
@@ -80,10 +80,10 @@ export function PermissionMatrix({
         </>
       }
     >
-      <div className="min-w-[600px]">
-        <div className="mb-4">
+      <div style={{ minWidth: '600px' }}>
+        <div className="form-group">
           <label className="form-label">Selecciona un rol</label>
-          <select 
+          <select
             className="form-select"
             value={selectedRole}
             onChange={e => setSelectedRole(e.target.value)}
@@ -98,24 +98,25 @@ export function PermissionMatrix({
 
         {currentRole && (
           <>
-            <div className="overflow-x-auto mt-4">
-              <table className="w-full text-sm">
+            <div className="table-container" style={{ marginTop: '1rem' }}>
+              <table className="table">
                 <thead>
                   <tr>
-                    <th className="text-left font-medium text-gray-600 dark:text-gray-400 px-3 py-2">Tabla</th>
-                    <th className="px-3 py-2">Crear</th>
-                    <th className="px-3 py-2">Leer</th>
-                    <th className="px-3 py-2">Actualizar</th>
-                    <th className="px-3 py-2">Borrar</th>
+                    <th>Tabla</th>
+                    <th>Crear</th>
+                    <th>Leer</th>
+                    <th>Actualizar</th>
+                    <th>Borrar</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    <td className="font-semibold px-3 py-2">🌐 Todas las tablas</td>
+                    <td style={{ fontWeight: 700 }}>🌐 Todas las tablas</td>
                     {['create', 'read', 'update', 'delete'].map(action => (
-                      <td key={action} className="px-3 py-2">
+                      <td key={action}>
                         <select
-                          className="w-full px-2 py-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-xs"
+                          className="form-select"
+                          style={{ fontSize: '0.8rem', padding: '0.375rem 0.5rem' }}
                           value={getPermission('*', action)}
                           onChange={e => handlePermissionChange('*', action, e.target.value)}
                         >
@@ -128,14 +129,15 @@ export function PermissionMatrix({
                       </td>
                     ))}
                   </tr>
-                  
+
                   {tables.map(table => (
                     <tr key={table.id}>
-                      <td className="px-3 py-2">{table.name}</td>
+                      <td>{table.name}</td>
                       {['create', 'read', 'update', 'delete'].map(action => (
-                        <td key={action} className="px-3 py-2">
+                        <td key={action}>
                           <select
-                            className="w-full px-2 py-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-xs"
+                            className="form-select"
+                            style={{ fontSize: '0.8rem', padding: '0.375rem 0.5rem' }}
                             value={getPermission(table.slug, action)}
                             onChange={e => handlePermissionChange(table.slug, action, e.target.value)}
                           >
@@ -154,10 +156,10 @@ export function PermissionMatrix({
               </table>
             </div>
 
-            <div className="mt-4 flex gap-6 text-xs text-gray-500">
-              <span>🟢 <b>Todas</b> - Acceso completo</span>
-              <span>🟡 <b>Propias</b> - Solo registros propios</span>
-              <span>🔴 <b>Ninguna</b> - Sin acceso</span>
+            <div style={{ marginTop: '1rem', display: 'flex', gap: '1.5rem', fontSize: '0.8rem' }}>
+              <Badge variant="success">Todas — Acceso completo</Badge>
+              <Badge variant="warning">Propias — Solo registros propios</Badge>
+              <Badge variant="error">Ninguna — Sin acceso</Badge>
             </div>
           </>
         )}
@@ -166,14 +168,15 @@ export function PermissionMatrix({
   )
 }
 
-export function PermissionSelector({ 
-  value, 
+export function PermissionSelector({
+  value,
   onChange,
-  options = ACCESS_LEVELS 
+  options = ACCESS_LEVELS
 }) {
   return (
     <select
-      className="px-2 py-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded text-xs"
+      className="form-select"
+      style={{ fontSize: '0.8rem', padding: '0.375rem 0.5rem' }}
       value={value || 'none'}
       onChange={e => onChange(e.target.value)}
     >
@@ -189,10 +192,10 @@ export function PermissionSelector({
 export function PermissionBadge({ level }) {
   const config = ACCESS_LEVELS.find(l => l.value === level)
   if (!config) return null
-  
+
   return (
-    <span className={`badge badge-${config.color}`}>
+    <Badge variant={config.color}>
       {config.label}
-    </span>
+    </Badge>
   )
 }
