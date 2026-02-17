@@ -26,11 +26,32 @@ Self-hostable alternative to Airtable, NocoDB, PocketBase and Baserow. Secure by
 
 ## 🚀 Quick Start
 
-### Docker
+### Prerequisites
+- `.env` variables setup (PocketID values are generated after running Docker)
+- Docker
+
+
+`* for development you need this runtimes to run it locally`
+- NodeJS
+- Go
+
+
+
+
+### Docker way
 
 ```bash
+# create .env file
+cp .env.example .env
+
+# put you values
+
+# run docker compose to get PocketID and PostgreSQL running
 docker-compose up -d
 ```
+Visit `http://localhost:5173` (default port).
+
+
 
 ### Manual
 
@@ -76,5 +97,9 @@ Comprehensive OpenAPI 3.0 documentation available at [`docs/openapi.yaml`](docs/
 - [ ] S3 Attachments
 
 ---
+
+## 🐦  Fun fact
+The ornero is Argentina's national bird. They build nests made of mud and twigs shaped like mud ovens.
+
 
 Made in Argentina with ❤️
