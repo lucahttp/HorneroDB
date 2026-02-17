@@ -1,119 +1,118 @@
 # 🐦 HorneroDB
 
-**Open-source, low-code database built in Go + React.**  
-Self-hostable alternative to Airtable, NocoDB, PocketBase and Baserow. Secure by default with Passkeys powered by PocketID SSO.
+### The Open-Source, Low-Code Database: Secure by Default.
+
+**Built with Go + React.** A powerful, self-hostable alternative to Airtable, NocoDB, PocketBase, and Baserow. Designed for developers who need granular security and modern authentication (Passkeys/SSO) without the enterprise price tag.
 
 ![Preview](web/ui/inline_edit_verify.png)
 
 ## ✨ Features
 
-- **Dynamic Tables & Columns** — create schemas on the fly via UI or API
-- **14 Field Types** — Text, Number, Bool, Date, Email, URL, JSON, Relation, File, etc.
-- **Excel-like Editing** — Inline cell editing, keyboard navigation, copy/paste
-- **Role-Based Access** — Granular permissions per table, column, and row (Dataverse-style)
-- **OIDC Authentication** — Integrated with PocketID, EntraID, Keycloak
-- **MCP Server** — First-class support for AI agents (Claude, OpenCode, Antigravity)
-- **Multi-tenant** — Isolated workspaces for different teams or projects
-- **Simplified Deployment** — Warm up database + setup the auth service of your preference and you are ready to go
-
-
-## 🆚 Comparison
-
-| Feature | 🐦 HorneroDB | 🟢 Supabase | 🧊 PocketBase | ⚡ NocoDB | 🧩 Airtable | 🗄️ Dataverse | 🛶 Baserow | 🔥 Firebase |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Permissions** | **Granular (Row/Col)** | PG RLS | Collection | Table | Base | Deep | Table | Rules |
-| **Security** | **SSO + Passkeys** | Enterprise | Email/Pass | Enterprise | Enterprise | Entra ID | Enterprise | Native |
-| **API** | **Auto-Secure** | REST/GQL | SDK | REST/GQL | REST | OData | REST | SDK |
-| **Self-Host** | **Docker** | Docker | Binary | Docker | ❌ | ❌ | Docker | ❌ |
-| **Cost** | **Free** | Free | Free | Free | $$$ | $$$ | Free | $$$ |
-
-
-## 🚀 Quick Start
-
-
-### Quick deploy in the Playground provided by the Docker friends
-
-[Run it in Play with Docker](https://labs.play-with-docker.com/?stack=https://raw.githubusercontent.com/lucahttp/HorneroDB/refs/heads/main/docker-compose.yml&stack_name=HorneroDB)
-
-
-[!["Run it in Play with Docker"](misc/playwithdocker.png)](https://labs.play-with-docker.com/?stack=https://raw.githubusercontent.com/lucahttp/HorneroDB/refs/heads/main/docker-compose.yml&stack_name=HorneroDB)
-
-
-
-### Prerequisites
-- `.env` variables setup (PocketID values are generated after running Docker)
-- Docker
-
-
-`* for development you need this runtimes to run it locally`
-- NodeJS
-- Go
-
-
-
-
-### Docker way
-
-```bash
-# create .env file
-cp .env.example .env
-
-# put you values
-
-# run docker compose to get PocketID and PostgreSQL running
-docker-compose up -d
-```
-Visit `http://localhost:5173` (default port).
-
-
-
-### Manual
-
-```bash
-# Backend
-go build -o bin/hornerodb ./cmd/server
-./bin/hornerodb
-
-# Frontend (dev)
-cd web/ui && npm run dev
-```
-
-Visit `http://localhost:8090` (default port).
-
-## 📚 API Reference
-
-Comprehensive OpenAPI 3.0 documentation available at [`docs/openapi.yaml`](docs/openapi.yaml).
-
-### Key Endpoints
-
-- `GET /api/v1/workspaces`
-- `GET /api/v1/workspaces/:ws/tables`
-- `GET /api/v1/workspaces/:ws/data/:slug`
-- `POST /api/v1/workspaces/:ws/data/:slug`
-
-## 🛠 Stack
-
-- **Backend:** Go, Gin, GORM, PostgreSQL
-- **Frontend:** React, Vite, Framer Motion, Iconoir
-- **Auth:** OIDC (PocketID)
-
-
-## 🗺 Roadmap
-
-- [x] Full REST API (30+ endpoints)
-- [x] OIDC Auth & RBAC Permissions
-- [x] MCP Server
-- [x] Visual Table Editor & Inline Editing
-- [x] PocketBase-style Field Types
-- [ ] Table Relations UI
-- [ ] Filters & Search
-- [ ] Webhooks & Automation
-- [ ] S3 Attachments
+* **Secure Table Creation** — Define schemas on the fly and control visibility (who sees what) via a sleek UI or a robust API.
+* **Rich Data Types** — Fully compatible with PostgreSQL types, giving you the flexibility of a professional relational database.
+* **Excel-like Experience** — Inline cell editing, full keyboard navigation, and seamless copy/paste functionality.
+* **Granular RBAC** — Role-Based Access Control at the table, column, and row levels. Security is a core feature, not a paid add-on.
+* **Modern Auth (OIDC)** — Native integration with OIDC providers; optimized for **PocketID** with Passkey support.
+* **Seamless Integrations** — Out-of-the-box support for PowerAutomate, n8n, and React applications via the OpenAPI standard.
+* **Simplified Deployment** — Spin up your database, connect your auth service, and you're ready for production.
 
 ---
 
-## 🐦  Fun fact
-The [Hornero](https://en.wikipedia.org/wiki/Hornero) is Argentina's national bird. They build nests made of mud and twigs shaped like mud ovens.
+## 🆚 Comparison
 
+| Feature | 🐦 HorneroDB | 🟢 Supabase | 🧊 PocketBase | ⚡ NocoDB | 🧩 Airtable | 🛶 Baserow |
+| --- | --- | --- | --- | --- | --- | --- |
+| **Permissions** | **Granular (Row/Col)** | PG RLS | Collection | Table | Base | Table |
+| **Security** | **SSO + Passkeys** | Enterprise | Email/Pass | Enterprise | Enterprise | Enterprise |
+| **API** | **Auto-Secure** | REST/GQL | SDK | REST/GQL | REST | REST |
+| **Self-Host** | **Docker** | Docker | Binary | Docker | ❌ | Docker |
+| **Cost** | **Free / Community** | Free Tier | Free | Free | $$$ | Free /$$$ |
 
-Made in Argentina with ❤️
+---
+
+## 🛠 Why HorneroDB?
+
+HorneroDB started with a real-world problem. While building an e-commerce management tool for my girlfriend's shop, I hit a wall with existing solutions. Most tools either lacked the ability to restrict API calls by source/IP or locked basic security features—like **SSO and granular column visibility**—behind expensive "Enterprise" subscriptions.
+
+I needed a system where:
+
+1. **Security is accessible:** My girlfriend can log in with a Passkey (biometrics), so she never has to worry about forgotten passwords.
+2. **Granular Control:** Staff can manage inventory without seeing sensitive business data.
+3. **Developer Friendly:** A single API to rule them all, without the complexity of traditional ERPs.
+
+HorneroDB bridges the gap between the simplicity of a spreadsheet and the security of a modern cloud-native application.
+
+---
+
+## 🚀 Quick Start
+
+### Play with Docker (One-Click Setup)
+
+Test HorneroDB instantly using the Docker Playground:
+
+[!["Run it in Play with Docker"](misc/playwithdocker.png)](https://labs.play-with-docker.com/?stack=https://raw.githubusercontent.com/lucahttp/HorneroDB/refs/heads/main/docker-compose.yml&stack_name=HorneroDB)
+
+### Prerequisites
+
+* Docker & Docker Compose
+* A `.env` file (see `.env.example`)
+* *For local development:* Node.js and Go runtimes.
+
+### Deployment (Docker)
+
+```bash
+# Clone and prepare environment
+cp .env.example .env
+
+# Start HorneroDB, PocketID, and PostgreSQL
+docker-compose up -d
+
+```
+
+Visit `http://localhost:5173` to access the UI.
+
+### Manual Setup (Development)
+
+```bash
+# Build and run the Backend
+go build -o bin/hornerodb ./cmd/server
+./bin/hornerodb
+
+# Run the Frontend
+cd web/ui && npm install && npm run dev
+
+```
+
+---
+
+## 📚 API Reference
+
+HorneroDB is built on the **OpenAPI 3.0** standard. You can find the full documentation in [`docs/openapi.yaml`]().
+
+**Core Endpoints:**
+
+* `GET /api/v1/workspaces`
+* `GET /api/v1/workspaces/:ws/tables`
+* `GET /api/v1/workspaces/:ws/data/:slug` (Secure Read)
+* `POST /api/v1/workspaces/:ws/data/:slug` (Secure Write)
+
+---
+
+## 🗺 Roadmap
+
+* [x] Full REST API (30+ endpoints)
+* [x] OIDC Auth & RBAC Permissions
+* [x] Simple UI
+* [x] Visual Table Editor
+* [ ] Table Relations UI (In Progress)
+* [ ] Advanced Filters & Search
+* [ ] Webhooks & Automations
+* [ ] S3 Attachment Support
+
+---
+
+## 🐦 Fun Fact
+
+The **Hornero** is Argentina's national bird. They are master builders, creating incredibly strong nests made of mud and twigs that look like small ovens. Like the bird, **HorneroDB** is built to be a sturdy, reliable home for your data.
+
+**Made in Argentina with ❤️**
