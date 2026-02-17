@@ -800,6 +800,266 @@ body {
 }
 
 /* ═══════════════════════════════════════════
+   INLINE TABLE EDITING
+   ═══════════════════════════════════════════ */
+
+/* Ghost row — inline record creation */
+.inline-new-row td {
+  background: var(--bg-surface);
+  border-top: 2px dashed var(--border-light);
+}
+
+.inline-cell-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-size: 0.875rem;
+  font-family: var(--font-sans);
+  color: var(--text);
+  padding: 0.375rem 0.25rem;
+  outline: none;
+  border-bottom: 1.5px solid transparent;
+  transition: border-color 0.15s ease;
+}
+
+.inline-cell-input:focus {
+  border-bottom-color: var(--primary);
+}
+
+.inline-cell-input::placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.inline-cell-input:disabled {
+  opacity: 0.5;
+}
+
+/* Column header wrapper */
+.column-header-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  position: relative;
+}
+
+.column-header-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* "⋮" trigger — visible on hover */
+.column-menu-trigger {
+  opacity: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0.125rem 0.25rem;
+  border-radius: 4px;
+  color: var(--text-muted);
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+th:hover .column-menu-trigger,
+.column-menu-trigger:focus {
+  opacity: 1;
+}
+
+.column-menu-trigger:hover {
+  background: var(--bg-surface);
+  color: var(--text);
+}
+
+/* Dropdown menu */
+.column-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  min-width: 160px;
+  background: var(--bg-elevated);
+  border: var(--border-thick) solid var(--border-color);
+  border-radius: var(--radius-sm);
+  box-shadow: 4px 4px 0px var(--border-color);
+  animation: scaleIn 0.15s ease-out;
+  overflow: hidden;
+}
+
+.column-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+  color: var(--text);
+  text-align: left;
+  transition: background 0.1s ease;
+}
+
+.column-menu-item:hover {
+  background: var(--bg-surface);
+}
+
+.column-menu-item-danger:hover {
+  background: rgba(255, 68, 68, 0.08);
+  color: var(--danger);
+}
+
+.column-menu-edit {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem;
+}
+
+.column-menu-edit .form-input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* "+" column header button */
+.column-add-btn {
+  width: 100%;
+  height: 100%;
+  min-height: 36px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.column-add-btn:hover {
+  color: var(--primary);
+  background: var(--primary-light);
+}
+
+/* Inline column creation form in header */
+.column-add-form {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.375rem;
+}
+
+.column-add-input {
+  border: 1.5px solid var(--border-light);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  padding: 0.25rem 0.375rem;
+  width: 70px;
+  font-family: var(--font-sans);
+  color: var(--text);
+  background: var(--bg-elevated);
+  text-transform: none;
+  font-weight: 400;
+  letter-spacing: normal;
+}
+
+.column-add-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.column-add-select {
+  border: 1.5px solid var(--border-light);
+  border-radius: 4px;
+  font-size: 0.7rem;
+  padding: 0.25rem 0.25rem;
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-family: var(--font-sans);
+  text-transform: none;
+  font-weight: 400;
+  letter-spacing: normal;
+}
+
+/* ── Row Selection ──────────────────────────── */
+
+.row-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+
+.row-selected {
+  background: var(--primary-light) !important;
+}
+
+.row-selected td {
+  background: inherit;
+}
+
+/* ── Inline Cell Editing ────────────────────── */
+
+.cell-clickable {
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.cell-clickable:hover {
+  background: var(--bg-surface);
+}
+
+.cell-editing {
+  padding: 0 !important;
+}
+
+.inline-cell-editing {
+  border-bottom-color: var(--primary) !important;
+  background: var(--bg-elevated) !important;
+  font-weight: 500;
+}
+
+/* ── Bulk Actions Toolbar ───────────────────── */
+
+.bulk-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  margin-bottom: 0.5rem;
+  background: var(--bg-elevated);
+  border: var(--border-thick) solid var(--primary);
+  border-radius: var(--radius-sm);
+  box-shadow: 3px 3px 0px var(--primary);
+  animation: slideDown 0.15s ease-out;
+}
+
+.bulk-toolbar-count {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--primary);
+  margin-right: auto;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ═══════════════════════════════════════════
    UTILITY
    ═══════════════════════════════════════════ */
 .text-muted {
@@ -856,4 +1116,92 @@ body {
 
 .gap-3 {
   gap: 0.75rem;
+}
+
+/* ═══════════════════════════════════════════
+   FIELD TYPE ICON BADGES (PocketBase style)
+   ═══════════════════════════════════════════ */
+.field-type-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  padding: 0 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: #fff;
+  border-radius: 4px;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  vertical-align: middle;
+  margin-right: 0.375rem;
+  flex-shrink: 0;
+}
+
+/* ── Boolean display badges ── */
+.bool-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.bool-true {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+}
+
+.bool-false {
+  background: rgba(239, 68, 68, 0.08);
+  color: #ef4444;
+}
+
+/* ── Clickable cell links ── */
+.cell-link {
+  color: var(--primary);
+  text-decoration: none;
+  font-size: 0.8125rem;
+}
+
+.cell-link:hover {
+  text-decoration: underline;
+}
+
+/* ── JSON code display ── */
+.cell-json {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  padding: 0.125rem 0.375rem;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+}
+
+/* ── Column add form type select ── */
+.column-add-select {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.375rem;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  appearance: auto;
+  min-width: 100px;
+}
+
+.column-add-select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-light);
 }

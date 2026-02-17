@@ -119,6 +119,10 @@ func getColumnSQL(fieldType string) string {
 		return "VARCHAR(100)"
 	case "relation":
 		return "UUID"
+	case "json":
+		return "JSONB"
+	case "float":
+		return "DOUBLE PRECISION"
 	default:
 		return "VARCHAR(255)"
 	}

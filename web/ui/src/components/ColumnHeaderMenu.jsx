@@ -1,0 +1,113 @@
+import { useState, useEffect, useRef } from 'react'
+
+/**
+ * Dropdown menu for column header actions.
+ * Shows on hover (desktop) via a "⋮" trigger button.
+ * Dismisses on click outside or Escape.
+ */
+export function ColumnHeaderMenu({ column, icon, onRename, onDelete }) {
+  const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [newName, setNewName] = useState(column.name)
+  const menuRef = useRef(null)
+  const inputRef = useRef(null)
+
+  // Close on click outside
+  useEffect(() => {
+    if (!open) return
+    const handler = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setOpen(false)
+        setEditing(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  // Close on Escape
+  useEffect(() => {
+    if (!open) return
+    const handler = (e) => {
+      if (e.key === 'Escape') {
+        setOpen(false)
+        setEditing(false)
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [open])
+
+  // Focus input when editing
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [editing])
+
+  const handleRename = () => {
+    if (newName.trim() && newName !== column.name) {
+      onRename(column.id, newName.trim())
+    }
+    setEditing(false)
+    setOpen(false)
+  }
+
+  const handleDelete = () => {
+    onDelete(column.id, column.name)
+    setOpen(false)
+  }
+
+  return (
+    <div className="column-header-wrapper" ref={menuRef}>
+      <span className="column-header-label">{icon} {column.name}</span>
+      <button
+        className="column-menu-trigger"
+        onClick={(e) => { e.stopPropagation(); setOpen(!open) }}
+        aria-label={`Opciones para ${column.name}`}
+      >
+        ⋮
+      </button>
+
+      {open && (
+        <div className="column-menu">
+          {editing ? (
+            <div className="column-menu-edit">
+              <input
+                ref={inputRef}
+                type="text"
+                className="form-input"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleRename()
+                  if (e.key === 'Escape') { setEditing(false); setOpen(false) }
+                }}
+                style={{ fontSize: '0.8125rem', padding: '0.375rem 0.5rem' }}
+              />
+              <button className="btn btn-primary btn-sm" onClick={handleRename}>
+                ✓
+              </button>
+            </div>
+          ) : (
+            <>
+              <button
+                className="column-menu-item"
+                onClick={() => { setNewName(column.name); setEditing(true) }}
+              >
+                ✏️ Editar nombre
+              </button>
+              <button
+                className="column-menu-item column-menu-item-danger"
+                onClick={handleDelete}
+              >
+                🗑️ Borrar columna
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}

@@ -1,0 +1,1129 @@
+openapi: "3.0.3"
+info:
+  title: HorneroDB API
+  description: |
+    CRM-style database-as-a-service API.
+    Supports dynamic tables, columns, records, role-based permissions (Dataverse-style),
+    SSO via OIDC, and API key authentication.
+  version: "1.0.0"
+  contact:
+    name: HorneroDB
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8090/api/v1
+    description: Local development
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  SECURITY
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: "API Key prefixed with `Bearer `"
+
+  # ── Schemas ──────────────────────
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+
+    Message:
+      type: object
+      properties:
+        message:
+          type: string
+
+    # ── Workspace ──
+    Workspace:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        owner_id:
+          type: string
+          format: uuid
+        settings:
+          type: object
+        created_at:
+          type: string
+          format: date-time
+
+    WorkspaceCreate:
+      type: object
+      required: [name, slug, owner_id]
+      properties:
+        name:
+          type: string
+        slug:
+          type: string
+        owner_id:
+          type: string
+          format: uuid
+
+    # ── Table ──
+    Table:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    TableCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        slug:
+          type: string
+        metadata:
+          type: string
+
+    # ── Column ──
+    Column:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        table_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        field_type:
+          type: string
+          enum:
+            - text
+            - long_text
+            - number
+            - integer
+            - float
+            - boolean
+            - date
+            - datetime
+            - email
+            - url
+            - select
+            - relation
+            - json
+            - file
+        meta:
+          type: object
+        order_index:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    ColumnCreate:
+      type: object
+      required: [name, field_type]
+      properties:
+        name:
+          type: string
+        slug:
+          type: string
+        field_type:
+          type: string
+          enum:
+            - text
+            - long_text
+            - number
+            - integer
+            - float
+            - boolean
+            - date
+            - datetime
+            - email
+            - url
+            - select
+            - relation
+            - json
+            - file
+        meta:
+          type: string
+        order_index:
+          type: integer
+
+    # ── Record ──
+    Record:
+      type: object
+      additionalProperties: true
+      description: Dynamic key-value map. Keys match column slugs.
+
+    RecordList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Record"
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    # ── Role ──
+    Role:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        permissions:
+          type: object
+          description: |
+            Dataverse-style permissions map.
+            Keys are table slugs (or "*" for all).
+            Values: { create: "all"|"own"|"none", read: ..., update: ..., delete: ... }
+        is_default:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    RoleCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        permissions:
+          type: object
+
+    # ── UserRole ──
+    UserRole:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+        role_id:
+          type: string
+          format: uuid
+
+    # ── Permission (legacy) ──
+    Permission:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        table_id:
+          type: string
+          format: uuid
+          nullable: true
+        column_id:
+          type: string
+          format: uuid
+          nullable: true
+        role:
+          type: string
+        scope:
+          type: string
+          enum: [table, column, row]
+        row_filter:
+          type: object
+        allow_read:
+          type: boolean
+        allow_create:
+          type: boolean
+        allow_update:
+          type: boolean
+        allow_delete:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    # ── API Key ──
+    APIKey:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        prefix:
+          type: string
+        masked_key:
+          type: string
+        role_id:
+          type: string
+          format: uuid
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    APIKeyCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        prefix:
+          type: string
+        role_id:
+          type: string
+          format: uuid
+        expires_in_days:
+          type: integer
+
+    APIKeyCreated:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        workspace_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        key:
+          type: string
+          description: "Full API key — shown only once at creation"
+        prefix:
+          type: string
+        role_id:
+          type: string
+          format: uuid
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    # ── Auth ──
+    CurrentUser:
+      type: object
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        workspace_id:
+          type: string
+        auth_source:
+          type: string
+
+  # ── Parameters ──────────────────
+  parameters:
+    WorkspaceId:
+      name: workspace_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TableId:
+      name: table_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TableSlug:
+      name: table_slug
+      in: path
+      required: true
+      schema:
+        type: string
+    ColumnId:
+      name: column_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RecordId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RoleId:
+      name: role_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PermissionId:
+      name: permission_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        type: string
+    KeyId:
+      name: key_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  PATHS
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+paths:
+
+  # ── Health ──
+  /health:
+    get:
+      tags: [System]
+      summary: Health check
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  service:
+                    type: string
+
+  # ══════════════════════════════════
+  #  AUTH
+  # ══════════════════════════════════
+  /auth/oidc/login:
+    get:
+      tags: [Auth]
+      summary: Start OIDC login flow
+      security: []
+      responses:
+        "302":
+          description: Redirect to OIDC provider
+
+  /auth/oidc/callback:
+    get:
+      tags: [Auth]
+      summary: OIDC callback
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirect with JWT token
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current authenticated user
+      responses:
+        "200":
+          description: Current user info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentUser"
+
+  /auth/permissions:
+    get:
+      tags: [Auth]
+      summary: Get permissions for current user
+      responses:
+        "200":
+          description: List of permissions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Permission"
+
+  # ══════════════════════════════════
+  #  WORKSPACES
+  # ══════════════════════════════════
+  /workspaces:
+    get:
+      tags: [Workspaces]
+      summary: List all workspaces
+      responses:
+        "200":
+          description: Array of workspaces
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Workspace"
+    post:
+      tags: [Workspaces]
+      summary: Create a workspace
+      description: Also creates default admin and user roles, assigns admin role to owner.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceCreate"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /workspaces/{workspace_id}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      tags: [Workspaces]
+      summary: Get a workspace
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      tags: [Workspaces]
+      summary: Update a workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                settings:
+                  type: object
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+    delete:
+      tags: [Workspaces]
+      summary: Delete a workspace
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+
+  # ══════════════════════════════════
+  #  TABLES
+  # ══════════════════════════════════
+  /workspaces/{workspace_id}/tables:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      tags: [Tables]
+      summary: List tables in workspace
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Table"
+    post:
+      tags: [Tables]
+      summary: Create a table
+      description: Creates metadata entry and physical PostgreSQL table with id, created_by, created_at, updated_at.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TableCreate"
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Table"
+
+  /workspaces/{workspace_id}/tables/{table_id}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/TableId"
+    get:
+      tags: [Tables]
+      summary: Get a table
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Table"
+    put:
+      tags: [Tables]
+      summary: Update table metadata
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+    delete:
+      tags: [Tables]
+      summary: Delete a table
+      description: Drops the physical PostgreSQL table and removes metadata.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+
+  # ══════════════════════════════════
+  #  COLUMNS
+  # ══════════════════════════════════
+  /workspaces/{workspace_id}/tables/{table_id}/columns:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/TableId"
+    get:
+      tags: [Columns]
+      summary: List columns of a table
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Column"
+    post:
+      tags: [Columns]
+      summary: Create a column
+      description: |
+        Adds column metadata and ALTER TABLEs the physical table.
+        Supported field_type values and their SQL mappings:
+
+        | field_type | PostgreSQL type |
+        |------------|----------------|
+        | text | VARCHAR(255) |
+        | long_text | TEXT |
+        | number | DECIMAL(10,2) |
+        | integer | INTEGER |
+        | float | DOUBLE PRECISION |
+        | boolean | BOOLEAN |
+        | date | DATE |
+        | datetime | TIMESTAMPTZ |
+        | email | VARCHAR(255) |
+        | url | VARCHAR(500) |
+        | select | VARCHAR(100) |
+        | relation | UUID |
+        | json | JSONB |
+        | file | JSONB |
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ColumnCreate"
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Column"
+
+  /workspaces/{workspace_id}/tables/{table_id}/columns/{column_id}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/TableId"
+      - $ref: "#/components/parameters/ColumnId"
+    put:
+      tags: [Columns]
+      summary: Update column metadata
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                order_index:
+                  type: integer
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+    delete:
+      tags: [Columns]
+      summary: Delete a column
+      description: Drops the physical column and removes metadata.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+
+  # ══════════════════════════════════
+  #  DATA (RECORDS)
+  # ══════════════════════════════════
+  /workspaces/{workspace_id}/data/{table_slug}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/TableSlug"
+    get:
+      tags: [Records]
+      summary: List records
+      description: Permission-aware. AccessOwn filters by created_by.
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordList"
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      tags: [Records]
+      summary: Create a record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Record"
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Record"
+        "403":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /workspaces/{workspace_id}/data/{table_slug}/{id}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/TableSlug"
+      - $ref: "#/components/parameters/RecordId"
+    get:
+      tags: [Records]
+      summary: Get a single record
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Record"
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      tags: [Records]
+      summary: Update a record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Record"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+    delete:
+      tags: [Records]
+      summary: Delete a record
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+
+  # ══════════════════════════════════
+  #  ROLES (Dataverse-style)
+  # ══════════════════════════════════
+  /workspaces/{workspace_id}/roles:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      tags: [Roles]
+      summary: List roles
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Role"
+    post:
+      tags: [Roles]
+      summary: Create a role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleCreate"
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Role"
+
+  /workspaces/{workspace_id}/roles/{role_id}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/RoleId"
+    get:
+      tags: [Roles]
+      summary: Get a role
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Role"
+    put:
+      tags: [Roles]
+      summary: Update a role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                permissions:
+                  type: object
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+    delete:
+      tags: [Roles]
+      summary: Delete a role
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+
+  # ══════════════════════════════════
+  #  USER ROLES
+  # ══════════════════════════════════
+  /workspaces/{workspace_id}/users:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      tags: [UserRoles]
+      summary: List user-role assignments
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UserRole"
+
+  /workspaces/{workspace_id}/users/{user_id}/role:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/UserId"
+    post:
+      tags: [UserRoles]
+      summary: Assign role to user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role_id]
+              properties:
+                role_id:
+                  type: string
+                  format: uuid
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserRole"
+        "200":
+          description: Updated existing assignment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserRole"
+    delete:
+      tags: [UserRoles]
+      summary: Remove role from user
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+
+  # ══════════════════════════════════
+  #  PERMISSIONS (legacy)
+  # ══════════════════════════════════
+  /workspaces/{workspace_id}/permissions:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      tags: [Permissions]
+      summary: List permissions
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Permission"
+    post:
+      tags: [Permissions]
+      summary: Create a permission
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Permission"
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Permission"
+
+  /workspaces/{workspace_id}/permissions/{permission_id}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/PermissionId"
+    put:
+      tags: [Permissions]
+      summary: Update a permission
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                allow_read:
+                  type: boolean
+                allow_create:
+                  type: boolean
+                allow_update:
+                  type: boolean
+                allow_delete:
+                  type: boolean
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+    delete:
+      tags: [Permissions]
+      summary: Delete a permission
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+
+  # ══════════════════════════════════
+  #  API KEYS
+  # ══════════════════════════════════
+  /workspaces/{workspace_id}/keys:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+    get:
+      tags: [APIKeys]
+      summary: List API keys (masked)
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/APIKey"
+    post:
+      tags: [APIKeys]
+      summary: Create an API key
+      description: Returns the full key only once at creation time.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/APIKeyCreate"
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIKeyCreated"
+
+  /workspaces/{workspace_id}/keys/{key_id}:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/KeyId"
+    delete:
+      tags: [APIKeys]
+      summary: Delete an API key
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"

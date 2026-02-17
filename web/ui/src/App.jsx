@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 import axios from 'axios'
 import { ThemeToggle, Button, Badge } from './components/index.jsx'
 import { PermissionMatrix } from './components/PermissionMatrix.jsx'
+import { DataTable } from './components/DataTable.jsx'
 import { ToastProvider, notify } from './components/Toast.jsx'
 import { ErrorProvider } from './context/ErrorContext.jsx'
 import { ErrorModal } from './components/ErrorModal.jsx'
@@ -774,11 +775,6 @@ function TableView() {
   const [records, setRecords] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('data')
-  const [showCreateRecord, setShowCreateRecord] = useState(false)
-  const [showCreateColumn, setShowCreateColumn] = useState(false)
-  const [newRecord, setNewRecord] = useState({})
-  const [newColumnName, setNewColumnName] = useState('')
-  const [newColumnType, setNewColumnType] = useState('text')
 
   useEffect(() => {
     loadData()
@@ -801,16 +797,9 @@ function TableView() {
     setLoading(false)
   }
 
-  const handleCreateRecord = async () => {
-    try {
-      await axios.post(`${API_URL}/workspaces/${workspaceId}/data/${table.slug}`, newRecord)
-      setShowCreateRecord(false)
-      setNewRecord({})
-      loadData()
-    } catch (err) {
-      console.error(err)
-      notify('Error al crear registro', 'error')
-    }
+  const handleCreateRecord = async (data) => {
+    await axios.post(`${API_URL}/workspaces/${workspaceId}/data/${table.slug}`, data)
+    loadData()
   }
 
   const deleteRecord = async (id) => {
@@ -825,31 +814,63 @@ function TableView() {
     }
   }
 
-  const handleCreateColumn = async () => {
-    if (!newColumnName.trim()) return
+  const handleUpdateRecord = async (recordId, data) => {
     try {
-      await axios.post(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}/columns`, {
-        name: newColumnName,
-        slug: newColumnName.toLowerCase().replace(/\s+/g, '_'),
-        field_type: newColumnType
-      })
-      setShowCreateColumn(false)
-      setNewColumnName('')
+      await axios.put(`${API_URL}/workspaces/${workspaceId}/data/${table.slug}/${recordId}`, data)
       loadData()
     } catch (err) {
       console.error(err)
-      notify('Error al crear columna', 'error')
+      notify('Error al actualizar registro', 'error')
     }
   }
 
-  const fieldTypes = [
-    { value: 'text', label: 'Texto' },
-    { value: 'long_text', label: 'Texto largo' },
-    { value: 'number', label: 'Número' },
-    { value: 'boolean', label: 'Booleano' },
-    { value: 'date', label: 'Fecha' },
-    { value: 'email', label: 'Email' },
-  ]
+  const handleBulkDelete = async (ids) => {
+    try {
+      await Promise.all(
+        ids.map(id => axios.delete(`${API_URL}/workspaces/${workspaceId}/data/${table.slug}/${id}`))
+      )
+      notify(`${ids.length} registro${ids.length > 1 ? 's' : ''} eliminado${ids.length > 1 ? 's' : ''}`, 'success')
+      loadData()
+    } catch (err) {
+      console.error(err)
+      notify('Error al eliminar registros', 'error')
+    }
+  }
+
+  const handleCreateColumn = async (name, type) => {
+    await axios.post(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}/columns`, {
+      name,
+      slug: name.toLowerCase().replace(/\s+/g, '_'),
+      field_type: type
+    })
+    loadData()
+  }
+
+  const handleDeleteColumn = async (columnId) => {
+    try {
+      await axios.delete(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}/columns/${columnId}`)
+      loadData()
+      notify('Columna eliminada', 'success')
+    } catch (err) {
+      console.error(err)
+      notify('Error al eliminar columna', 'error')
+    }
+  }
+
+  const handleRenameColumn = async (columnId, newName) => {
+    try {
+      await axios.put(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}/columns/${columnId}`, {
+        name: newName
+      })
+      loadData()
+      notify('Columna renombrada', 'success')
+    } catch (err) {
+      console.error(err)
+      notify('Error al renombrar columna', 'error')
+    }
+  }
+
+
 
   if (loading) {
     return (
@@ -900,14 +921,6 @@ function TableView() {
           {/* Table header */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
             <h1 style={{ fontSize: '1.75rem', fontWeight: 800, letterSpacing: '-0.02em' }}>{table?.name}</h1>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <Button size="sm" variant="secondary" onClick={() => setShowCreateColumn(true)}>
-                + Columna
-              </Button>
-              <Button size="sm" onClick={() => setShowCreateRecord(true)}>
-                + Registro
-              </Button>
-            </div>
           </div>
 
           {/* Tabs */}
@@ -928,62 +941,17 @@ function TableView() {
 
           {/* Data Tab */}
           {activeTab === 'data' && (
-            <div className="table-container">
-              {records.length === 0 ? (
-                <div className="empty-state">
-                  <div className="empty-icon">📝</div>
-                  <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>Sin datos</h3>
-                  <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>Agregá el primer registro</p>
-                  <Button onClick={() => setShowCreateRecord(true)}>
-                    + Agregar registro
-                  </Button>
-                </div>
-              ) : (
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>ID</th>
-                      {columns.map(col => (
-                        <th key={col.id}>{col.name}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {records.map((record, i) => (
-                      <tr key={i}>
-                        <td>
-                          <code style={{
-                            fontSize: '0.75rem',
-                            fontFamily: 'var(--font-mono)',
-                            background: 'var(--bg-surface)',
-                            padding: '0.25rem 0.5rem',
-                            borderRadius: '4px',
-                            border: '1px solid var(--border-light)',
-                          }}>
-                            {String(record.id)?.slice(0, 8)}
-                          </code>
-                        </td>
-                        {columns.map(col => (
-                          <td key={col.id}>{String(record[col.slug] || '-')}</td>
-                        ))}
-                        <td style={{ width: '50px' }}>
-                          <button
-                            onClick={() => deleteRecord(record.id)}
-                            className="btn btn-ghost btn-sm"
-                            style={{ color: 'var(--danger)', padding: '4px' }}
-                            title="Borrar"
-                          >
-                            <svg style={{ width: '1rem', height: '1rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
+            <DataTable
+              columns={columns}
+              records={records}
+              onCreateRecord={handleCreateRecord}
+              onDeleteRecord={deleteRecord}
+              onUpdateRecord={handleUpdateRecord}
+              onBulkDelete={handleBulkDelete}
+              onCreateColumn={handleCreateColumn}
+              onDeleteColumn={handleDeleteColumn}
+              onRenameColumn={handleRenameColumn}
+            />
           )}
 
           {/* Columns Tab */}
@@ -1003,75 +971,7 @@ function TableView() {
         </div>
       </div>
 
-      {/* Create Record Modal */}
-      {showCreateRecord && (
-        <div className="modal-overlay" onClick={() => setShowCreateRecord(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Nuevo Registro</h3>
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreateRecord(false)} style={{ borderRadius: '8px' }}>✕</button>
-            </div>
-            <div className="modal-body">
-              {columns.map(col => (
-                <div className="form-group" key={col.id}>
-                  <label className="form-label">{col.name}</label>
-                  <input
-                    type={col.field_type === 'number' ? 'number' : 'text'}
-                    className="form-input"
-                    value={newRecord[col.slug] || ''}
-                    onChange={e => setNewRecord({ ...newRecord, [col.slug]: e.target.value })}
-                  />
-                </div>
-              ))}
-            </div>
-            <div className="modal-footer">
-              <Button variant="secondary" onClick={() => setShowCreateRecord(false)}>Cancelar</Button>
-              <Button onClick={handleCreateRecord}>Crear</Button>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Create Column Modal */}
-      {showCreateColumn && (
-        <div className="modal-overlay" onClick={() => setShowCreateColumn(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">Nueva Columna</h3>
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreateColumn(false)} style={{ borderRadius: '8px' }}>✕</button>
-            </div>
-            <div className="modal-body">
-              <div className="form-group">
-                <label className="form-label">Nombre</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  value={newColumnName}
-                  onChange={e => setNewColumnName(e.target.value)}
-                  placeholder="Ej: telefono"
-                  autoFocus
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Tipo de dato</label>
-                <select
-                  className="form-select"
-                  value={newColumnType}
-                  onChange={e => setNewColumnType(e.target.value)}
-                >
-                  {fieldTypes.map(ft => (
-                    <option key={ft.value} value={ft.value}>{ft.label}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className="modal-footer">
-              <Button variant="secondary" onClick={() => setShowCreateColumn(false)}>Cancelar</Button>
-              <Button onClick={handleCreateColumn} disabled={!newColumnName.trim()}>Crear</Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -1087,7 +987,7 @@ function Settings() {
   const [tables, setTables] = useState([])
   const [apiKeys, setAPIKeys] = useState([])
   const [loading, setLoading] = useState(true)
-  const [showPermissionMatrix, setShowPermissionMatrix] = useState(false)
+
   const [showCreateRole, setShowCreateRole] = useState(false)
   const [showCreateKey, setShowCreateKey] = useState(false)
   const [newRoleName, setNewRoleName] = useState('')
@@ -1230,14 +1130,9 @@ function Settings() {
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
                 <p style={{ color: 'var(--text-secondary)' }}>Gestiona los roles y permisos de acceso</p>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <Button size="sm" variant="secondary" onClick={() => setShowPermissionMatrix(true)}>
-                    ⚙️ Editar Permisos
-                  </Button>
-                  <Button size="sm" onClick={() => setShowCreateRole(true)}>
-                    + Nuevo Rol
-                  </Button>
-                </div>
+                <Button size="sm" onClick={() => setShowCreateRole(true)}>
+                  + Nuevo Rol
+                </Button>
               </div>
 
               {roles.length === 0 ? (
@@ -1261,6 +1156,14 @@ function Settings() {
                   ))}
                 </div>
               )}
+
+              {/* Inline Permission Matrix */}
+              <PermissionMatrix
+                workspaceId={workspaceId}
+                tables={tables}
+                roles={roles}
+                onSave={savePermissions}
+              />
             </div>
           ) : (
             <div>
@@ -1361,16 +1264,7 @@ function Settings() {
         </div>
       )}
 
-      {/* Permission Matrix */}
-      {showPermissionMatrix && (
-        <PermissionMatrix
-          workspaceId={workspaceId}
-          tables={tables}
-          roles={roles}
-          onSave={savePermissions}
-          onClose={() => setShowPermissionMatrix(false)}
-        />
-      )}
+
     </div>
   )
 }
