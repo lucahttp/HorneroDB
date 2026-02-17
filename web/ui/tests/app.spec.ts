@@ -3,22 +3,22 @@ import { test, expect } from '@playwright/test';
 test.describe('HorneroDB UI', () => {
   test('login page loads correctly', async ({ page }) => {
     await page.goto('/');
-    
+
     // Check for logo
     await expect(page.getByText('HorneroDB').first()).toBeVisible();
-    
+
     // Check for welcome text
-    await expect(page.getByText('Bienvenido')).toBeVisible();
-    
+    await expect(page.getByRole('heading', { name: /Bienvenido/i })).toBeVisible();
+
     // Check for login button
-    await expect(page.getByRole('button', { name: /Iniciar sesión con PocketID/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Iniciar sesión/i })).toBeVisible();
   });
 
   test('login button is clickable', async ({ page }) => {
     await page.goto('/');
-    
+
     // Check that the login button exists and is enabled
-    const loginButton = page.getByRole('button', { name: /Iniciar sesión con PocketID/i });
+    const loginButton = page.getByRole('button', { name: /Iniciar sesión/i });
     await expect(loginButton).toBeVisible();
     await expect(loginButton).toBeEnabled();
   });
@@ -32,15 +32,15 @@ test.describe('HorneroDB UI', () => {
 
   test('login page has correct layout', async ({ page }) => {
     await page.goto('/');
-    
+
     // Check login container exists
     const loginContainer = page.locator('.login-container');
     await expect(loginContainer).toBeVisible();
-    
+
     // Check left panel (logo area)
     const loginLeft = page.locator('.login-left');
     await expect(loginLeft).toBeVisible();
-    
+
     // Check right panel (form area)
     const loginRight = page.locator('.login-right');
     await expect(loginRight).toBeVisible();

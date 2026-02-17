@@ -6,6 +6,8 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:5173',
     headless: true,
+    locale: 'es-ES',
+    timezoneId: 'America/Argentina/Buenos_Aires',
   },
   webServer: {
     command: 'npm run dev',

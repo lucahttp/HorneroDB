@@ -26,7 +26,7 @@ test.describe('HorneroDB - Tests con API', () => {
 
     // Verificar elementos del login
     await expect(page.getByText('HorneroDB').first()).toBeVisible();
-    await expect(page.getByText('Bienvenido')).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Bienvenido/i })).toBeVisible();
 
     console.log('✅ Frontend carga correctamente');
   });

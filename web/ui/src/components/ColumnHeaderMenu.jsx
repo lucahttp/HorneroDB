@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
+import { EditPencil, Trash, Check } from 'iconoir-react'
+import { useTranslation } from 'react-i18next'
 
 /**
  * Dropdown menu for column header actions.
@@ -6,6 +8,7 @@ import { useState, useEffect, useRef } from 'react'
  * Dismisses on click outside or Escape.
  */
 export function ColumnHeaderMenu({ column, icon, onRename, onDelete }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const [newName, setNewName] = useState(column.name)
@@ -65,7 +68,7 @@ export function ColumnHeaderMenu({ column, icon, onRename, onDelete }) {
       <button
         className="column-menu-trigger"
         onClick={(e) => { e.stopPropagation(); setOpen(!open) }}
-        aria-label={`Opciones para ${column.name}`}
+        aria-label={t('options_for', { name: column.name })}
       >
         ⋮
       </button>
@@ -87,7 +90,7 @@ export function ColumnHeaderMenu({ column, icon, onRename, onDelete }) {
                 style={{ fontSize: '0.8125rem', padding: '0.375rem 0.5rem' }}
               />
               <button className="btn btn-primary btn-sm" onClick={handleRename}>
-                ✓
+                <Check width="1rem" height="1rem" />
               </button>
             </div>
           ) : (
@@ -96,13 +99,13 @@ export function ColumnHeaderMenu({ column, icon, onRename, onDelete }) {
                 className="column-menu-item"
                 onClick={() => { setNewName(column.name); setEditing(true) }}
               >
-                ✏️ Editar nombre
+                <EditPencil width="1rem" height="1rem" style={{ marginRight: '0.5rem' }} /> {t('edit_name')}
               </button>
               <button
                 className="column-menu-item column-menu-item-danger"
                 onClick={handleDelete}
               >
-                🗑️ Borrar columna
+                <Trash width="1rem" height="1rem" style={{ marginRight: '0.5rem' }} /> {t('delete_column')}
               </button>
             </>
           )}

@@ -65,3 +65,31 @@ Análisis de PocketBase y otros sistemas low-code reveló features muy demandado
 - Relación visual entre tablas (no solo guardar IDs)
 - Normalización de datos (categorías como relaciones, no texto libre)
 - Estados visuales para turnos (pendiente, confirmado, completado, cancelado)
+
+
+
+
+
+
+### Settings [Error]
+
+cuando estas dentro de un workspace y queres ir a settings se freza la pantalla y no funciona mas, creo que es algo relacionado con los iconos que se llamaban igual que la funcion Settings
+
+
+### Tables in Workspace [Error]
+
+cuando estas dentro de un workspace y ves las tablas de datos vas a ver arriba de todo en una esquina un icono de editar y otro de borrar. nada que ver deberia de aparecer en la tabla de datos al mantener el mouse encima de la fila de datos o al mantener precionado el touch arriba de la tabla de datos.
+
+### View Table [Error]
+
+cuando estas una tabla de datos y ves la tabla de datos vas a notar de que no es responsive, cuando haces scroll horizontal para ver la tabla completa se vuelve un poco feo. tambien pensandolo para cuando sea mobile que se pueda ver la tabla de datos.
+
+
+### Login de usuarios [Feature]
+
+quiero poder gestionar nuevos usuarios y que permisos tienen dentro de cada workspace, 
+
+
+### Languaje dropdown [Feature]
+al lado del toggle theme de dark / light quiero que este, y que sea un dropdown que te permita cambiar el idioma de la app.
+quiero que recuerde el idioma que el usuario eligio

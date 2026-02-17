@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { ColumnHeaderMenu } from './ColumnHeaderMenu.jsx'
-import { getFieldConfig, FIELD_TYPE_OPTIONS } from '../fieldTypeConfig.js'
+import { getFieldConfig, FIELD_TYPE_OPTIONS } from '../fieldTypeConfig.jsx'
+import { Trash } from 'iconoir-react'
+import { useTranslation } from 'react-i18next'
 
 /**
  * Spreadsheet-style data table with:
@@ -23,6 +25,7 @@ export function DataTable({
   onDeleteColumn,
   onRenameColumn,
 }) {
+  const { t } = useTranslation()
   const [newRow, setNewRow] = useState({})
   const [creatingRow, setCreatingRow] = useState(false)
   const [showAddColumn, setShowAddColumn] = useState(false)
@@ -71,7 +74,7 @@ export function DataTable({
   const handleBulkDelete = () => {
     const count = selectedRows.size
     if (!count) return
-    if (confirm(`¿Borrar ${count} registro${count > 1 ? 's' : ''}?`)) {
+    if (confirm(t('confirm_delete_records', { count }))) {
       onBulkDelete([...selectedRows])
     }
   }
@@ -146,7 +149,7 @@ export function DataTable({
   }
 
   const handleDeleteColumn = (id, name) => {
-    if (confirm(`¿Borrar la columna "${name}"? Se perderán los datos.`)) {
+    if (confirm(t('confirm_delete_column', { name }))) {
       onDeleteColumn(id)
     }
   }
@@ -258,13 +261,13 @@ export function DataTable({
       {hasSelection && (
         <div className="bulk-toolbar">
           <label className="bulk-toolbar-count">
-            {selectedRows.size} seleccionado{selectedRows.size > 1 ? 's' : ''}
+            {t('selected_count', { count: selectedRows.size })}
           </label>
           <button className="btn btn-danger btn-sm" onClick={handleBulkDelete}>
-            🗑️ Borrar seleccionados
+            <Trash width="1rem" height="1rem" style={{ marginRight: '0.5rem' }} /> {t('delete_selected')}
           </button>
           <button className="btn btn-ghost btn-sm" onClick={() => setSelectedRows(new Set())}>
-            Deseleccionar
+            {t('deselect')}
           </button>
         </div>
       )}
@@ -278,7 +281,7 @@ export function DataTable({
                 className="row-checkbox"
                 checked={allSelected}
                 onChange={toggleAll}
-                title={allSelected ? 'Deseleccionar todo' : 'Seleccionar todo'}
+                title={allSelected ? t('deselect_all') : t('select_all')}
               />
             </th>
             <th style={{ width: '100px' }}>
@@ -306,7 +309,7 @@ export function DataTable({
                     ref={newColInputRef}
                     type="text"
                     className="column-add-input"
-                    placeholder="nombre"
+                    placeholder={t('name')}
                     value={newColName}
                     onChange={(e) => setNewColName(e.target.value)}
                     onKeyDown={(e) => {
@@ -340,7 +343,7 @@ export function DataTable({
                 <button
                   className="column-add-btn"
                   onClick={() => setShowAddColumn(true)}
-                  title="Agregar columna"
+                  title={t('add_column')}
                 >+</button>
               )}
             </th>
@@ -399,7 +402,7 @@ export function DataTable({
             <td style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
               {creatingRow ? (
                 <div className="loading-spinner" style={{ width: '16px', height: '16px', borderWidth: '2px' }} />
-              ) : 'nuevo'}
+              ) : t('new')}
             </td>
             {columns.map((col, colIndex) => (
               <td key={col.id}>
@@ -410,6 +413,6 @@ export function DataTable({
           </tr>
         </tbody>
       </table>
-    </div>
+    </div >
   )
 }

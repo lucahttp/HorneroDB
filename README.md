@@ -51,9 +51,9 @@ Comprehensive OpenAPI 3.0 documentation available at [`docs/openapi.yaml`](docs/
 ## 🛠 Stack
 
 - **Backend:** Go, Gin, GORM, PostgreSQL
-- **Frontend:** React, Vite, Framer Motion
+- **Frontend:** React, Vite, Framer Motion, Iconoir
 - **Auth:** OIDC (PocketID)
-- **Icons:** Iconoir
+
 
 ## 🗺 Roadmap
 

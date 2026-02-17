@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
+import { SunLight, MoonSat as MoonSaturn } from 'iconoir-react'
+
 
 export function ThemeToggle() {
   const [theme, setTheme] = useState(() => {
@@ -29,7 +31,7 @@ export function ThemeToggle() {
       title={theme === 'light' ? 'Modo oscuro' : 'Modo claro'}
       style={{ fontSize: '1.1rem', padding: '0.4rem 0.6rem' }}
     >
-      {theme === 'light' ? '🌙' : '☀️'}
+      {theme === 'light' ? <MoonSaturn width="1rem" height="1rem" /> : <SunLight width="1rem" height="1rem" />}
     </motion.button>
   )
 }

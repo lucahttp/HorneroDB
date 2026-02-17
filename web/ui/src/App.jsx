@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { BrowserRouter, Routes, Route, Link, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import axios from 'axios'
@@ -10,6 +11,11 @@ import { ErrorProvider } from './context/ErrorContext.jsx'
 import { ErrorModal } from './components/ErrorModal.jsx'
 import { AxiosInterceptor } from './components/AxiosInterceptor.jsx'
 import { IconProvider } from './components/IconProvider.jsx'
+import {
+  Lock, Folder, ClipboardCheck, ReportColumns, RulerCombine,
+  Settings as SettingsIcon, ShieldCheck, Key, Trash, EditPencil, Xmark,
+  LogOut, Table2Columns, EmojiSingLeftNote
+} from 'iconoir-react'
 import horneroLogo from './assets/hornero solo.png'
 import './index.css'
 
@@ -63,6 +69,7 @@ function App() {
    LOGIN PAGE
    ═══════════════════════════════════════════ */
 function Login() {
+  const { t } = useTranslation()
   const handleLogin = () => {
     window.location.href = `${API_URL}/auth/oidc/login?redirect=${encodeURIComponent(window.location.origin + '/callback')}`
   }
@@ -82,7 +89,7 @@ function Login() {
             HorneroDB
           </h1>
           <p style={{ fontSize: '1.125rem', color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
-            Tu base de datos personal
+            {t('your_personal_db')}
           </p>
         </motion.div>
       </div>
@@ -95,11 +102,11 @@ function Login() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.2 }}
         >
-          <h2 style={{ fontSize: '2rem', fontWeight: 800, marginBottom: '0.5rem', letterSpacing: '-0.02em' }}>
-            Bienvenido 👋
+          <h2 style={{ fontSize: '2rem', fontWeight: 800, marginBottom: '0.5rem', letterSpacing: '-0.02em', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {t('welcome')} <EmojiSingLeftNote width="1.25em" height="1.25em" />
           </h2>
           <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem', fontSize: '1rem' }}>
-            Iniciá sesión para continuar
+            {t('login_subtitle')}
           </p>
 
           <button
@@ -107,14 +114,12 @@ function Login() {
             className="btn btn-primary btn-lg"
             style={{ width: '100%', gap: '0.75rem', fontSize: '1rem', padding: '0.875rem 1.5rem' }}
           >
-            <svg style={{ width: '1.25rem', height: '1.25rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-            </svg>
-            Iniciar sesión con PocketID
+            <Lock width="1.25rem" height="1.25rem" />
+            {t('login_button')}
           </button>
 
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.8125rem', textAlign: 'center', marginTop: '2rem' }}>
-            🔒 Acceso seguro con OIDC
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.8125rem', textAlign: 'center', marginTop: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem' }}>
+            <Lock width="0.875em" height="0.875em" /> {t('secure_access')}
           </p>
         </motion.div>
       </div>
@@ -158,12 +163,13 @@ function Callback({ onLogin, onUser }) {
    SIDEBAR
    ═══════════════════════════════════════════ */
 function Sidebar({ user, onLogout, workspaceId }) {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const { pathname } = window.location
 
   const links = [
-    { id: 'data', label: 'Datos', icon: 'M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z', path: `/workspace/${workspaceId}` },
-    { id: 'settings', label: 'Configuración', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z', path: `/workspace/${workspaceId}/settings` },
+    { id: 'data', label: t('data'), icon: <Table2Columns width="1.25rem" height="1.25rem" />, path: `/workspace/${workspaceId}` },
+    { id: 'settings', label: t('settings'), icon: <SettingsIcon width="1.25rem" height="1.25rem" />, path: `/workspace/${workspaceId}/settings` },
   ]
 
   return (
@@ -182,9 +188,7 @@ function Sidebar({ user, onLogout, workspaceId }) {
             className={`sidebar-link ${pathname === link.path ? 'active' : ''}`}
             onClick={() => navigate(link.path)}
           >
-            <svg style={{ width: '1.25rem', height: '1.25rem', flexShrink: 0 }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={link.icon} />
-            </svg>
+            {link.icon}
             {link.label}
           </button>
         ))}
@@ -197,7 +201,7 @@ function Sidebar({ user, onLogout, workspaceId }) {
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: '0.875rem', color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {user?.email || 'Usuario'}
+              {user?.email || t('user_fallback')}
             </div>
             <div style={{ fontSize: '0.75rem', color: '#666' }}>
               {user?.role || 'user'}
@@ -209,10 +213,8 @@ function Sidebar({ user, onLogout, workspaceId }) {
           className="sidebar-link"
           style={{ marginTop: '0.5rem', fontSize: '0.8125rem', color: '#888', padding: '0.5rem 1rem' }}
         >
-          <svg style={{ width: '1rem', height: '1rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-          </svg>
-          Cerrar sesión
+          <LogOut width="1rem" height="1rem" />
+          {t('logout')}
         </button>
       </div>
     </div>
@@ -223,6 +225,7 @@ function Sidebar({ user, onLogout, workspaceId }) {
    DASHBOARD — workspace selector
    ═══════════════════════════════════════════ */
 function Dashboard({ user, onLogout }) {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [workspaces, setWorkspaces] = useState([])
   const [loading, setLoading] = useState(true)
@@ -252,7 +255,7 @@ function Dashboard({ user, onLogout }) {
       setWorkspaces(Array.isArray(res.data) ? res.data : [])
     } catch (err) {
       console.error(err)
-      notify('Error al crear workspace', 'error')
+      notify(t('error_create_workspace'), 'error')
     } finally {
       setCreating(false)
     }
@@ -261,31 +264,31 @@ function Dashboard({ user, onLogout }) {
   const renameWorkspace = async (id, currentName, e) => {
     e.stopPropagation()
     e.preventDefault()
-    const newName = prompt('Nuevo nombre:', currentName)
+    const newName = prompt(t('new_name_prompt'), currentName)
     if (!newName || newName.trim() === currentName) return
 
     try {
       await axios.put(`${API_URL}/workspaces/${id}`, { name: newName })
       setWorkspaces(prev => prev.map(w => w.id === id ? { ...w, name: newName } : w))
-      notify('Workspace renombrado', 'success')
+      notify(t('workspace_renamed'), 'success')
     } catch (err) {
       console.error(err)
-      notify('Error al renombrar', 'error')
+      notify(t('error_rename'), 'error')
     }
   }
 
   const deleteWorkspace = async (id, name, e) => {
     e.stopPropagation()
     e.preventDefault()
-    if (!confirm(`¿Seguro que querés borrar el workspace "${name}"?\nSe perderán todas las tablas y datos.`)) return
+    if (!confirm(t('confirm_delete_workspace', { name }))) return
 
     try {
       await axios.delete(`${API_URL}/workspaces/${id}`)
       setWorkspaces(prev => prev.filter(w => w.id !== id))
-      notify('Workspace eliminado', 'success')
+      notify(t('workspace_deleted'), 'success')
     } catch (err) {
       console.error(err)
-      notify('Error al eliminar workspace', 'error')
+      notify(t('error_delete_workspace'), 'error')
     }
   }
 
@@ -318,7 +321,7 @@ function Dashboard({ user, onLogout }) {
             {user?.email?.charAt(0).toUpperCase() || 'U'}
           </div>
           <button onClick={onLogout} className="btn btn-ghost btn-sm" style={{ fontSize: '0.8125rem' }}>
-            Salir
+            {t('logout')}
           </button>
         </div>
       </header>
@@ -329,28 +332,28 @@ function Dashboard({ user, onLogout }) {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem' }}>
             <div>
               <h1 style={{ fontSize: '2rem', fontWeight: 900, letterSpacing: '-0.03em', marginBottom: '0.25rem' }}>
-                Tus Workspaces
+                {t('your_workspaces')}
               </h1>
               <p style={{ color: 'var(--text-secondary)', fontSize: '1rem' }}>
-                Seleccioná un workspace para comenzar
+                {t('select_workspace_subtitle')}
               </p>
             </div>
             <Button onClick={() => setShowCreate(true)}>
-              + Nuevo workspace
+              {t('new_workspace_button')}
             </Button>
           </div>
 
           {workspaces.length === 0 ? (
             <div className="empty-state">
-              <div className="empty-icon">📁</div>
+              <div className="empty-icon"><Folder width="2rem" height="2rem" /></div>
               <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>
-                Sin workspaces
+                {t('no_workspaces')}
               </h3>
               <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-                Creá tu primer workspace para organizar tus datos
+                {t('create_first_workspace_hint')}
               </p>
               <Button onClick={() => setShowCreate(true)}>
-                + Crear workspace
+                {t('create_workspace_button')}
               </Button>
             </div>
           ) : (
@@ -374,24 +377,9 @@ function Dashboard({ user, onLogout }) {
                         position: 'absolute', top: '10px', right: '40px',
                         opacity: 0.6, hover: { opacity: 1 }, padding: '4px', zIndex: 10
                       }}
-                      title="Renombrar"
+                      title={t('rename')}
                     >
-                      <svg style={{ width: '1rem', height: '1rem', color: 'var(--text-secondary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                      </svg>
-                    </button>
-                    <button
-                      onClick={(e) => renameWorkspace(ws.id, ws.name, e)}
-                      className="btn btn-ghost btn-sm"
-                      style={{
-                        position: 'absolute', top: '10px', right: '40px',
-                        opacity: 0.6, hover: { opacity: 1 }, padding: '4px', zIndex: 10
-                      }}
-                      title="Renombrar"
-                    >
-                      <svg style={{ width: '1rem', height: '1rem', color: 'var(--text-secondary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                      </svg>
+                      <EditPencil width="1rem" height="1rem" style={{ color: 'var(--text-secondary)' }} />
                     </button>
                     <button
                       onClick={(e) => deleteWorkspace(ws.id, ws.name, e)}
@@ -400,11 +388,9 @@ function Dashboard({ user, onLogout }) {
                         position: 'absolute', top: '10px', right: '10px',
                         opacity: 0.6, hover: { opacity: 1 }, padding: '4px', zIndex: 10
                       }}
-                      title="Eliminar workspace"
+                      title={t('delete_workspace')}
                     >
-                      <svg style={{ width: '1rem', height: '1rem', color: 'var(--danger)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
+                      <Trash width="1rem" height="1rem" style={{ color: 'var(--danger)' }} />
                     </button>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
                       <div style={{
@@ -436,9 +422,9 @@ function Dashboard({ user, onLogout }) {
                       paddingTop: '0.75rem',
                       marginTop: '0.5rem',
                     }}>
-                      <Badge variant="primary">Workspace</Badge>
+                      <Badge variant="primary">{t('workspace_badge')}</Badge>
                       <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        Abrir →
+                        {t('open')} →
                       </span>
                     </div>
                   </div>
@@ -453,7 +439,7 @@ function Dashboard({ user, onLogout }) {
               >
                 <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
                   <div style={{ fontSize: '2rem', marginBottom: '0.25rem' }}>+</div>
-                  <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>Nuevo workspace</div>
+                  <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>{t('new_workspace_button')}</div>
                 </div>
               </div>
             </div>
@@ -466,29 +452,27 @@ function Dashboard({ user, onLogout }) {
         <div className="modal-overlay" onClick={() => setShowCreate(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3 className="modal-title">Nuevo Workspace</h3>
+              <h3 className="modal-title">{t('new_workspace_title')}</h3>
               <button className="btn btn-ghost btn-sm" onClick={() => setShowCreate(false)} style={{ borderRadius: '8px' }}>
-                <svg style={{ width: '1.25rem', height: '1.25rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <Xmark width="1.25rem" height="1.25rem" />
               </button>
             </div>
             <div className="modal-body">
               <div className="form-group">
-                <label className="form-label">Nombre</label>
+                <label className="form-label">{t('name')}</label>
                 <input
                   type="text"
                   className="form-input"
                   value={newName}
                   onChange={e => setNewName(e.target.value)}
-                  placeholder="Mi Empresa"
+                  placeholder={t('workspace_placeholder')}
                   autoFocus
                 />
               </div>
             </div>
             <div className="modal-footer">
-              <Button variant="secondary" onClick={() => setShowCreate(false)}>Cancelar</Button>
-              <Button onClick={handleCreate} loading={creating} disabled={!newName.trim()}>Crear</Button>
+              <Button variant="secondary" onClick={() => setShowCreate(false)}>{t('cancel')}</Button>
+              <Button onClick={handleCreate} loading={creating} disabled={!newName.trim()}>{t('create')}</Button>
             </div>
           </div>
         </div>
@@ -501,6 +485,7 @@ function Dashboard({ user, onLogout }) {
    WORKSPACE
    ═══════════════════════════════════════════ */
 function Workspace({ user, onLogout, workspaceProp }) {
+  const { t } = useTranslation()
   const { workspaceId } = useParams()
   const navigate = useNavigate()
   const [workspace, setWorkspace] = useState(workspaceProp || null)
@@ -539,7 +524,7 @@ function Workspace({ user, onLogout, workspaceProp }) {
       setTables(res.data)
     } catch (err) {
       console.error(err)
-      notify('Error al crear tabla', 'error')
+      notify(t('error_create_table'), 'error')
     } finally {
       setCreating(false)
     }
@@ -548,33 +533,33 @@ function Workspace({ user, onLogout, workspaceProp }) {
   const renameTable = async (id, currentName, e) => {
     e.stopPropagation()
     e.preventDefault()
-    const newName = prompt('Nuevo nombre:', currentName)
+    const newName = prompt(t('new_name_prompt'), currentName)
     if (!newName || newName.trim() === currentName) return
 
     try {
       const wsId = workspaceId || workspace?.id
       await axios.put(`${API_URL}/workspaces/${wsId}/tables/${id}`, { name: newName })
       setTables(prev => prev.map(t => t.id === id ? { ...t, name: newName } : t))
-      notify('Tabla renombrada', 'success')
+      notify(t('table_renamed'), 'success')
     } catch (err) {
       console.error(err)
-      notify('Error al renombrar', 'error')
+      notify(t('error_rename'), 'error')
     }
   }
 
   const deleteTable = async (id, name, e) => {
     e.stopPropagation()
     e.preventDefault()
-    if (!confirm(`¿Seguro que querés borrar la tabla "${name}"?\nSe perderán todos los datos.`)) return
+    if (!confirm(t('confirm_delete_table', { name }))) return
 
     try {
       const wsId = workspaceId || workspace?.id
       await axios.delete(`${API_URL}/workspaces/${wsId}/tables/${id}`)
       setTables(prev => prev.filter(t => t.id !== id))
-      notify('Tabla eliminada', 'success')
+      notify(t('table_deleted'), 'success')
     } catch (err) {
       console.error(err)
-      notify('Error al eliminar tabla', 'error')
+      notify(t('error_delete_table'), 'error')
     }
   }
 
@@ -602,7 +587,7 @@ function Workspace({ user, onLogout, workspaceProp }) {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem' }}>
               <div>
                 <h1 style={{ fontSize: '1.75rem', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '0.25rem' }}>
-                  {workspace?.name || 'Workspace'}
+                  {workspace?.name || t('workspace_badge')}
                 </h1>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', fontFamily: 'var(--font-mono)' }}>
                   @{workspace?.slug}
@@ -615,20 +600,20 @@ function Workspace({ user, onLogout, workspaceProp }) {
 
             {/* Tables section header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-              <h2 style={{ fontSize: '1.125rem', fontWeight: 700 }}>Tablas</h2>
+              <h2 style={{ fontSize: '1.125rem', fontWeight: 700 }}>{t('tables')}</h2>
               <Button size="sm" onClick={() => setShowCreateTable(true)}>
-                + Nueva tabla
+                {t('new_table_button')}
               </Button>
             </div>
 
             {/* Tables grid */}
             {tables.length === 0 ? (
               <div className="empty-state">
-                <div className="empty-icon">📋</div>
-                <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>Sin tablas todavía</h3>
-                <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>Creá tu primera tabla para organizar datos</p>
+                <div className="empty-icon"><ClipboardCheck width="2rem" height="2rem" /></div>
+                <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>{t('no_tables_yet')}</h3>
+                <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>{t('create_first_table_hint')}</p>
                 <Button onClick={() => setShowCreateTable(true)}>
-                  + Crear primera tabla
+                  {t('create_first_table_button')}
                 </Button>
               </div>
             ) : (
@@ -655,9 +640,7 @@ function Workspace({ user, onLogout, workspaceProp }) {
                           justifyContent: 'center',
                           border: '2px solid var(--primary)',
                         }}>
-                          <svg style={{ width: '1.25rem', height: '1.25rem', color: 'var(--primary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
-                          </svg>
+                          <Table2Columns width="1.25rem" height="1.25rem" style={{ color: 'var(--primary)' }} />
                         </div>
                         <div style={{ fontWeight: 700 }}>{table.name}</div>
                       </div>
@@ -672,24 +655,9 @@ function Workspace({ user, onLogout, workspaceProp }) {
                         position: 'absolute', top: '10px', right: '40px',
                         padding: '4px', opacity: 0.6
                       }}
-                      title="Renombrar"
+                      title={t('rename')}
                     >
-                      <svg style={{ width: '1rem', height: '1rem', color: 'var(--text-secondary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                      </svg>
-                    </button>
-                    <button
-                      onClick={(e) => renameTable(table.id, table.name, e)}
-                      className="btn btn-ghost btn-sm"
-                      style={{
-                        position: 'absolute', top: '10px', right: '40px',
-                        padding: '4px', opacity: 0.6
-                      }}
-                      title="Renombrar"
-                    >
-                      <svg style={{ width: '1rem', height: '1rem', color: 'var(--text-secondary)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                      </svg>
+                      <EditPencil width="1rem" height="1rem" style={{ color: 'var(--text-secondary)' }} />
                     </button>
                     <button
                       onClick={(e) => deleteTable(table.id, table.name, e)}
@@ -698,11 +666,9 @@ function Workspace({ user, onLogout, workspaceProp }) {
                         position: 'absolute', top: '10px', right: '10px',
                         padding: '4px', opacity: 0.6
                       }}
-                      title="Eliminar tabla"
+                      title={t('delete_table')}
                     >
-                      <svg style={{ width: '1rem', height: '1rem', color: 'var(--danger)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
+                      <Trash width="1rem" height="1rem" style={{ color: 'var(--danger)' }} />
                     </button>
                   </motion.div>
                 ))}
@@ -715,7 +681,7 @@ function Workspace({ user, onLogout, workspaceProp }) {
                 >
                   <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
                     <div style={{ fontSize: '1.75rem', marginBottom: '0.25rem' }}>+</div>
-                    <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>Nueva tabla</div>
+                    <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>{t('new_table_card_text')}</div>
                   </div>
                 </div>
               </div>
@@ -729,7 +695,7 @@ function Workspace({ user, onLogout, workspaceProp }) {
         <div className="modal-overlay" onClick={() => setShowCreateTable(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3 className="modal-title">Nueva Tabla</h3>
+              <h3 className="modal-title">{t('new_table_title')}</h3>
               <button className="btn btn-ghost btn-sm" onClick={() => setShowCreateTable(false)} style={{ borderRadius: '8px' }}>
                 <svg style={{ width: '1.25rem', height: '1.25rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -738,23 +704,23 @@ function Workspace({ user, onLogout, workspaceProp }) {
             </div>
             <div className="modal-body">
               <div className="form-group">
-                <label className="form-label">Nombre de la tabla</label>
+                <label className="form-label">{t('table_name_label')}</label>
                 <input
                   type="text"
                   className="form-input"
                   value={tableName}
                   onChange={e => setTableName(e.target.value)}
-                  placeholder="Ej: clientes, productos"
+                  placeholder={t('table_name_placeholder')}
                   autoFocus
                 />
                 <p className="form-hint">
-                  Se creará como: <code style={{ fontFamily: 'var(--font-mono)', background: 'var(--bg-surface)', padding: '0.125rem 0.375rem', borderRadius: '4px', fontSize: '0.8125rem' }}>{tableName.toLowerCase().replace(/\s+/g, '_') || '...'}</code>
+                  {t('will_be_created_as')} <code style={{ fontFamily: 'var(--font-mono)', background: 'var(--bg-surface)', padding: '0.125rem 0.375rem', borderRadius: '4px', fontSize: '0.8125rem' }}>{tableName.toLowerCase().replace(/\s+/g, '_') || '...'}</code>
                 </p>
               </div>
             </div>
             <div className="modal-footer">
-              <Button variant="secondary" onClick={() => setShowCreateTable(false)}>Cancelar</Button>
-              <Button onClick={handleCreateTable} loading={creating} disabled={!tableName.trim()}>Crear tabla</Button>
+              <Button variant="secondary" onClick={() => setShowCreateTable(false)}>{t('cancel')}</Button>
+              <Button onClick={handleCreateTable} loading={creating} disabled={!tableName.trim()}>{t('create_table_button')}</Button>
             </div>
           </div>
         </div>
@@ -767,6 +733,7 @@ function Workspace({ user, onLogout, workspaceProp }) {
    TABLE VIEW
    ═══════════════════════════════════════════ */
 function TableView() {
+  const { t } = useTranslation()
   const { workspaceId, tableId } = useParams()
   const navigate = useNavigate()
 
@@ -803,14 +770,14 @@ function TableView() {
   }
 
   const deleteRecord = async (id) => {
-    if (!confirm('¿Borrar este registro?')) return
+    if (!confirm(t('confirm_delete_record'))) return
     try {
       await axios.delete(`${API_URL}/workspaces/${workspaceId}/data/${table.slug}/${id}`)
       setRecords(prev => prev.filter(r => r.id !== id))
-      notify('Registro eliminado', 'success')
+      notify(t('record_deleted'), 'success')
     } catch (err) {
       console.error(err)
-      notify('Error al eliminar registro', 'error')
+      notify(t('error_delete_record'), 'error')
     }
   }
 
@@ -820,7 +787,7 @@ function TableView() {
       loadData()
     } catch (err) {
       console.error(err)
-      notify('Error al actualizar registro', 'error')
+      notify(t('error_update_record'), 'error')
     }
   }
 
@@ -829,11 +796,11 @@ function TableView() {
       await Promise.all(
         ids.map(id => axios.delete(`${API_URL}/workspaces/${workspaceId}/data/${table.slug}/${id}`))
       )
-      notify(`${ids.length} registro${ids.length > 1 ? 's' : ''} eliminado${ids.length > 1 ? 's' : ''}`, 'success')
+      notify(t('records_deleted'), 'success')
       loadData()
     } catch (err) {
       console.error(err)
-      notify('Error al eliminar registros', 'error')
+      notify(t('error_delete_records'), 'error')
     }
   }
 
@@ -850,10 +817,10 @@ function TableView() {
     try {
       await axios.delete(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}/columns/${columnId}`)
       loadData()
-      notify('Columna eliminada', 'success')
+      notify(t('column_deleted'), 'success')
     } catch (err) {
       console.error(err)
-      notify('Error al eliminar columna', 'error')
+      notify(t('error_delete_column'), 'error')
     }
   }
 
@@ -863,10 +830,10 @@ function TableView() {
         name: newName
       })
       loadData()
-      notify('Columna renombrada', 'success')
+      notify(t('column_renamed'), 'success')
     } catch (err) {
       console.error(err)
-      notify('Error al renombrar columna', 'error')
+      notify(t('error_rename_column'), 'error')
     }
   }
 
@@ -895,13 +862,13 @@ function TableView() {
             <svg style={{ width: '1.25rem', height: '1.25rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
-            Datos
+            {t('data')}
           </button>
           <button className="sidebar-link" onClick={() => navigate(`/workspace/${workspaceId}/settings`)}>
             <svg style={{ width: '1.25rem', height: '1.25rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
             </svg>
-            Configuración
+            {t('settings')}
           </button>
         </nav>
       </div>
@@ -915,7 +882,7 @@ function TableView() {
             className="btn btn-ghost btn-sm"
             style={{ marginBottom: '1.25rem' }}
           >
-            ← Volver
+            ← {t('back')}
           </button>
 
           {/* Table header */}
@@ -929,13 +896,13 @@ function TableView() {
               className={`tab ${activeTab === 'data' ? 'active' : ''}`}
               onClick={() => setActiveTab('data')}
             >
-              📊 Datos
+              📊 {t('data')}
             </button>
             <button
               className={`tab ${activeTab === 'columns' ? 'active' : ''}`}
               onClick={() => setActiveTab('columns')}
             >
-              📐 Columnas ({columns.length})
+              📐 {t('columns')} ({columns.length})
             </button>
           </div>
 
@@ -980,6 +947,7 @@ function TableView() {
    SETTINGS
    ═══════════════════════════════════════════ */
 function Settings() {
+  const { t } = useTranslation()
   const { workspaceId } = useParams()
   const navigate = useNavigate()
   const [activeSection, setActiveSection] = useState('roles')
@@ -1030,7 +998,7 @@ function Settings() {
       loadData()
     } catch (err) {
       console.error(err)
-      notify('Error al crear rol', 'error')
+      notify(t('error_create_role'), 'error')
     }
   }
 
@@ -1041,18 +1009,18 @@ function Settings() {
         name: newKeyName,
         expires_in_days: 365
       })
-      notify(`API Key: ${res.data.key}`, 'success')
+      notify(t('api_key_created', { key: res.data.key }), 'success')
       setShowCreateKey(false)
       setNewKeyName('')
       loadData()
     } catch (err) {
       console.error(err)
-      notify('Error al crear API key', 'error')
+      notify(t('error_create_api_key'), 'error')
     }
   }
 
   const deleteAPIKey = async (id) => {
-    if (confirm('¿Eliminar esta API key?')) {
+    if (confirm(t('confirm_delete_api_key'))) {
       try {
         await axios.delete(`${API_URL}/workspaces/${workspaceId}/keys/${id}`)
         loadData()
@@ -1066,10 +1034,10 @@ function Settings() {
     try {
       await axios.put(`${API_URL}/workspaces/${workspaceId}/roles/${roleId}`, { permissions })
       loadData()
-      notify('Permisos guardados', 'success')
+      notify(t('permissions_saved'), 'success')
     } catch (err) {
       console.error(err)
-      notify('Error al guardar permisos', 'error')
+      notify(t('error_save_permissions'), 'error')
     }
   }
 
@@ -1088,13 +1056,13 @@ function Settings() {
             <svg style={{ width: '1.25rem', height: '1.25rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
-            Datos
+            {t('data')}
           </button>
           <button className="sidebar-link active">
             <svg style={{ width: '1.25rem', height: '1.25rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
             </svg>
-            Configuración
+            {t('settings')}
           </button>
         </nav>
       </div>
@@ -1102,8 +1070,8 @@ function Settings() {
       {/* Main content */}
       <div className="main-content">
         <div className="main-body">
-          <h1 style={{ fontSize: '1.75rem', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '1.5rem' }}>
-            ⚙️ Configuración
+          <h1 style={{ fontSize: '1.75rem', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <Settings width="2rem" height="2rem" /> {t('settings')}
           </h1>
 
           {/* Tabs */}
@@ -1111,14 +1079,16 @@ function Settings() {
             <button
               className={`tab ${activeSection === 'roles' ? 'active' : ''}`}
               onClick={() => setActiveSection('roles')}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
             >
-              🔐 Roles de Seguridad
+              <ShieldCheck width="1rem" height="1rem" /> {t('security_roles')}
             </button>
             <button
               className={`tab ${activeSection === 'keys' ? 'active' : ''}`}
               onClick={() => setActiveSection('keys')}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
             >
-              🔑 API Keys
+              <Key width="1rem" height="1rem" /> {t('api_keys')}
             </button>
           </div>
 
@@ -1129,17 +1099,17 @@ function Settings() {
           ) : activeSection === 'roles' ? (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-                <p style={{ color: 'var(--text-secondary)' }}>Gestiona los roles y permisos de acceso</p>
+                <p style={{ color: 'var(--text-secondary)' }}>{t('manage_roles_desc')}</p>
                 <Button size="sm" onClick={() => setShowCreateRole(true)}>
-                  + Nuevo Rol
+                  {t('new_role')}
                 </Button>
               </div>
 
               {roles.length === 0 ? (
                 <div className="empty-state">
-                  <div className="empty-icon">🔐</div>
-                  <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>Sin roles</h3>
-                  <p style={{ color: 'var(--text-secondary)' }}>Creá roles para gestionar permisos</p>
+                  <div className="empty-icon"><ShieldCheck width="2rem" height="2rem" /></div>
+                  <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>{t('no_roles')}</h3>
+                  <p style={{ color: 'var(--text-secondary)' }}>{t('create_roles_hint')}</p>
                 </div>
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem' }}>
@@ -1147,10 +1117,10 @@ function Settings() {
                     <div key={role.id} className="card">
                       <div style={{ fontWeight: 700, marginBottom: '0.25rem' }}>{role.name}</div>
                       <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                        {role.description || 'Sin descripción'}
+                        {role.description || t('no_description')}
                       </div>
                       {role.is_default && (
-                        <Badge variant="primary" className="" style={{ marginTop: '0.75rem' }}>Default</Badge>
+                        <Badge variant="primary" className="" style={{ marginTop: '0.75rem' }}>{t('default')}</Badge>
                       )}
                     </div>
                   ))}
@@ -1168,17 +1138,17 @@ function Settings() {
           ) : (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-                <p style={{ color: 'var(--text-secondary)' }}>Genera claves para acceso programático</p>
+                <p style={{ color: 'var(--text-secondary)' }}>{t('generate_keys_desc')}</p>
                 <Button size="sm" onClick={() => setShowCreateKey(true)}>
-                  + Nueva API Key
+                  {t('new_api_key')}
                 </Button>
               </div>
 
               {apiKeys.length === 0 ? (
                 <div className="empty-state">
-                  <div className="empty-icon">🔑</div>
-                  <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>Sin API keys</h3>
-                  <p style={{ color: 'var(--text-secondary)' }}>Creá una key para usar la API</p>
+                  <div className="empty-icon"><Key width="2rem" height="2rem" /></div>
+                  <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>{t('no_api_keys')}</h3>
+                  <p style={{ color: 'var(--text-secondary)' }}>{t('create_key_hint')}</p>
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -1195,7 +1165,7 @@ function Settings() {
                         className="btn btn-ghost btn-sm"
                         style={{ color: 'var(--danger)' }}
                       >
-                        🗑️
+                        <Trash width="1rem" height="1rem" />
                       </button>
                     </div>
                   ))}
@@ -1211,25 +1181,27 @@ function Settings() {
         <div className="modal-overlay" onClick={() => setShowCreateRole(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3 className="modal-title">Nuevo Rol</h3>
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreateRole(false)} style={{ borderRadius: '8px' }}>✕</button>
+              <h3 className="modal-title">{t('new_role')}</h3>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreateRole(false)} style={{ borderRadius: '8px' }}>
+                <Xmark width="1.25rem" height="1.25rem" />
+              </button>
             </div>
             <div className="modal-body">
               <div className="form-group">
-                <label className="form-label">Nombre del rol</label>
+                <label className="form-label">{t('role_name')}</label>
                 <input
                   type="text"
                   className="form-input"
                   value={newRoleName}
                   onChange={e => setNewRoleName(e.target.value)}
-                  placeholder="Ej: editor, viewer"
+                  placeholder={t('role_placeholder')}
                   autoFocus
                 />
               </div>
             </div>
             <div className="modal-footer">
-              <Button variant="secondary" onClick={() => setShowCreateRole(false)}>Cancelar</Button>
-              <Button onClick={handleCreateRole} disabled={!newRoleName.trim()}>Crear</Button>
+              <Button variant="secondary" onClick={() => setShowCreateRole(false)}>{t('cancel')}</Button>
+              <Button onClick={handleCreateRole} disabled={!newRoleName.trim()}>{t('create')}</Button>
             </div>
           </div>
         </div>
@@ -1240,25 +1212,27 @@ function Settings() {
         <div className="modal-overlay" onClick={() => setShowCreateKey(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3 className="modal-title">Nueva API Key</h3>
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreateKey(false)} style={{ borderRadius: '8px' }}>✕</button>
+              <h3 className="modal-title">{t('new_api_key')}</h3>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreateKey(false)} style={{ borderRadius: '8px' }}>
+                <Xmark width="1.25rem" height="1.25rem" />
+              </button>
             </div>
             <div className="modal-body">
               <div className="form-group">
-                <label className="form-label">Nombre</label>
+                <label className="form-label">{t('name')}</label>
                 <input
                   type="text"
                   className="form-input"
                   value={newKeyName}
                   onChange={e => setNewKeyName(e.target.value)}
-                  placeholder="Ej: Mi App"
+                  placeholder={t('api_key_placeholder')}
                   autoFocus
                 />
               </div>
             </div>
             <div className="modal-footer">
-              <Button variant="secondary" onClick={() => setShowCreateKey(false)}>Cancelar</Button>
-              <Button onClick={handleCreateKey} disabled={!newKeyName.trim()}>Crear</Button>
+              <Button variant="secondary" onClick={() => setShowCreateKey(false)}>{t('cancel')}</Button>
+              <Button onClick={handleCreateKey} disabled={!newKeyName.trim()}>{t('create')}</Button>
             </div>
           </div>
         </div>

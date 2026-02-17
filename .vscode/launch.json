@@ -18,6 +18,7 @@
             "request": "launch",
             "command": "npm run dev",
             "cwd": "${workspaceFolder}/web/ui",
+            "preLaunchTask": "npm-install",
             "serverReadyAction": {
                 "pattern": "Local:.*(https?://\\S+)",
                 "uriFormat": "%s",

@@ -1,8 +1,10 @@
-
 import { motion, AnimatePresence } from 'framer-motion'
 import { useGlobalError } from '../context/ErrorContext'
+import { WarningTriangle } from 'iconoir-react'
+import { useTranslation } from 'react-i18next'
 
 export function ErrorModal() {
+  const { t } = useTranslation()
   const { error, isModalOpen, hideError } = useGlobalError()
 
   if (!isModalOpen || !error) return null
@@ -10,7 +12,7 @@ export function ErrorModal() {
   // Helper to safely stringify error details
   const getErrorDetails = () => {
     if (!error) return ''
-    
+
     const details = {
       message: error.message,
       code: error.code,
@@ -21,7 +23,7 @@ export function ErrorModal() {
       data: error.response?.data,
       stack: error.stack
     }
-    
+
     return JSON.stringify(details, null, 2)
   }
 
@@ -86,29 +88,29 @@ export function ErrorModal() {
                   justifyContent: 'center',
                   fontSize: '1.25rem'
                 }}>
-                  ⚠️
+                  <WarningTriangle width="1.5rem" height="1.5rem" />
                 </div>
                 <div>
-                  <h3 style={{ 
-                    fontSize: '1.125rem', 
-                    fontWeight: 700, 
+                  <h3 style={{
+                    fontSize: '1.125rem',
+                    fontWeight: 700,
                     color: '#991B1B',
                     margin: 0,
                     lineHeight: 1.2
                   }}>
-                    Error del Sistema
+                    {t('system_error')}
                   </h3>
-                  <p style={{ 
-                    fontSize: '0.875rem', 
-                    color: '#B91C1C', 
+                  <p style={{
+                    fontSize: '0.875rem',
+                    color: '#B91C1C',
                     margin: 0,
-                    marginTop: '0.125rem' 
+                    marginTop: '0.125rem'
                   }}>
                     {error.response?.status ? `Error ${error.response.status}` : 'Error desconocido'}
                   </p>
                 </div>
               </div>
-              <button 
+              <button
                 onClick={hideError}
                 style={{
                   background: 'transparent',
@@ -125,22 +127,22 @@ export function ErrorModal() {
 
             {/* Body */}
             <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1 }}>
-              <p style={{ 
-                fontSize: '1rem', 
+              <p style={{
+                fontSize: '1rem',
                 marginBottom: '1.5rem',
-                color: 'var(--text)' 
+                color: 'var(--text)'
               }}>
-                {error.message || 'Ha ocurrido un error inesperado.'}
+                {error.message || t('unexpected_error')}
               </p>
 
               <div style={{ marginBottom: '1.5rem' }}>
-                <label style={{ 
-                  display: 'block', 
-                  fontSize: '0.75rem', 
-                  fontWeight: 700, 
-                  textTransform: 'uppercase', 
+                <label style={{
+                  display: 'block',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
                   color: 'var(--text-secondary)',
-                  marginBottom: '0.5rem' 
+                  marginBottom: '0.5rem'
                 }}>
                   Detalles Técnicos
                 </label>
@@ -160,7 +162,7 @@ export function ErrorModal() {
                   </pre>
                 </div>
               </div>
-              
+
               {error.config?.url && (
                 <div style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
                   <span style={{ fontWeight: 600 }}>Endpoint:</span> {error.config.method?.toUpperCase()} {error.config.url}
@@ -184,13 +186,13 @@ export function ErrorModal() {
                   // TODO: Show a small "Copied" tooltip
                 }}
               >
-                Copiar error
+                {t('copy_error')}
               </button>
               <button
                 className="btn btn-danger"
                 onClick={hideError}
               >
-                Cerrar
+                {t('close')}
               </button>
             </div>
           </motion.div>

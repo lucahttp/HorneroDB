@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Button, Badge } from './index.jsx'
+import { Lock, Globe } from 'iconoir-react'
 
 const ACCESS_LEVELS = [
-  { value: 'all', label: 'Todas', color: 'success' },
-  { value: 'own', label: 'Propias', color: 'warning' },
-  { value: 'none', label: 'Ninguna', color: 'error' },
+  { value: 'all', color: 'success' },
+  { value: 'own', color: 'warning' },
+  { value: 'none', color: 'error' },
 ]
 
 /**
@@ -17,6 +18,7 @@ export function PermissionMatrix({
   roles = [],
   onSave,
 }) {
+  const { t } = useTranslation()
   const [selectedRole, setSelectedRole] = useState(roles[0]?.id || '')
   const [permissions, setPermissions] = useState({})
   const [saving, setSaving] = useState(false)
@@ -74,7 +76,7 @@ export function PermissionMatrix({
   if (roles.length === 0) {
     return (
       <div className="empty-state" style={{ padding: '2rem' }}>
-        <p style={{ color: 'var(--text-muted)' }}>Creá un rol para configurar permisos</p>
+        <p style={{ color: 'var(--text-muted)' }}>{t('create_role_hint')}</p>
       </div>
     )
   }
@@ -83,8 +85,8 @@ export function PermissionMatrix({
 
   return (
     <div style={{ marginTop: '2rem' }}>
-      <h2 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '1rem' }}>
-        🔒 Permisos por Tabla
+      <h2 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <Lock width="1.25rem" height="1.25rem" /> {t('table_permissions')}
       </h2>
 
       {/* Role selector */}
@@ -97,7 +99,7 @@ export function PermissionMatrix({
         >
           {roles.map(role => (
             <option key={role.id} value={role.id}>
-              {role.name} {role.is_default && '(Default)'}
+              {role.name} {role.is_default && `(${t('default')})`}
             </option>
           ))}
         </select>
@@ -109,17 +111,19 @@ export function PermissionMatrix({
             <table className="table">
               <thead>
                 <tr>
-                  <th>Tabla</th>
-                  <th>Crear</th>
-                  <th>Leer</th>
-                  <th>Actualizar</th>
-                  <th>Borrar</th>
+                  <th>{t('table')}</th>
+                  <th>{t('create')}</th>
+                  <th>{t('read')}</th>
+                  <th>{t('update')}</th>
+                  <th>{t('delete')}</th>
                 </tr>
               </thead>
               <tbody>
                 {/* Global wildcard row */}
                 <tr>
-                  <td style={{ fontWeight: 700 }}>🌐 Todas las tablas</td>
+                  <td style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Globe width="1rem" height="1rem" /> {t('all_tables')}
+                  </td>
                   {['create', 'read', 'update', 'delete'].map(action => (
                     <td key={action}>
                       <select
@@ -130,7 +134,7 @@ export function PermissionMatrix({
                       >
                         {ACCESS_LEVELS.map(level => (
                           <option key={level.value} value={level.value}>
-                            {level.label}
+                            {t(`access_level_${level.value}`)}
                           </option>
                         ))}
                       </select>
@@ -149,10 +153,10 @@ export function PermissionMatrix({
                           value={getPermission(table.slug, action)}
                           onChange={e => handlePermissionChange(table.slug, action, e.target.value)}
                         >
-                          <option value="inherit">Hereda</option>
+                          <option value="inherit">{t('inherit')}</option>
                           {ACCESS_LEVELS.map(level => (
                             <option key={level.value} value={level.value}>
-                              {level.label}
+                              {t(`access_level_${level.value}`)}
                             </option>
                           ))}
                         </select>
@@ -172,13 +176,13 @@ export function PermissionMatrix({
             justifyContent: 'space-between',
           }}>
             <div style={{ display: 'flex', gap: '1.5rem', fontSize: '0.8rem' }}>
-              <Badge variant="success">Todas — Acceso completo</Badge>
-              <Badge variant="warning">Propias — Solo registros propios</Badge>
-              <Badge variant="error">Ninguna — Sin acceso</Badge>
+              <Badge variant="success">{t('legend_all')}</Badge>
+              <Badge variant="warning">{t('legend_own')}</Badge>
+              <Badge variant="error">{t('legend_none')}</Badge>
             </div>
             {hasChanges && (
               <Button size="sm" onClick={handleSave} loading={saving}>
-                Guardar Cambios
+                {t('save_changes')}
               </Button>
             )}
           </div>
@@ -193,6 +197,7 @@ export function PermissionSelector({
   onChange,
   options = ACCESS_LEVELS
 }) {
+  const { t } = useTranslation()
   return (
     <select
       className="form-select"
@@ -202,7 +207,7 @@ export function PermissionSelector({
     >
       {options.map(option => (
         <option key={option.value} value={option.value}>
-          {option.label}
+          {t(`access_level_${option.value}`)}
         </option>
       ))}
     </select>
@@ -210,12 +215,13 @@ export function PermissionSelector({
 }
 
 export function PermissionBadge({ level }) {
+  const { t } = useTranslation()
   const config = ACCESS_LEVELS.find(l => l.value === level)
   if (!config) return null
 
   return (
     <Badge variant={config.color}>
-      {config.label}
+      {t(`access_level_${config.value}`)}
     </Badge>
   )
 }
