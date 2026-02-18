@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/base64"
 	"fmt"
 	"hornerodb/internal/config"
 	"hornerodb/internal/database"
@@ -68,57 +69,56 @@ func ImportUser(c *gin.Context) {
 	err := database.DB.Table("_hornero_users").Where("email = ?", input.Email).First(&user).Error
 
 	if err != nil {
-		// User not found locally - Try to fetch from PocketID?
-		// For now, we assume user must have logged in once OR we fetch from PocketID
-		// Let's try to fetch if we have PocketID Client configured
+		// User not found locally
 		cfg, _ := config.Load()
+
 		if cfg.Auth.PocketIDConfig.Enabled {
-			fmt.Printf("DEBUG: PocketID Enabled, searching for user: %s\n", input.Email)
+			fmt.Printf("DEBUG: PocketID Enabled, syncing user: %s\n", input.Email)
 			client := auth.NewPocketIDClient(&cfg.Auth.PocketIDConfig)
-			// List users by email? (using search)
+
+			// A. Try to find existing user in PocketID
 			pUsers, pErr := client.ListUsers(input.Email)
-			if pErr != nil {
-				fmt.Printf("DEBUG: PocketID ListUsers Error: %v\n", pErr)
-			} else {
-				fmt.Printf("DEBUG: PocketID Found users: %d\n", len(pUsers))
-			}
+			var pUser *auth.PocketIDUser
 
 			if pErr == nil && len(pUsers) > 0 {
-				// Pick the first match
-				pUser := pUsers[0]
-				// Create local user
-				user = metadata.User{
-					ID:    pUser.ID,
-					Email: pUser.Email,
-					Name:  pUser.FirstName + " " + pUser.LastName,
-				}
-				if err := database.DB.Table("_hornero_users").FirstOrCreate(&user).Error; err != nil {
-					c.JSON(500, gin.H{"error": "Failed to create user: " + err.Error()})
+				// Match found
+				pUser = &pUsers[0]
+				fmt.Printf("DEBUG: Found existing PocketID user: %s (ID: %s)\n", pUser.Username, pUser.ID)
+			} else {
+				// B. User does not exist in PocketID -> Create them
+				fmt.Printf("DEBUG: User not found in PocketID. Creating: %s\n", input.Email)
+
+				// Derive basic names from email for the invite
+				// email: "lucas@example.com" -> First: "lucas", Last: "User"
+				// This is a placeholder; user can update profile later in PocketID.
+				firstName := input.Email
+				lastName := "User"
+
+				createdUser, cErr := client.CreateUser(input.Email, firstName, lastName)
+				if cErr != nil {
+					c.JSON(500, gin.H{"error": "Failed to create user in PocketID: " + cErr.Error()})
 					return
 				}
-			} else {
-				// PocketID lookup failed or empty -> Create Invite Placeholder
-				fmt.Printf("DEBUG: PocketID lookup failed/empty. Creating placeholder for %s\n", input.Email)
-
-				// Check if email already exists
-				var existing metadata.User
-				if err := database.DB.Table("_hornero_users").Where("email = ?", input.Email).First(&existing).Error; err == nil {
-					user = existing
-				} else {
-					user = metadata.User{
-						ID:    uuid.New().String(),
-						Email: input.Email,
-						Name:  input.Email, // Temporary name
-					}
-					if err := database.DB.Table("_hornero_users").Create(&user).Error; err != nil {
-						c.JSON(500, gin.H{"error": "Failed to create invite user: " + err.Error()})
-						return
-					}
-				}
+				pUser = createdUser
+				fmt.Printf("DEBUG: Created PocketID user: %s (ID: %s)\n", pUser.Username, pUser.ID)
 			}
+
+			// Create local user record using PocketID's UUID
+			user = metadata.User{
+				ID:    pUser.ID,
+				Email: pUser.Email,
+				Name:  pUser.FirstName + " " + pUser.LastName,
+			}
+			if err := database.DB.Table("_hornero_users").FirstOrCreate(&user).Error; err != nil {
+				c.JSON(500, gin.H{"error": "Failed to sync local user: " + err.Error()})
+				return
+			}
+
 		} else {
-			// PocketID Disabled -> Create Invite Placeholder
-			fmt.Println("DEBUG: PocketID Integration NOT Enabled. Creating placeholder.")
+			// PocketID Disabled -> Legacy/Dev behavior
+			// We allow local creation for dev environments without OIDC
+			fmt.Println("DEBUG: PocketID Integration NOT Enabled. Creating local-only placeholder.")
+
 			var existing metadata.User
 			if err := database.DB.Table("_hornero_users").Where("email = ?", input.Email).First(&existing).Error; err == nil {
 				user = existing
@@ -159,11 +159,55 @@ func ImportUser(c *gin.Context) {
 		return
 	}
 
-	c.JSON(201, gin.H{"message": "User added", "user": user})
+	// Generate QR Code if PocketID is enabled
+	var qrCodeBase64 string
+	cfg, _ := config.Load()
+	if cfg.Auth.PocketIDConfig.Enabled {
+		client := auth.NewPocketIDClient(&cfg.Auth.PocketIDConfig)
+		// Generate 256x256 QR
+		qrBytes, err := client.GenerateLoginQR(256)
+		if err == nil {
+			qrCodeBase64 = base64.StdEncoding.EncodeToString(qrBytes)
+		} else {
+			fmt.Printf("Error generating QR: %v\n", err)
+		}
+	}
+
+	c.JSON(201, gin.H{
+		"message":           "User added",
+		"user":              user,
+		"qr_code":           qrCodeBase64, // Base64 PNG
+		"setup_instruction": "Scan to login. Ensure you have access to your email for first-time setup.",
+	})
 }
 
 // InviteUser creates a new user in PocketID and adds to workspace
 func InviteUser(c *gin.Context) {
 	// TODO: Implement Creation flow if needed
 	c.JSON(501, gin.H{"error": "Not implemented yet"})
+}
+
+// GetSystemLoginQR returns the QR code for the PocketID Login Portal
+// This is used for "recovery" or re-displaying the login link.
+func GetSystemLoginQR(c *gin.Context) {
+	cfg, _ := config.Load()
+	if !cfg.Auth.PocketIDConfig.Enabled {
+		c.JSON(400, gin.H{"error": "PocketID is not enabled"})
+		return
+	}
+
+	client := auth.NewPocketIDClient(&cfg.Auth.PocketIDConfig)
+	// Generate 256x256 QR
+	qrBytes, err := client.GenerateLoginQR(256)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to generate QR: " + err.Error()})
+		return
+	}
+
+	qrBase64 := base64.StdEncoding.EncodeToString(qrBytes)
+	c.JSON(200, gin.H{
+		"qr_code": qrBase64,
+		"url":     cfg.Auth.PocketIDConfig.IssuerURL,
+		"message": "Scan to access Login Portal",
+	})
 }

@@ -156,3 +156,14 @@ Invoke-WebRequest -UseBasicParsing -Uri "http://localhost:8080/api/v1/workspaces
 -Headers @{
   "Authorization"="key_6d1a2f07CiWF8NjD6QAFoLgr82NMmUIpS3F9jEJZ"
 }
+
+
+
+# RLS
+
+https://www.enterprisedb.com/postgres-tutorials/how-implement-column-and-row-level-security-postgresql
+
+
+Workspace Level ------
+
+AuthProviderUsers (Workspace table) <-> SystemUsers (Workspace table) <-> WorkspacesRoleAssignments (Workspace table) <-> Roles (Workspace table)

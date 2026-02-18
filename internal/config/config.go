@@ -42,6 +42,7 @@ type OIDCProvider struct {
 	ClientSecret string
 	IssuerURL    string
 	RedirectURL  string
+	APIKey       string
 }
 
 type S3Config struct {
@@ -98,6 +99,7 @@ func Load() (*Config, error) {
 				ClientSecret: getEnv("POCKETID_CLIENT_SECRET", ""),
 				IssuerURL:    getEnv("POCKETID_ISSUER_URL", ""),
 				RedirectURL:  getEnv("POCKETID_REDIRECT_URL", "http://localhost:8080/api/v1/auth/oidc/callback"),
+				APIKey:       getEnv("POCKETID_API_KEY", ""),
 			},
 		},
 		S3: S3Config{

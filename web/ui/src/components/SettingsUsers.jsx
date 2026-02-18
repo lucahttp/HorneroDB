@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Group, UserPlus, Trash, ShieldCheck } from 'iconoir-react'
+import { Group, UserPlus, Trash, ShieldCheck, QrCode } from 'iconoir-react'
 import axios from 'axios'
 import { Button, Badge, Modal, EmptyState, LoadingSpinner } from './index.jsx'
 
@@ -26,6 +26,10 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
     const [email, setEmail] = useState('')
     const [selectedRole, setSelectedRole] = useState('')
 
+    // QR Code State
+    const [qrCodeData, setQrCodeData] = useState(null)
+    const [showQrModal, setShowQrModal] = useState(false)
+
     useEffect(() => {
         loadUsers()
     }, [workspaceId])
@@ -48,7 +52,7 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
 
         setImporting(true)
         try {
-            await axios.post(`${API_URL}/workspaces/${workspaceId}/users`, {
+            const res = await axios.post(`${API_URL}/workspaces/${workspaceId}/users`, {
                 email: email,
                 role_id: selectedRole
             })
@@ -56,6 +60,13 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
             setShowImport(false)
             setEmail('')
             setSelectedRole('')
+
+            // Check for QR code in response
+            if (res.data.qr_code) {
+                setQrCodeData(res.data.qr_code)
+                setShowQrModal(true)
+            }
+
             loadUsers()
         } catch (err) {
             console.error(err)
@@ -77,6 +88,22 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
         } catch (err) {
             console.error(err)
             notify(t('error_remove_user'), 'error')
+        }
+    }
+
+    const handleShowQR = async () => {
+        try {
+            const res = await axios.get(`${API_URL}/auth/qr`)
+            if (res.data.qr_code) {
+                setQrCodeData(res.data.qr_code)
+                setShowQrModal(true)
+            } else {
+                notify(t('error_qr_code') || 'No se pudo obtener el QR', 'error')
+            }
+        } catch (err) {
+            console.error(err)
+            const msg = err.response?.data?.error || t('error_qr_code') || 'Error obteniendo QR'
+            notify(msg, 'error')
         }
     }
 
@@ -137,6 +164,14 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
                                     <td style={{ padding: '1rem', textAlign: 'right' }}>
                                         <button
                                             className="btn btn-ghost btn-sm"
+                                            onClick={() => handleShowQR()}
+                                            title={t('show_qr') || 'Ver QR'}
+                                            style={{ marginRight: '0.5rem' }}
+                                        >
+                                            <QrCode width="1rem" height="1rem" />
+                                        </button>
+                                        <button
+                                            className="btn btn-ghost btn-sm"
                                             style={{ color: 'var(--danger)' }}
                                             onClick={() => removeUser(user.id, user.name || user.email)}
                                             title={t('remove_user')}
@@ -194,6 +229,41 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
                                 <option key={r.id} value={r.id}>{r.name}</option>
                             ))}
                         </select>
+                    </div>
+                </Modal>
+            )}
+
+            {/* QR Code Modal */}
+            {showQrModal && (
+                <Modal
+                    isOpen={showQrModal}
+                    onClose={() => setShowQrModal(false)}
+                    title={t('qr_code_title') || 'Login QR Code'}
+                    footer={
+                        <Button onClick={() => setShowQrModal(false)}>{t('close') || 'Cerrar'}</Button>
+                    }
+                >
+                    <div style={{ textAlign: 'center', padding: '1rem' }}>
+                        <p style={{ marginBottom: '1rem', color: 'var(--text-secondary)' }}>
+                            {t('qr_code_desc') || 'Escanea este código para acceder rápidamente al portal de login.'}
+                        </p>
+                        {qrCodeData && (
+                            <img
+                                src={`data:image/png;base64,${qrCodeData}`}
+                                alt="Login QR Code"
+                                style={{
+                                    maxWidth: '100%',
+                                    height: 'auto',
+                                    borderRadius: '0.5rem',
+                                    border: '1px solid var(--border-color)',
+                                    display: 'block',
+                                    margin: '0 auto'
+                                }}
+                            />
+                        )}
+                        <p style={{ marginTop: '1rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                            {t('qr_code_note') || 'El usuario también recibirá las instrucciones por email si es la primera vez que ingresa.'}
+                        </p>
                     </div>
                 </Modal>
             )}

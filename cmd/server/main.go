@@ -148,6 +148,7 @@ func main() {
 		// === AUTH ===
 		protected.GET("/auth/me", api.GetCurrentUser)
 		protected.GET("/auth/permissions", api.GetMyPermissions)
+		protected.GET("/auth/qr", api.GetSystemLoginQR)
 	}
 
 	// === AUTH OIDC (public) ===

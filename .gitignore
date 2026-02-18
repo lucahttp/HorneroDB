@@ -196,3 +196,6 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+docs/HorneroDB API/
+test_output.txt
+

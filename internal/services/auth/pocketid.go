@@ -8,22 +8,26 @@ import (
 	"io"
 	"net/http"
 	"time"
-)
 
-type PocketIDClient struct {
-	BaseURL      string
-	ClientID     string
-	ClientSecret string
-	HTTPClient   *http.Client
-}
+	"github.com/skip2/go-qrcode"
+)
 
 func NewPocketIDClient(cfg *config.OIDCProvider) *PocketIDClient {
 	return &PocketIDClient{
 		BaseURL:      cfg.IssuerURL, // Assumes IssuerURL is base URL (e.g. https://auth.hornero.dev)
 		ClientID:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,
+		APIKey:       cfg.APIKey,
 		HTTPClient:   &http.Client{Timeout: 10 * time.Second},
 	}
+}
+
+type PocketIDClient struct {
+	BaseURL      string
+	ClientID     string
+	ClientSecret string
+	APIKey       string
+	HTTPClient   *http.Client
 }
 
 // PocketID User creation response (simplified)
@@ -39,22 +43,16 @@ type PocketIDUser struct {
 // Requires Admin Token or Client Credentials flow if supported.
 // PocketID Documentation says: POST /api/users
 func (c *PocketIDClient) CreateUser(email, firstName, lastName string) (*PocketIDUser, error) {
-	// 1. Get Access Token (Client Credentials)
-	// TODO: Implement Token Cache
-	token, err := c.getClientCredentialsToken()
-	if err != nil {
-		return nil, err
-	}
-
 	// 2. Create User
 	// Generate a random username or use email part
 	username := email // simplified
 
 	body := map[string]interface{}{
-		"email":     email,
-		"username":  username,
-		"firstName": firstName,
-		"lastName":  lastName,
+		"email":       email,
+		"username":    username,
+		"firstName":   firstName,
+		"lastName":    lastName,
+		"displayName": firstName + " " + lastName,
 		// "password": generateRandomPassword(), // Or let PocketID handle invites?
 		// PocketID might require password or send invite email.
 		// Assuming we can create without password or set a temp one.
@@ -66,7 +64,14 @@ func (c *PocketIDClient) CreateUser(email, firstName, lastName string) (*PocketI
 		return nil, err
 	}
 
-	req.Header.Set("Authorization", "Bearer "+token)
+	if c.APIKey != "" {
+		req.Header.Set("x-api-key", c.APIKey)
+	} else {
+		// Fallback to client credentials if no API key?
+		// For now, let's assume API Key is the way if configured.
+		// If not, we could try getting a token, but let's stick to the requested change.
+		return nil, fmt.Errorf("API Key is missing for PocketID")
+	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.HTTPClient.Do(req)
@@ -75,12 +80,16 @@ func (c *PocketIDClient) CreateUser(email, firstName, lastName string) (*PocketI
 	}
 	defer resp.Body.Close()
 
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	// Debug: Print full response check for setup links
+	fmt.Printf("DEBUG: Create User Response Body: %s\n", string(bodyBytes))
+
 	if resp.StatusCode != 201 && resp.StatusCode != 200 {
-		return nil, fmt.Errorf("failed to create user, status: %d", resp.StatusCode)
+		return nil, fmt.Errorf("failed to create user, status: %d, body: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	var user PocketIDUser
-	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+	if err := json.Unmarshal(bodyBytes, &user); err != nil {
 		return nil, err
 	}
 
@@ -90,10 +99,6 @@ func (c *PocketIDClient) CreateUser(email, firstName, lastName string) (*PocketI
 // ListUsers queries users from PocketID
 func (c *PocketIDClient) ListUsers(search string) ([]PocketIDUser, error) {
 	fmt.Println("DEBUG: PocketID ListUsers called with search:", search)
-	token, err := c.getClientCredentialsToken()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get token: %w", err)
-	}
 
 	url := c.BaseURL + "/api/users"
 	if search != "" {
@@ -105,7 +110,12 @@ func (c *PocketIDClient) ListUsers(search string) ([]PocketIDUser, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+
+	if c.APIKey != "" {
+		req.Header.Set("x-api-key", c.APIKey)
+	} else {
+		return nil, fmt.Errorf("API Key is missing for PocketID")
+	}
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
@@ -146,37 +156,17 @@ func (c *PocketIDClient) ListUsers(search string) ([]PocketIDUser, error) {
 	return users, nil
 }
 
-// Helper to get Client Credentials Token
-// This might need adjustment based on valid PocketID flows
-func (c *PocketIDClient) getClientCredentialsToken() (string, error) {
-	// If Client provides Admin API access directly via ClientSecret:
-	// POST /api/oidc/token with grant_type=client_credentials
+// GenerateLoginQR generates a QR code for the PocketID login page
+func (c *PocketIDClient) GenerateLoginQR(size int) ([]byte, error) {
+	if c.BaseURL == "" {
+		return nil, fmt.Errorf("PocketID BaseURL is not configured")
+	}
 
-	data := fmt.Sprintf("grant_type=client_credentials&client_id=%s&client_secret=%s&scope=users:read users:write", c.ClientID, c.ClientSecret)
-	// Scope might vary.
-
-	req, err := http.NewRequest("POST", c.BaseURL+"/api/oidc/token", bytes.NewBufferString(data))
+	// Generate QR code for the base URL (login page)
+	png, err := qrcode.Encode(c.BaseURL, qrcode.Medium, size)
 	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("failed to get client token, status: %d", resp.StatusCode)
+		return nil, fmt.Errorf("failed to generate QR code: %w", err)
 	}
 
-	var tokenResp struct {
-		AccessToken string `json:"access_token"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
-		return "", err
-	}
-
-	return tokenResp.AccessToken, nil
+	return png, nil
 }
