@@ -124,7 +124,7 @@ export function PermissionMatrix({
 
       {currentRole && (
         <>
-          <div className="table-container" style={{ overflowX: 'auto' }}>
+          <div className="table-container" style={{ overflow: 'visible' }}>
             <table className="table" style={{ minWidth: '800px' }}>
               <thead>
                 <tr>
@@ -171,7 +171,7 @@ export function PermissionMatrix({
                       const hasColumns = table.columns && table.columns.length > 0
 
                       return (
-                        <td key={action} style={{ position: 'relative', verticalAlign: 'top', paddingTop: '0.5rem' }}>
+                        <td key={action} style={{ position: 'relative', verticalAlign: 'top', paddingTop: '0.5rem', zIndex: isColsOpen ? 50 : 'auto' }}>
                           <select
                             className="form-select"
                             style={{ fontSize: '0.8rem', padding: '0.375rem 0.5rem', width: '100%' }}
@@ -185,10 +185,10 @@ export function PermissionMatrix({
                               </option>
                             ))}
                           </select>
-                          
+
                           {hasColumns && getPermission(table.slug, action) !== 'inherit' && getPermission(table.slug, action) !== 'none' && (
                             <div style={{ marginTop: '0.375rem' }}>
-                              <button 
+                              <button
                                 className="btn btn-sm btn-ghost"
                                 style={{ padding: '0.125rem 0.375rem', fontSize: '0.7rem', width: '100%', justifyContent: 'space-between' }}
                                 onClick={() => toggleColumns(table.slug, action)}
@@ -198,7 +198,7 @@ export function PermissionMatrix({
                                   {selectedCols.length === 0 ? 'All' : `${selectedCols.length}/${table.columns.length}`}
                                 </span>
                               </button>
-                              
+
                               {isColsOpen && (
                                 <div style={{
                                   position: 'absolute', zIndex: 50, top: '100%', left: 0, right: 0,
@@ -216,15 +216,15 @@ export function PermissionMatrix({
                                       const isChecked = selectedCols.includes(col.slug)
                                       return (
                                         <label key={col.slug} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', cursor: 'pointer', margin: 0 }}>
-                                          <input 
-                                            type="checkbox" 
+                                          <input
+                                            type="checkbox"
                                             style={{ margin: 0 }}
                                             checked={isChecked}
                                             onChange={(e) => {
                                               let newCols = [...selectedCols]
                                               if (e.target.checked) newCols.push(col.slug)
                                               else newCols = newCols.filter(c => c !== col.slug)
-                                              
+
                                               setPermissions(prev => ({
                                                 ...prev,
                                                 [table.slug]: {
@@ -242,9 +242,9 @@ export function PermissionMatrix({
                                       )
                                     })}
                                   </div>
-                                  <button 
-                                    className="btn btn-sm btn-ghost" 
-                                    style={{ marginTop: '0.25rem', fontSize: '0.75rem', padding: '0.25rem', width: '100%', justifyContent: 'center' }} 
+                                  <button
+                                    className="btn btn-sm btn-ghost"
+                                    style={{ marginTop: '0.25rem', fontSize: '0.75rem', padding: '0.25rem', width: '100%', justifyContent: 'center' }}
                                     onClick={() => toggleColumns(table.slug, action)}
                                   >
                                     Done
