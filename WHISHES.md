@@ -167,3 +167,19 @@ https://www.enterprisedb.com/postgres-tutorials/how-implement-column-and-row-lev
 Workspace Level ------
 
 AuthProviderUsers (Workspace table) <-> SystemUsers (Workspace table) <-> WorkspacesRoleAssignments (Workspace table) <-> Roles (Workspace table)
+
+
+
+
+# HorneroDB generated API Keys Security
+
+
+establish source website for the calls
+or source ip for the calls
+which website or ip is calling the api
+
+which columns can see from the tables
+which rows can see from the tables
+
+which actions can do from the tables
+

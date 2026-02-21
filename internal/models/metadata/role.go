@@ -15,12 +15,19 @@ const (
 	PermissionAll  PermissionLevel = "all"
 )
 
+type ColumnPermissions struct {
+	Read   []string `json:"read,omitempty"`
+	Create []string `json:"create,omitempty"`
+	Update []string `json:"update,omitempty"`
+	Delete []string `json:"delete,omitempty"`
+}
+
 type TablePermissions struct {
-	Create  PermissionLevel `json:"create"`
-	Read    PermissionLevel `json:"read"`
-	Update  PermissionLevel `json:"update"`
-	Delete  PermissionLevel `json:"delete"`
-	Columns []string        `json:"columns,omitempty"`
+	Create  PermissionLevel   `json:"create"`
+	Read    PermissionLevel   `json:"read"`
+	Update  PermissionLevel   `json:"update"`
+	Delete  PermissionLevel   `json:"delete"`
+	Columns ColumnPermissions `json:"columns,omitempty"`
 }
 
 type RolePermissions map[string]TablePermissions
@@ -69,15 +76,18 @@ func (u *UserRole) BeforeCreate(tx *gorm.DB) (err error) {
 
 // API Keys para acceso programático
 type APIKey struct {
-	ID          uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
-	WorkspaceID uuid.UUID  `gorm:"type:uuid;index" json:"workspace_id"`
-	Name        string     `gorm:"type:varchar(100);not null" json:"name"`
-	KeyHash     string     `gorm:"type:varchar(255);not null" json:"-"`
-	Prefix      string     `gorm:"type:varchar(20);not null" json:"prefix"`
-	RoleID      uuid.UUID  `gorm:"type:uuid" json:"role_id"`
-	LastUsedAt  *time.Time `json:"last_used_at"`
-	ExpiresAt   *time.Time `json:"expires_at"`
-	CreatedAt   time.Time  `json:"created_at"`
+	ID              uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
+	WorkspaceID     uuid.UUID  `gorm:"type:uuid;index" json:"workspace_id"`
+	Name            string     `gorm:"type:varchar(100);not null" json:"name"`
+	KeyHash         string     `gorm:"type:varchar(255);not null" json:"-"`
+	Prefix          string     `gorm:"type:varchar(20);not null" json:"prefix"`
+	RoleID          uuid.UUID  `gorm:"type:uuid" json:"role_id"`
+	LastUsedAt      *time.Time `json:"last_used_at"`
+	ExpiresAt       *time.Time `json:"expires_at"`
+	RateLimitPerMin *int       `json:"rate_limit_per_minute,omitempty"`              // Custom rate limit for this key
+	AllowedOrigins  []string   `gorm:"type:jsonb" json:"allowed_origins,omitempty"`  // Allowed origins for CORS
+	AllowedReferers []string   `gorm:"type:jsonb" json:"allowed_referers,omitempty"` // Allowed referer domains
+	CreatedAt       time.Time  `json:"created_at"`
 }
 
 func (a *APIKey) TableName() string {

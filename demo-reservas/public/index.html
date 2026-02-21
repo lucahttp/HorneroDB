@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reservas - Demo HorneroDB</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Reservas</h1>
+      <p class="subtitle">Demo HorneroDB - Peluquería</p>
+    </header>
+
+    <main>
+      <section class="filters">
+        <div class="form-group">
+          <label for="service">Servicio</label>
+          <select id="service" onchange="loadHorarios()">
+            <option value="">Cargando...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="date">Fecha</label>
+          <input type="date" id="date" onchange="loadHorarios()">
+        </div>
+      </section>
+
+      <section id="error" class="error" style="display: none;"></section>
+
+      <section class="horarios-section">
+        <h2>Horarios Disponibles</h2>
+        <div id="horarios" class="horarios-grid">
+          <p class="loading">Cargando horarios...</p>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Powered by <a href="https://hornerodb.com" target="_blank">HorneroDB</a></p>
+    </footer>
+  </div>
+
+  <!-- Modal de reserva -->
+  <div id="reserva-modal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <h3>Confirmar Reserva</h3>
+      <div id="reserva-details"></div>
+      <form id="reserva-form">
+        <div class="form-group">
+          <label for="cliente">Nombre</label>
+          <input type="text" id="cliente" required>
+        </div>
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input type="email" id="email" required>
+        </div>
+        <div class="form-group">
+          <label for="telefono">Teléfono</label>
+          <input type="tel" id="telefono" required>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Confirmar Reserva</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

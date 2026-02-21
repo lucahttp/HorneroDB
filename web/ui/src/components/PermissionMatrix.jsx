@@ -9,10 +9,8 @@ const ACCESS_LEVELS = [
   { value: 'none', color: 'error' },
 ]
 
-/**
- * Inline permission matrix — renders directly in the page (no modal).
- * Shows CRUD permissions per table for a selected role.
- */
+const OPERATIONS = ['read', 'create', 'update', 'delete']
+
 export function PermissionMatrix({
   workspaceId,
   tables = [],
@@ -23,17 +21,28 @@ export function PermissionMatrix({
   const [selectedRole, setSelectedRole] = useState(roles[0]?.id || '')
   const [permissions, setPermissions] = useState({})
   const [saving, setSaving] = useState(false)
+  const [editingColumns, setEditingColumns] = useState(null)
+  const [columnInput, setColumnInput] = useState('')
+  const [columnOperation, setColumnOperation] = useState('')
 
   const currentRole = roles.find(r => r.id === selectedRole)
   const rolePermissions = currentRole?.permissions || {}
 
   const getPermission = (tableSlug, action) => {
-    // Local edits override role defaults
     if (permissions[tableSlug]?.[action] !== undefined) {
       return permissions[tableSlug][action]
     }
     const tablePerm = rolePermissions[tableSlug] || rolePermissions['*']
     return tablePerm?.[action] || 'none'
+  }
+
+  const getColumns = (tableSlug, operation) => {
+    const perm = permissions[tableSlug]?.columns || {}
+    if (perm[operation] !== undefined) {
+      return perm[operation]
+    }
+    const tablePerm = rolePermissions[tableSlug] || rolePermissions['*']
+    return tablePerm?.columns?.[operation] || []
   }
 
   const handlePermissionChange = (tableSlug, action, value) => {
@@ -44,6 +53,28 @@ export function PermissionMatrix({
         [action]: value
       }
     }))
+  }
+
+  const openColumnEditor = (tableSlug, operation) => {
+    setEditingColumns(tableSlug)
+    setColumnOperation(operation)
+    setColumnInput(getColumns(tableSlug, operation).join(', '))
+  }
+
+  const saveColumnEditor = () => {
+    const cols = columnInput.split(',').map(c => c.trim()).filter(c => c)
+    setPermissions(prev => ({
+      ...prev,
+      [editingColumns]: {
+        ...(prev[editingColumns] || {}),
+        columns: {
+          ...(prev[editingColumns]?.columns || {}),
+          [columnOperation]: cols
+        }
+      }
+    }))
+    setEditingColumns(null)
+    setColumnOperation('')
   }
 
   const handleSave = async () => {
@@ -90,7 +121,6 @@ export function PermissionMatrix({
         <Lock width="1.25rem" height="1.25rem" /> {t('table_permissions')}
       </h2>
 
-      {/* Role selector */}
       <div className="form-group" style={{ maxWidth: '320px', marginBottom: '1rem' }}>
         <label className="form-label">Rol</label>
         <select
@@ -108,24 +138,23 @@ export function PermissionMatrix({
 
       {currentRole && (
         <>
-          <div className="table-container">
-            <table className="table">
+          <div className="table-container" style={{ overflowX: 'auto' }}>
+            <table className="table" style={{ minWidth: '800px' }}>
               <thead>
                 <tr>
-                  <th>{t('table')}</th>
-                  <th>{t('create')}</th>
-                  <th>{t('read')}</th>
-                  <th>{t('update')}</th>
-                  <th>{t('delete')}</th>
+                  <th style={{ minWidth: '120px' }}>{t('table')}</th>
+                  {OPERATIONS.map(op => (
+                    <th key={op} style={{ minWidth: '100px' }}>{t(op)}</th>
+                  ))}
+                  <th style={{ minWidth: '200px' }}>{t('columns_by_operation')}</th>
                 </tr>
               </thead>
               <tbody>
-                {/* Global wildcard row */}
                 <tr>
                   <td style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <Globe width="1rem" height="1rem" /> {t('all_tables')}
                   </td>
-                  {['create', 'read', 'update', 'delete'].map(action => (
+                  {OPERATIONS.map(action => (
                     <td key={action}>
                       <select
                         className="form-select"
@@ -141,12 +170,15 @@ export function PermissionMatrix({
                       </select>
                     </td>
                   ))}
+                  <td style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                    {t('wildcard_hint')}
+                  </td>
                 </tr>
 
                 {tables.map(table => (
                   <tr key={table.id}>
-                    <td>{table.name}</td>
-                    {['create', 'read', 'update', 'delete'].map(action => (
+                    <td style={{ fontWeight: 500 }}>{table.name}</td>
+                    {OPERATIONS.map(action => (
                       <td key={action}>
                         <select
                           className="form-select"
@@ -163,13 +195,67 @@ export function PermissionMatrix({
                         </select>
                       </td>
                     ))}
+                    <td>
+                      {editingColumns === table.slug ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                            {t('operation')}: <strong>{columnOperation}</strong>
+                          </div>
+                          <div style={{ display: 'flex', gap: '0.25rem' }}>
+                            <input
+                              type="text"
+                              className="form-input"
+                              style={{ fontSize: '0.7rem', padding: '0.25rem', flex: 1 }}
+                              value={columnInput}
+                              onChange={e => setColumnInput(e.target.value)}
+                              placeholder="col1, col2"
+                            />
+                            <button
+                              className="btn btn-sm"
+                              style={{ padding: '0.125rem 0.375rem', fontSize: '0.65rem' }}
+                              onClick={saveColumnEditor}
+                            >
+                              ✓
+                            </button>
+                            <button
+                              className="btn btn-sm"
+                              style={{ padding: '0.125rem 0.375rem', fontSize: '0.65rem' }}
+                              onClick={() => { setEditingColumns(null); setColumnOperation('') }}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.125rem' }}>
+                          {OPERATIONS.map(op => {
+                            const cols = getColumns(table.slug, op)
+                            return (
+                              <button
+                                key={op}
+                                className="btn btn-sm"
+                                style={{ 
+                                  padding: '0.125rem 0.375rem', 
+                                  fontSize: '0.65rem',
+                                  textAlign: 'left',
+                                  justifyContent: 'flex-start',
+                                  background: cols.length > 0 ? 'var(--bg-hover)' : 'transparent'
+                                }}
+                                onClick={() => openColumnEditor(table.slug, op)}
+                              >
+                                <span style={{ opacity: 0.6 }}>{op}:</span> {cols.length > 0 ? cols.join(', ') : t('configure')}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
 
-          {/* Legend + save */}
           <div style={{
             marginTop: '1rem',
             display: 'flex',

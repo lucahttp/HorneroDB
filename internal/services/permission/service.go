@@ -19,12 +19,19 @@ const (
 	AccessAll  AccessLevel = "all"
 )
 
+type ColumnPermissions struct {
+	Read   []string `json:"read,omitempty"`
+	Create []string `json:"create,omitempty"`
+	Update []string `json:"update,omitempty"`
+	Delete []string `json:"delete,omitempty"`
+}
+
 type TableAccess struct {
 	Create  AccessLevel
 	Read    AccessLevel
 	Update  AccessLevel
 	Delete  AccessLevel
-	Columns []string
+	Columns ColumnPermissions
 }
 
 func NewService() *Service {
@@ -51,7 +58,7 @@ func (s *Service) GetRolePermissions(workspaceID uuid.UUID, roleName string) (ma
 
 	var permMap map[string]interface{}
 	if err := json.Unmarshal(role.Permissions, &permMap); err != nil {
-		return result, nil // or error
+		return result, nil
 	}
 
 	for tableSlug, perms := range permMap {
@@ -65,7 +72,7 @@ func (s *Service) GetRolePermissions(workspaceID uuid.UUID, roleName string) (ma
 			Read:    getAccessLevel(permObj["read"]),
 			Update:  getAccessLevel(permObj["update"]),
 			Delete:  getAccessLevel(permObj["delete"]),
-			Columns: getColumns(permObj["columns"]),
+			Columns: parseColumnPermissions(permObj["columns"]),
 		}
 		result[tableSlug] = access
 	}
@@ -91,7 +98,25 @@ func getAccessLevel(value interface{}) AccessLevel {
 	}
 }
 
-func getColumns(value interface{}) []string {
+func parseColumnPermissions(value interface{}) ColumnPermissions {
+	if value == nil {
+		return ColumnPermissions{}
+	}
+
+	obj, ok := value.(map[string]interface{})
+	if !ok {
+		return ColumnPermissions{}
+	}
+
+	return ColumnPermissions{
+		Read:   getStringArray(obj["read"]),
+		Create: getStringArray(obj["create"]),
+		Update: getStringArray(obj["update"]),
+		Delete: getStringArray(obj["delete"]),
+	}
+}
+
+func getStringArray(value interface{}) []string {
 	if value == nil {
 		return nil
 	}
@@ -99,15 +124,13 @@ func getColumns(value interface{}) []string {
 	if !ok {
 		return nil
 	}
-	columns := make([]string, len(arr))
-	for i, v := range arr {
-		str, ok := v.(string)
-		if !ok {
-			continue
+	result := make([]string, 0, len(arr))
+	for _, v := range arr {
+		if str, ok := v.(string); ok {
+			result = append(result, str)
 		}
-		columns[i] = str
 	}
-	return columns
+	return result
 }
 
 func (s *Service) CheckTableAccess(workspaceID uuid.UUID, roleName, tableSlug, operation string) (AccessLevel, error) {
@@ -150,18 +173,42 @@ func (s *Service) CheckTableAccess(workspaceID uuid.UUID, roleName, tableSlug, o
 	return AccessNone, nil
 }
 
-func (s *Service) GetAllowedColumns(workspaceID uuid.UUID, roleName, tableSlug string) ([]string, error) {
+func (s *Service) GetColumnsForOperation(workspaceID uuid.UUID, roleName, tableSlug, operation string) ([]string, error) {
 	perms, err := s.GetRolePermissions(workspaceID, roleName)
 	if err != nil {
 		return nil, err
 	}
 
+	// Check wildcard first
+	if wildCardPerm, ok := perms["*"]; ok {
+		return wildCardPerm.Columns.GetColumns(operation), nil
+	}
+
+	// Check specific table
 	tablePerm, ok := perms[tableSlug]
 	if !ok {
 		return nil, nil
 	}
 
-	return tablePerm.Columns, nil
+	return tablePerm.Columns.GetColumns(operation), nil
+}
+
+func (cp ColumnPermissions) GetColumns(operation string) []string {
+	switch operation {
+	case "read":
+		return cp.Read
+	case "create":
+		return cp.Create
+	case "update":
+		return cp.Update
+	case "delete":
+		return cp.Delete
+	}
+	return nil
+}
+
+func (s *Service) GetAllowedColumns(workspaceID uuid.UUID, roleName, tableSlug string) ([]string, error) {
+	return s.GetColumnsForOperation(workspaceID, roleName, tableSlug, "read")
 }
 
 func (s *Service) BuildRowFilter(accessLevel AccessLevel, userID string) *gorm.DB {

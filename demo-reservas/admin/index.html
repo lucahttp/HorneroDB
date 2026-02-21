@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin - Demo HorneroDB</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+      <!-- Login View -->
+    <div id="login-view">
+      <header>
+        <h1>Admin</h1>
+        <p class="subtitle">Gestión de Turnos</p>
+      </header>
+
+      <main>
+        <div class="login-form">
+          <p style="margin-bottom: 1rem; font-size: 0.9rem; color: #666;">
+            Ingresa con tu cuenta de HorneroDB (PocketID)
+          </p>
+          <div class="form-group">
+            <label for="email">Email</label>
+            <input type="email" id="email" placeholder="tu@email.com">
+          </div>
+          <button type="button" class="btn btn-primary btn-block" onclick="startOIDCLogin()">
+            Iniciar Sesión con PocketID
+          </button>
+          <hr style="margin: 1.5rem 0; border: none; border-top: 1px solid #e5e5e5;">
+          <p style="margin-bottom: 0.5rem; font-size: 0.85rem; color: #666;">
+            ¿Ya tienes un token?
+          </p>
+          <button type="button" class="btn btn-secondary btn-block" onclick="showTokenInput()">
+            Ingresar Token
+          </button>
+          <div id="token-input" style="display: none; margin-top: 1rem;">
+            <div class="form-group">
+              <label for="token">Token JWT</label>
+              <input type="text" id="token" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
+            </div>
+            <button type="button" class="btn btn-primary btn-block" onclick="handleTokenLogin()">
+              Validar Token
+            </button>
+          </div>
+          <p id="login-error" class="error" style="display: none;"></p>
+        </div>
+      </main>
+    </div>
+
+    <!-- Dashboard View -->
+    <div id="dashboard-view" style="display: none;">
+      <header>
+        <div class="header-row">
+          <h1>Admin - Turnos</h1>
+          <button id="logout-btn" class="btn btn-secondary">Cerrar Sesión</button>
+        </div>
+        <p class="subtitle" id="user-info"></p>
+      </header>
+
+      <nav class="tabs">
+        <button class="tab active" data-tab="turnos">Turnos</button>
+        <button class="tab" data-tab="servicios">Servicios</button>
+      </nav>
+
+      <main>
+        <!-- Turnos Tab -->
+        <div id="tab-turnos" class="tab-content">
+          <div class="section-header">
+            <h2>Turnos</h2>
+          </div>
+          <div id="turnos-list" class="table-container">
+            <p class="loading">Cargando...</p>
+          </div>
+        </div>
+
+        <!-- Servicios Tab -->
+        <div id="tab-servicios" class="tab-content" style="display: none;">
+          <div class="section-header">
+            <h2>Servicios y Precios</h2>
+            <button class="btn btn-primary" onclick="showAddServicio()">+ Nuevo Servicio</button>
+          </div>
+          <div id="servicios-list" class="table-container">
+            <p class="loading">Cargando...</p>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Edit Servicio Modal -->
+    <div id="servicio-modal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <h3 id="modal-title">Editar Servicio</h3>
+        <form id="servicio-form">
+          <input type="hidden" id="servicio-id">
+          <div class="form-group">
+            <label for="servicio-nombre">Nombre</label>
+            <input type="text" id="servicio-nombre" required>
+          </div>
+          <div class="form-group">
+            <label for="servicio-precio">Precio ($)</label>
+            <input type="number" id="servicio-precio" required min="0">
+          </div>
+          <div class="form-group">
+            <label for="servicio-duracion">Duración (minutos)</label>
+            <input type="number" id="servicio-duracion" required min="15" step="15">
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn btn-secondary" onclick="closeServicioModal()">Cancelar</button>
+            <button type="submit" class="btn btn-primary">Guardar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <footer>
+      <p>Powered by <a href="https://hornerodb.com" target="_blank">HorneroDB</a></p>
+    </footer>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

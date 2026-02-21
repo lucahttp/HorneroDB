@@ -745,8 +745,13 @@ function TableView() {
   const [table, setTable] = useState(null)
   const [columns, setColumns] = useState([])
   const [records, setRecords] = useState([])
+  const [roles, setRoles] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('data')
+
+  const [showConfig, setShowConfig] = useState(false)
+  const [configRole, setConfigRole] = useState('')
+  const [rolePermissions, setRolePermissions] = useState(null)
 
   useEffect(() => {
     loadData()
@@ -754,12 +759,14 @@ function TableView() {
 
   const loadData = async () => {
     try {
-      const [tableRes, columnsRes] = await Promise.all([
+      const [tableRes, columnsRes, rolesRes] = await Promise.all([
         axios.get(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}`),
-        axios.get(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}/columns`)
+        axios.get(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}/columns`),
+        axios.get(`${API_URL}/workspaces/${workspaceId}/roles`)
       ])
       setTable(tableRes.data)
       setColumns(columnsRes.data)
+      setRoles(rolesRes.data)
 
       const recordsRes = await axios.get(`${API_URL}/workspaces/${workspaceId}/data/${tableRes.data.slug}`)
       setRecords(recordsRes.data.data || [])
@@ -767,6 +774,62 @@ function TableView() {
       console.error(err)
     }
     setLoading(false)
+  }
+
+  const openConfigContext = () => {
+    setConfigRole('')
+    setRolePermissions(null)
+    setShowConfig(true)
+  }
+
+  const handleRoleSelect = (roleId) => {
+    setConfigRole(roleId)
+    const role = roles.find(r => r.id === roleId)
+    if (role && role.permissions && role.permissions[table.slug]) {
+      setRolePermissions(role.permissions[table.slug])
+    } else {
+      setRolePermissions({ create: 'none', read: 'none', update: 'none', delete: 'none', columns: [] })
+    }
+  }
+
+  const handleToggleColumnConfig = (colSlug) => {
+    setRolePermissions(prev => {
+      const currentCols = prev?.columns || []
+      const isSelected = currentCols.includes(colSlug) || currentCols.includes('*')
+
+      let nextCols
+      if (currentCols.includes('*')) {
+        nextCols = columns.map(c => c.slug).filter(s => s !== colSlug)
+      } else if (isSelected) {
+        nextCols = currentCols.filter(c => c !== colSlug)
+      } else {
+        nextCols = [...currentCols, colSlug]
+      }
+      return { ...prev, columns: nextCols }
+    })
+  }
+
+  const handleSaveConfig = async () => {
+    if (!configRole) return
+    const role = roles.find(r => r.id === configRole)
+    if (!role) return
+
+    try {
+      const updatedPermissions = {
+        ...(role.permissions || {}),
+        [table.slug]: rolePermissions
+      }
+
+      await axios.put(`${API_URL}/workspaces/${workspaceId}/roles/${role.id}`, {
+        permissions: updatedPermissions
+      })
+      notify(t('permissions_saved') || 'Config saved', 'success')
+      setShowConfig(false)
+      loadData()
+    } catch (err) {
+      console.error(err)
+      notify(t('error_save_permissions') || 'Error', 'error')
+    }
   }
 
   const handleCreateRecord = async (data) => {
@@ -893,6 +956,10 @@ function TableView() {
           {/* Table header */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
             <h1 style={{ fontSize: '1.75rem', fontWeight: 800, letterSpacing: '-0.02em' }}>{table?.name}</h1>
+            <Button size="sm" variant="secondary" onClick={openConfigContext} style={{ gap: '0.5rem', display: 'flex', alignItems: 'center' }}>
+              <svg width="1.25rem" height="1.25rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /></svg>
+              {t('settings') || 'Config'}
+            </Button>
           </div>
 
           {/* Tabs */}
@@ -943,6 +1010,52 @@ function TableView() {
         </div>
       </div>
 
+      {showConfig && (
+        <div className="modal-overlay" onClick={() => setShowConfig(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">{t('table')} {t('settings') || 'Settings'}</h3>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowConfig(false)}>
+                <svg width="1.25rem" height="1.25rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label className="form-label">{t('role_label') || 'Role'}</label>
+                <select className="form-select" value={configRole} onChange={e => handleRoleSelect(e.target.value)}>
+                  <option value="">{t('select_role') || 'Select...'}</option>
+                  {roles.map(r => <option key={r.id} value={r.id}>{r.name} {r.is_default ? `(${t('default') || 'Default'})` : ''}</option>)}
+                </select>
+              </div>
+
+              {configRole && rolePermissions && (
+                <div className="form-group" style={{ marginTop: '1rem' }}>
+                  <label className="form-label">{t('visible_columns') || 'Visible Columns'}</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', background: 'var(--bg-surface)', padding: '1rem', borderRadius: '8px', maxHeight: '200px', overflowY: 'auto' }}>
+                    {columns.map(col => {
+                      const isChecked = rolePermissions.columns?.includes('*') || rolePermissions.columns?.includes(col.slug)
+                      return (
+                        <label key={col.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.875rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => handleToggleColumnConfig(col.slug)}
+                          />
+                          {col.name} <code style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{col.slug}</code>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <Button variant="secondary" onClick={() => setShowConfig(false)}>{t('cancel') || 'Cancel'}</Button>
+              <Button onClick={handleSaveConfig} disabled={!configRole}>{t('save_changes') || 'Save'}</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   )
@@ -955,7 +1068,11 @@ function Settings() {
   const { t } = useTranslation()
   const { workspaceId } = useParams()
   const navigate = useNavigate()
-  const [activeSection, setActiveSection] = useState('roles')
+  const [activeSection, setActiveSection] = useState('general')
+  const [workspace, setWorkspace] = useState(null)
+  const [rateLimit, setRateLimit] = useState(60)
+  const [allowedOrigins, setAllowedOrigins] = useState('')
+  const [savingGeneral, setSavingGeneral] = useState(false)
   const [roles, setRoles] = useState([])
   const [tables, setTables] = useState([])
   const [apiKeys, setAPIKeys] = useState([])
@@ -974,6 +1091,14 @@ function Settings() {
   const loadData = async () => {
     setLoading(true)
     try {
+      if (!workspace) {
+        const wsRes = await axios.get(`${API_URL}/workspaces/${workspaceId}`)
+        setWorkspace(wsRes.data)
+        const st = wsRes.data.settings || {}
+        setRateLimit(st.rate_limit_per_minute ?? 60)
+        setAllowedOrigins((st.allowed_origins || []).join(', '))
+      }
+
       if (activeSection === 'roles') {
         const [rolesRes, tablesRes] = await Promise.all([
           axios.get(`${API_URL}/workspaces/${workspaceId}/roles`),
@@ -989,6 +1114,32 @@ function Settings() {
       console.error(err)
     }
     setLoading(false)
+  }
+
+  const handleSaveGeneral = async () => {
+    setSavingGeneral(true)
+    try {
+      const originsArray = allowedOrigins.split(',')
+        .map(o => o.trim())
+        .filter(o => o.length > 0)
+
+      const newSettings = {
+        ...(workspace?.settings || {}),
+        rate_limit_per_minute: Number(rateLimit),
+        allowed_origins: originsArray
+      }
+
+      await axios.put(`${API_URL}/workspaces/${workspaceId}`, {
+        settings: newSettings
+      })
+      notify(t('settings_saved') || 'Settings saved', 'success')
+      const wsRes = await axios.get(`${API_URL}/workspaces/${workspaceId}`)
+      setWorkspace(wsRes.data)
+    } catch (err) {
+      console.error(err)
+      notify(t('error_save_settings') || 'Error fetching', 'error')
+    }
+    setSavingGeneral(false)
   }
 
   const handleCreateRole = async () => {
@@ -1085,6 +1236,13 @@ function Settings() {
           {/* Tabs */}
           <div className="tabs">
             <button
+              className={`tab ${activeSection === 'general' ? 'active' : ''}`}
+              onClick={() => setActiveSection('general')}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+            >
+              <SettingsIcon width="1rem" height="1rem" /> {t('general') || 'General'}
+            </button>
+            <button
               className={`tab ${activeSection === 'users' ? 'active' : ''}`}
               onClick={() => setActiveSection('users')}
               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
@@ -1110,6 +1268,39 @@ function Settings() {
           {loading ? (
             <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem 0' }}>
               <div className="loading-spinner" />
+            </div>
+          ) : activeSection === 'general' ? (
+            <div className="card" style={{ maxWidth: '600px' }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '1rem' }}>{t('workspace_security') || 'Workspace Security'}</h2>
+
+              <div className="form-group">
+                <label className="form-label">{t('rate_limit') || 'Rate Limit (Requests per minute per user)'}</label>
+                <input
+                  type="number"
+                  className="form-input"
+                  value={rateLimit}
+                  onChange={e => setRateLimit(e.target.value)}
+                  min="0"
+                />
+                <p className="form-hint" style={{ marginTop: '0.25rem' }}>{t('rate_limit_hint') || 'Set to 0 to disable. Useful for protecting public endpoints.'}</p>
+              </div>
+
+              <div className="form-group" style={{ marginTop: '1.5rem' }}>
+                <label className="form-label">{t('allowed_origins') || 'Allowed Origins (CORS)'}</label>
+                <textarea
+                  className="form-input"
+                  value={allowedOrigins}
+                  onChange={e => setAllowedOrigins(e.target.value)}
+                  placeholder="https://example.com, https://app.example.com"
+                  rows={3}
+                  style={{ fontFamily: 'var(--font-mono)' }}
+                />
+                <p className="form-hint" style={{ marginTop: '0.25rem' }}>{t('allowed_origins_hint') || 'Comma separated domains. Use * to allow all (not recommended context). Empty allows any Origin without enforcing.'}</p>
+              </div>
+
+              <Button onClick={handleSaveGeneral} loading={savingGeneral} style={{ marginTop: '1rem' }}>
+                {t('save_changes') || 'Save Changes'}
+              </Button>
             </div>
           ) : activeSection === 'users' ? (
             <SettingsUsers workspaceId={workspaceId} roles={roles} notify={notify} />

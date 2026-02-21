@@ -61,6 +61,13 @@ func ListRecords(c *gin.Context) {
 		return
 	}
 
+	allowedColumns, _ := permService.GetColumnsForOperation(wsID, roleName, tableSlug, "read")
+	if allowedColumns != nil {
+		for _, record := range records {
+			filterRecordColumns(record, allowedColumns)
+		}
+	}
+
 	c.JSON(200, gin.H{
 		"data":   records,
 		"limit":  limit,
@@ -103,6 +110,11 @@ func CreateRecord(c *gin.Context) {
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
+	}
+
+	writableColumns, _ := permService.GetColumnsForOperation(wsID, roleName, tableSlug, "create")
+	if writableColumns != nil {
+		input = filterInputColumns(input, writableColumns)
 	}
 
 	input["created_by"] = userID
@@ -161,6 +173,11 @@ func GetRecord(c *gin.Context) {
 		return
 	}
 
+	allowedColumns, _ := permService.GetColumnsForOperation(wsID, roleName, tableSlug, "read")
+	if allowedColumns != nil {
+		filterRecordColumns(record, allowedColumns)
+	}
+
 	c.JSON(200, record)
 }
 
@@ -206,6 +223,11 @@ func UpdateRecord(c *gin.Context) {
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
+	}
+
+	writableColumns, _ := permService.GetColumnsForOperation(wsID, roleName, tableSlug, "update")
+	if writableColumns != nil {
+		input = filterInputColumns(input, writableColumns)
 	}
 
 	result := query.Updates(input)
@@ -272,4 +294,48 @@ func DeleteRecord(c *gin.Context) {
 	}
 
 	c.JSON(200, gin.H{"message": "deleted"})
+}
+
+func filterRecordColumns(record map[string]interface{}, allowedColumns []string) {
+	allowedMap := make(map[string]bool)
+	for _, col := range allowedColumns {
+		if col == "*" {
+			return
+		}
+		allowedMap[col] = true
+	}
+
+	allowedMap["id"] = true
+	allowedMap["created_at"] = true
+	allowedMap["updated_at"] = true
+	allowedMap["created_by"] = true
+
+	for key := range record {
+		if !allowedMap[key] {
+			delete(record, key)
+		}
+	}
+}
+
+func filterInputColumns(input map[string]interface{}, allowedColumns []string) map[string]interface{} {
+	if len(allowedColumns) == 0 {
+		return input
+	}
+
+	allowedMap := make(map[string]bool)
+	for _, col := range allowedColumns {
+		if col == "*" {
+			return input
+		}
+		allowedMap[col] = true
+	}
+
+	filtered := make(map[string]interface{})
+	for key, value := range input {
+		if allowedMap[key] {
+			filtered[key] = value
+		}
+	}
+
+	return filtered
 }

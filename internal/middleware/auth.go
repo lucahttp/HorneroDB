@@ -120,6 +120,10 @@ func setAPIKeyContext(c *gin.Context, apiKey *metadata.APIKey) {
 	c.Set("role", getRoleFromAPIKey(apiKey.RoleID))
 	c.Set("auth_source", "apikey")
 	c.Set("api_key_id", apiKey.ID.String())
+	// Store API key rate limit and origins in context for later use
+	c.Set("api_key_rate_limit", apiKey.RateLimitPerMin)
+	c.Set("api_key_allowed_origins", apiKey.AllowedOrigins)
+	c.Set("api_key_allowed_referers", apiKey.AllowedReferers)
 }
 
 func getRoleFromAPIKey(roleID uuid.UUID) string {

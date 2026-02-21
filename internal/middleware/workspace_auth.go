@@ -25,6 +25,16 @@ func WorkspaceAuth() gin.HandlerFunc {
 			return
 		}
 
+		var workspace metadata.Workspace
+		if err := database.DB.Table("_hornero_workspaces").
+			Where("id = ?", workspaceID).
+			First(&workspace).Error; err != nil {
+			c.JSON(404, gin.H{"error": "workspace not found"})
+			c.Abort()
+			return
+		}
+		c.Set("workspace", &workspace)
+
 		// Get user ID from context (set by AuthRequired)
 		userID := GetUserID(c)
 		authSource := GetAuthSource(c)
@@ -55,20 +65,14 @@ func WorkspaceAuth() gin.HandlerFunc {
 		}
 
 		// FIRST: Check if user is the owner of the workspace - give full access
-		var workspace metadata.Workspace
-		if err := database.DB.Table("_hornero_workspaces").
-			Where("id = ?", workspaceID).
-			First(&workspace).Error; err == nil {
-			// Debug: print what we're comparing
-			fmt.Printf("DEBUG WorkspaceAuth: userID=%s, ownerID=%s, workspaceID=%s\n", userID, workspace.OwnerID.String(), workspaceIDStr)
+		fmt.Printf("DEBUG WorkspaceAuth: userID=%s, ownerID=%s, workspaceID=%s\n", userID, workspace.OwnerID.String(), workspaceIDStr)
 
-			if workspace.OwnerID.String() == userID {
-				// User is the owner - grant admin access
-				c.Set("role", "admin")
-				c.Set("is_owner", true)
-				c.Next()
-				return
-			}
+		if workspace.OwnerID.String() == userID {
+			// User is the owner - grant admin access
+			c.Set("role", "admin")
+			c.Set("is_owner", true)
+			c.Next()
+			return
 		}
 
 		// SECOND: Check if user has a role assigned in this workspace

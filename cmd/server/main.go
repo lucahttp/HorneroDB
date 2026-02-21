@@ -65,7 +65,7 @@ func main() {
 
 	// CORS middleware - allow Authorization header
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:5173", "http://localhost:3000"},
+		AllowOriginFunc:  func(origin string) bool { return true },
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
@@ -93,6 +93,7 @@ func main() {
 		// Routes that REQUIRE workspace authorization (checking ownership/roles internally)
 		workspaceGroup := protected.Group("/workspaces/:workspace_id")
 		workspaceGroup.Use(middleware.WorkspaceAuth())
+		workspaceGroup.Use(middleware.WorkspaceSecurity())
 		{
 			workspaceGroup.GET("", api.GetWorkspace)
 			workspaceGroup.PUT("", api.UpdateWorkspace)

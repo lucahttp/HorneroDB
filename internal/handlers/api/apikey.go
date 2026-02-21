@@ -33,7 +33,7 @@ func ListAPIKeys(c *gin.Context) {
 	var keys []metadata.APIKey
 
 	result := database.DB.Table("_hornero_api_keys").
-		Select("id, workspace_id, name, prefix, role_id, last_used_at, expires_at, created_at").
+		Select("id, workspace_id, name, prefix, role_id, last_used_at, expires_at, created_at, rate_limit_per_minute, allowed_origins, allowed_referers").
 		Where("workspace_id = ?", workspaceID).
 		Find(&keys)
 
@@ -43,29 +43,35 @@ func ListAPIKeys(c *gin.Context) {
 	}
 
 	type APIKeyResponse struct {
-		ID          uuid.UUID  `json:"id"`
-		WorkspaceID uuid.UUID  `json:"workspace_id"`
-		Name        string     `json:"name"`
-		Prefix      string     `json:"prefix"`
-		MaskedKey   string     `json:"masked_key"`
-		RoleID      uuid.UUID  `json:"role_id"`
-		LastUsedAt  *time.Time `json:"last_used_at"`
-		ExpiresAt   *time.Time `json:"expires_at"`
-		CreatedAt   time.Time  `json:"created_at"`
+		ID              uuid.UUID  `json:"id"`
+		WorkspaceID     uuid.UUID  `json:"workspace_id"`
+		Name            string     `json:"name"`
+		Prefix          string     `json:"prefix"`
+		MaskedKey       string     `json:"masked_key"`
+		RoleID          uuid.UUID  `json:"role_id"`
+		LastUsedAt      *time.Time `json:"last_used_at"`
+		ExpiresAt       *time.Time `json:"expires_at"`
+		RateLimitPerMin *int       `json:"rate_limit_per_minute,omitempty"`
+		AllowedOrigins  []string   `json:"allowed_origins,omitempty"`
+		AllowedReferers []string   `json:"allowed_referers,omitempty"`
+		CreatedAt       time.Time  `json:"created_at"`
 	}
 
 	response := make([]APIKeyResponse, len(keys))
 	for i, key := range keys {
 		response[i] = APIKeyResponse{
-			ID:          key.ID,
-			WorkspaceID: key.WorkspaceID,
-			Name:        key.Name,
-			Prefix:      key.Prefix,
-			MaskedKey:   key.Prefix + "****************",
-			RoleID:      key.RoleID,
-			LastUsedAt:  key.LastUsedAt,
-			ExpiresAt:   key.ExpiresAt,
-			CreatedAt:   key.CreatedAt,
+			ID:              key.ID,
+			WorkspaceID:     key.WorkspaceID,
+			Name:            key.Name,
+			Prefix:          key.Prefix,
+			MaskedKey:       key.Prefix + "****************",
+			RoleID:          key.RoleID,
+			LastUsedAt:      key.LastUsedAt,
+			ExpiresAt:       key.ExpiresAt,
+			RateLimitPerMin: key.RateLimitPerMin,
+			AllowedOrigins:  key.AllowedOrigins,
+			AllowedReferers: key.AllowedReferers,
+			CreatedAt:       key.CreatedAt,
 		}
 	}
 
@@ -76,10 +82,13 @@ func CreateAPIKey(c *gin.Context) {
 	workspaceID := c.Param("workspace_id")
 
 	var input struct {
-		Name      string `json:"name" binding:"required"`
-		Prefix    string `json:"prefix"`
-		RoleID    string `json:"role_id"`
-		ExpiresIn int    `json:"expires_in_days"`
+		Name            string   `json:"name" binding:"required"`
+		Prefix          string   `json:"prefix"`
+		RoleID          string   `json:"role_id"`
+		ExpiresIn       int      `json:"expires_in_days"`
+		RateLimitPerMin *int     `json:"rate_limit_per_minute"`
+		AllowedOrigins  []string `json:"allowed_origins"`
+		AllowedReferers []string `json:"allowed_referers"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -112,12 +121,15 @@ func CreateAPIKey(c *gin.Context) {
 	}
 
 	apiKey := metadata.APIKey{
-		WorkspaceID: wsID,
-		Name:        input.Name,
-		KeyHash:     keyHash,
-		Prefix:      prefix,
-		RoleID:      roleID,
-		ExpiresAt:   expiresAt,
+		WorkspaceID:     wsID,
+		Name:            input.Name,
+		KeyHash:         keyHash,
+		Prefix:          prefix,
+		RoleID:          roleID,
+		ExpiresAt:       expiresAt,
+		RateLimitPerMin: input.RateLimitPerMin,
+		AllowedOrigins:  input.AllowedOrigins,
+		AllowedReferers: input.AllowedReferers,
 	}
 
 	result := database.DB.Table("_hornero_api_keys").Create(&apiKey)
@@ -127,14 +139,17 @@ func CreateAPIKey(c *gin.Context) {
 	}
 
 	c.JSON(201, gin.H{
-		"id":           apiKey.ID,
-		"workspace_id": apiKey.WorkspaceID,
-		"name":         apiKey.Name,
-		"key":          key,
-		"prefix":       apiKey.Prefix,
-		"role_id":      apiKey.RoleID,
-		"expires_at":   apiKey.ExpiresAt,
-		"created_at":   apiKey.CreatedAt,
+		"id":                    apiKey.ID,
+		"workspace_id":          apiKey.WorkspaceID,
+		"name":                  apiKey.Name,
+		"key":                   key,
+		"prefix":                apiKey.Prefix,
+		"role_id":               apiKey.RoleID,
+		"expires_at":            apiKey.ExpiresAt,
+		"rate_limit_per_minute": apiKey.RateLimitPerMin,
+		"allowed_origins":       apiKey.AllowedOrigins,
+		"allowed_referers":      apiKey.AllowedReferers,
+		"created_at":            apiKey.CreatedAt,
 	})
 }
 
