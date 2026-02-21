@@ -21,9 +21,15 @@ export function PermissionMatrix({
   const [selectedRole, setSelectedRole] = useState(roles[0]?.id || '')
   const [permissions, setPermissions] = useState({})
   const [saving, setSaving] = useState(false)
-  const [editingColumns, setEditingColumns] = useState(null)
-  const [columnInput, setColumnInput] = useState('')
-  const [columnOperation, setColumnOperation] = useState('')
+  const [openColumns, setOpenColumns] = useState(null)
+
+  const toggleColumns = (tableSlug, operation) => {
+    if (openColumns?.tableSlug === tableSlug && openColumns?.operation === operation) {
+      setOpenColumns(null)
+    } else {
+      setOpenColumns({ tableSlug, operation })
+    }
+  }
 
   const currentRole = roles.find(r => r.id === selectedRole)
   const rolePermissions = currentRole?.permissions || {}
@@ -55,27 +61,7 @@ export function PermissionMatrix({
     }))
   }
 
-  const openColumnEditor = (tableSlug, operation) => {
-    setEditingColumns(tableSlug)
-    setColumnOperation(operation)
-    setColumnInput(getColumns(tableSlug, operation).join(', '))
-  }
 
-  const saveColumnEditor = () => {
-    const cols = columnInput.split(',').map(c => c.trim()).filter(c => c)
-    setPermissions(prev => ({
-      ...prev,
-      [editingColumns]: {
-        ...(prev[editingColumns] || {}),
-        columns: {
-          ...(prev[editingColumns]?.columns || {}),
-          [columnOperation]: cols
-        }
-      }
-    }))
-    setEditingColumns(null)
-    setColumnOperation('')
-  }
 
   const handleSave = async () => {
     setSaving(true)
@@ -146,7 +132,6 @@ export function PermissionMatrix({
                   {OPERATIONS.map(op => (
                     <th key={op} style={{ minWidth: '100px' }}>{t(op)}</th>
                   ))}
-                  <th style={{ minWidth: '200px' }}>{t('columns_by_operation')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -168,88 +153,109 @@ export function PermissionMatrix({
                           </option>
                         ))}
                       </select>
+                      {action === 'read' && (
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                          {t('wildcard_hint')}
+                        </div>
+                      )}
                     </td>
                   ))}
-                  <td style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                    {t('wildcard_hint')}
-                  </td>
                 </tr>
 
                 {tables.map(table => (
                   <tr key={table.id}>
-                    <td style={{ fontWeight: 500 }}>{table.name}</td>
-                    {OPERATIONS.map(action => (
-                      <td key={action}>
-                        <select
-                          className="form-select"
-                          style={{ fontSize: '0.8rem', padding: '0.375rem 0.5rem' }}
-                          value={getPermission(table.slug, action)}
-                          onChange={e => handlePermissionChange(table.slug, action, e.target.value)}
-                        >
-                          <option value="inherit">{t('inherit')}</option>
-                          {ACCESS_LEVELS.map(level => (
-                            <option key={level.value} value={level.value}>
-                              {t(`access_level_${level.value}`)}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                    ))}
-                    <td>
-                      {editingColumns === table.slug ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                            {t('operation')}: <strong>{columnOperation}</strong>
-                          </div>
-                          <div style={{ display: 'flex', gap: '0.25rem' }}>
-                            <input
-                              type="text"
-                              className="form-input"
-                              style={{ fontSize: '0.7rem', padding: '0.25rem', flex: 1 }}
-                              value={columnInput}
-                              onChange={e => setColumnInput(e.target.value)}
-                              placeholder="col1, col2"
-                            />
-                            <button
-                              className="btn btn-sm"
-                              style={{ padding: '0.125rem 0.375rem', fontSize: '0.65rem' }}
-                              onClick={saveColumnEditor}
-                            >
-                              ✓
-                            </button>
-                            <button
-                              className="btn btn-sm"
-                              style={{ padding: '0.125rem 0.375rem', fontSize: '0.65rem' }}
-                              onClick={() => { setEditingColumns(null); setColumnOperation('') }}
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.125rem' }}>
-                          {OPERATIONS.map(op => {
-                            const cols = getColumns(table.slug, op)
-                            return (
-                              <button
-                                key={op}
-                                className="btn btn-sm"
-                                style={{ 
-                                  padding: '0.125rem 0.375rem', 
-                                  fontSize: '0.65rem',
-                                  textAlign: 'left',
-                                  justifyContent: 'flex-start',
-                                  background: cols.length > 0 ? 'var(--bg-hover)' : 'transparent'
-                                }}
-                                onClick={() => openColumnEditor(table.slug, op)}
+                    <td style={{ fontWeight: 500, verticalAlign: 'top', paddingTop: '0.5rem' }}>{table.name}</td>
+                    {OPERATIONS.map(action => {
+                      const isColsOpen = openColumns?.tableSlug === table.slug && openColumns?.operation === action
+                      const selectedCols = getColumns(table.slug, action) || []
+                      const hasColumns = table.columns && table.columns.length > 0
+
+                      return (
+                        <td key={action} style={{ position: 'relative', verticalAlign: 'top', paddingTop: '0.5rem' }}>
+                          <select
+                            className="form-select"
+                            style={{ fontSize: '0.8rem', padding: '0.375rem 0.5rem', width: '100%' }}
+                            value={getPermission(table.slug, action)}
+                            onChange={e => handlePermissionChange(table.slug, action, e.target.value)}
+                          >
+                            <option value="inherit">{t('inherit')}</option>
+                            {ACCESS_LEVELS.map(level => (
+                              <option key={level.value} value={level.value}>
+                                {t(`access_level_${level.value}`)}
+                              </option>
+                            ))}
+                          </select>
+                          
+                          {hasColumns && getPermission(table.slug, action) !== 'inherit' && getPermission(table.slug, action) !== 'none' && (
+                            <div style={{ marginTop: '0.375rem' }}>
+                              <button 
+                                className="btn btn-sm btn-ghost"
+                                style={{ padding: '0.125rem 0.375rem', fontSize: '0.7rem', width: '100%', justifyContent: 'space-between' }}
+                                onClick={() => toggleColumns(table.slug, action)}
                               >
-                                <span style={{ opacity: 0.6 }}>{op}:</span> {cols.length > 0 ? cols.join(', ') : t('configure')}
+                                <span>Columns</span>
+                                <span style={{ opacity: 0.6, fontSize: '0.65rem' }}>
+                                  {selectedCols.length === 0 ? 'All' : `${selectedCols.length}/${table.columns.length}`}
+                                </span>
                               </button>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </td>
+                              
+                              {isColsOpen && (
+                                <div style={{
+                                  position: 'absolute', zIndex: 50, top: '100%', left: 0, right: 0,
+                                  background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                                  borderRadius: '6px', padding: '0.75rem', marginTop: '0.25rem',
+                                  boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                                  display: 'flex', flexDirection: 'column', gap: '0.5rem',
+                                  minWidth: '180px'
+                                }}>
+                                  <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid var(--border)', paddingBottom: '0.375rem' }}>
+                                    Allowed Columns
+                                  </div>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', maxHeight: '150px', overflowY: 'auto' }}>
+                                    {table.columns.map(col => {
+                                      const isChecked = selectedCols.includes(col.slug)
+                                      return (
+                                        <label key={col.slug} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', cursor: 'pointer', margin: 0 }}>
+                                          <input 
+                                            type="checkbox" 
+                                            style={{ margin: 0 }}
+                                            checked={isChecked}
+                                            onChange={(e) => {
+                                              let newCols = [...selectedCols]
+                                              if (e.target.checked) newCols.push(col.slug)
+                                              else newCols = newCols.filter(c => c !== col.slug)
+                                              
+                                              setPermissions(prev => ({
+                                                ...prev,
+                                                [table.slug]: {
+                                                  ...prev[table.slug],
+                                                  columns: {
+                                                    ...(prev[table.slug]?.columns || {}),
+                                                    [action]: newCols
+                                                  }
+                                                }
+                                              }))
+                                            }}
+                                          />
+                                          {col.name}
+                                        </label>
+                                      )
+                                    })}
+                                  </div>
+                                  <button 
+                                    className="btn btn-sm btn-ghost" 
+                                    style={{ marginTop: '0.25rem', fontSize: '0.75rem', padding: '0.25rem', width: '100%', justifyContent: 'center' }} 
+                                    onClick={() => toggleColumns(table.slug, action)}
+                                  >
+                                    Done
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                      )
+                    })}
                   </tr>
                 ))}
               </tbody>

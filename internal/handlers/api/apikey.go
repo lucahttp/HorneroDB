@@ -33,7 +33,7 @@ func ListAPIKeys(c *gin.Context) {
 	var keys []metadata.APIKey
 
 	result := database.DB.Table("_hornero_api_keys").
-		Select("id, workspace_id, name, prefix, role_id, last_used_at, expires_at, created_at, rate_limit_per_minute, allowed_origins, allowed_referers").
+		Select("id, workspace_id, name, prefix, key_hash, role_id, last_used_at, expires_at, created_at, rate_limit_per_minute, rate_limit_per_hour, allowed_origins, allowed_referers").
 		Where("workspace_id = ?", workspaceID).
 		Find(&keys)
 
@@ -43,35 +43,39 @@ func ListAPIKeys(c *gin.Context) {
 	}
 
 	type APIKeyResponse struct {
-		ID              uuid.UUID  `json:"id"`
-		WorkspaceID     uuid.UUID  `json:"workspace_id"`
-		Name            string     `json:"name"`
-		Prefix          string     `json:"prefix"`
-		MaskedKey       string     `json:"masked_key"`
-		RoleID          uuid.UUID  `json:"role_id"`
-		LastUsedAt      *time.Time `json:"last_used_at"`
-		ExpiresAt       *time.Time `json:"expires_at"`
-		RateLimitPerMin *int       `json:"rate_limit_per_minute,omitempty"`
-		AllowedOrigins  []string   `json:"allowed_origins,omitempty"`
-		AllowedReferers []string   `json:"allowed_referers,omitempty"`
-		CreatedAt       time.Time  `json:"created_at"`
+		ID               uuid.UUID  `json:"id"`
+		WorkspaceID      uuid.UUID  `json:"workspace_id"`
+		Name             string     `json:"name"`
+		Prefix           string     `json:"prefix"`
+		MaskedKey        string     `json:"masked_key"`
+		KeyHash          string     `json:"key_hash,omitempty"`
+		RoleID           *uuid.UUID `json:"role_id"`
+		LastUsedAt       *time.Time `json:"last_used_at"`
+		ExpiresAt        *time.Time `json:"expires_at"`
+		RateLimitPerMin  *int       `json:"rate_limit_per_minute,omitempty"`
+		RateLimitPerHour *int       `json:"rate_limit_per_hour,omitempty"`
+		AllowedOrigins   []string   `json:"allowed_origins,omitempty"`
+		AllowedReferers  []string   `json:"allowed_referers,omitempty"`
+		CreatedAt        time.Time  `json:"created_at"`
 	}
 
 	response := make([]APIKeyResponse, len(keys))
 	for i, key := range keys {
 		response[i] = APIKeyResponse{
-			ID:              key.ID,
-			WorkspaceID:     key.WorkspaceID,
-			Name:            key.Name,
-			Prefix:          key.Prefix,
-			MaskedKey:       key.Prefix + "****************",
-			RoleID:          key.RoleID,
-			LastUsedAt:      key.LastUsedAt,
-			ExpiresAt:       key.ExpiresAt,
-			RateLimitPerMin: key.RateLimitPerMin,
-			AllowedOrigins:  key.AllowedOrigins,
-			AllowedReferers: key.AllowedReferers,
-			CreatedAt:       key.CreatedAt,
+			ID:               key.ID,
+			WorkspaceID:      key.WorkspaceID,
+			Name:             key.Name,
+			Prefix:           key.Prefix,
+			MaskedKey:        key.Prefix + "****************",
+			KeyHash:          key.KeyHash,
+			RoleID:           &key.RoleID,
+			LastUsedAt:       key.LastUsedAt,
+			ExpiresAt:        key.ExpiresAt,
+			RateLimitPerMin:  key.RateLimitPerMin,
+			RateLimitPerHour: key.RateLimitPerHour,
+			AllowedOrigins:   key.AllowedOrigins,
+			AllowedReferers:  key.AllowedReferers,
+			CreatedAt:        key.CreatedAt,
 		}
 	}
 
@@ -82,13 +86,14 @@ func CreateAPIKey(c *gin.Context) {
 	workspaceID := c.Param("workspace_id")
 
 	var input struct {
-		Name            string   `json:"name" binding:"required"`
-		Prefix          string   `json:"prefix"`
-		RoleID          string   `json:"role_id"`
-		ExpiresIn       int      `json:"expires_in_days"`
-		RateLimitPerMin *int     `json:"rate_limit_per_minute"`
-		AllowedOrigins  []string `json:"allowed_origins"`
-		AllowedReferers []string `json:"allowed_referers"`
+		Name             string   `json:"name" binding:"required"`
+		Prefix           string   `json:"prefix"`
+		RoleID           string   `json:"role_id"`
+		ExpiresIn        int      `json:"expires_in_days"`
+		RateLimitPerMin  *int     `json:"rate_limit_per_minute"`
+		RateLimitPerHour *int     `json:"rate_limit_per_hour"`
+		AllowedOrigins   []string `json:"allowed_origins"`
+		AllowedReferers  []string `json:"allowed_referers"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -121,15 +126,16 @@ func CreateAPIKey(c *gin.Context) {
 	}
 
 	apiKey := metadata.APIKey{
-		WorkspaceID:     wsID,
-		Name:            input.Name,
-		KeyHash:         keyHash,
-		Prefix:          prefix,
-		RoleID:          roleID,
-		ExpiresAt:       expiresAt,
-		RateLimitPerMin: input.RateLimitPerMin,
-		AllowedOrigins:  input.AllowedOrigins,
-		AllowedReferers: input.AllowedReferers,
+		WorkspaceID:      wsID,
+		Name:             input.Name,
+		KeyHash:          keyHash,
+		Prefix:           prefix,
+		RoleID:           roleID,
+		ExpiresAt:        expiresAt,
+		RateLimitPerMin:  input.RateLimitPerMin,
+		RateLimitPerHour: input.RateLimitPerHour,
+		AllowedOrigins:   input.AllowedOrigins,
+		AllowedReferers:  input.AllowedReferers,
 	}
 
 	result := database.DB.Table("_hornero_api_keys").Create(&apiKey)
@@ -147,6 +153,7 @@ func CreateAPIKey(c *gin.Context) {
 		"role_id":               apiKey.RoleID,
 		"expires_at":            apiKey.ExpiresAt,
 		"rate_limit_per_minute": apiKey.RateLimitPerMin,
+		"rate_limit_per_hour":   apiKey.RateLimitPerHour,
 		"allowed_origins":       apiKey.AllowedOrigins,
 		"allowed_referers":      apiKey.AllowedReferers,
 		"created_at":            apiKey.CreatedAt,
@@ -163,6 +170,90 @@ func DeleteAPIKey(c *gin.Context) {
 	}
 
 	c.JSON(200, gin.H{"message": "deleted"})
+}
+
+func UpdateAPIKey(c *gin.Context) {
+	keyID := c.Param("key_id")
+
+	var input struct {
+		Name             string   `json:"name"`
+		RoleID           string   `json:"role_id"`
+		RateLimitPerMin  *int     `json:"rate_limit_per_minute"`
+		RateLimitPerHour *int     `json:"rate_limit_per_hour"`
+		AllowedOrigins   []string `json:"allowed_origins"`
+		AllowedReferers  []string `json:"allowed_referers"`
+	}
+
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Find existing key
+	var existingKey metadata.APIKey
+	err := database.DB.Table("_hornero_api_keys").Where("id = ?", keyID).First(&existingKey).Error
+	if err != nil {
+		c.JSON(404, gin.H{"error": "API key not found"})
+		return
+	}
+
+	// Build update map
+	updates := make(map[string]interface{})
+
+	if input.Name != "" {
+		updates["name"] = input.Name
+	}
+
+	if input.RoleID != "" {
+		roleID, err := uuid.Parse(input.RoleID)
+		if err == nil {
+			updates["role_id"] = roleID
+		}
+	} else {
+		// Allow clearing the role
+		updates["role_id"] = nil
+	}
+
+	if input.RateLimitPerMin != nil {
+		updates["rate_limit_per_minute"] = *input.RateLimitPerMin
+	}
+
+	if input.RateLimitPerHour != nil {
+		updates["rate_limit_per_hour"] = *input.RateLimitPerHour
+	}
+
+	if input.AllowedOrigins != nil {
+		updates["allowed_origins"] = input.AllowedOrigins
+	}
+
+	if input.AllowedReferers != nil {
+		updates["allowed_referers"] = input.AllowedReferers
+	}
+
+	result := database.DB.Table("_hornero_api_keys").Where("id = ?", keyID).Updates(updates)
+	if result.Error != nil {
+		c.JSON(500, gin.H{"error": result.Error.Error()})
+		return
+	}
+
+	// Return updated key
+	var updatedKey metadata.APIKey
+	database.DB.Table("_hornero_api_keys").Where("id = ?", keyID).First(&updatedKey)
+
+	c.JSON(200, gin.H{
+		"id":                    updatedKey.ID,
+		"workspace_id":          updatedKey.WorkspaceID,
+		"name":                  updatedKey.Name,
+		"prefix":                updatedKey.Prefix,
+		"role_id":               updatedKey.RoleID,
+		"last_used_at":          updatedKey.LastUsedAt,
+		"expires_at":            updatedKey.ExpiresAt,
+		"rate_limit_per_minute": updatedKey.RateLimitPerMin,
+		"rate_limit_per_hour":   updatedKey.RateLimitPerHour,
+		"allowed_origins":       updatedKey.AllowedOrigins,
+		"allowed_referers":      updatedKey.AllowedReferers,
+		"created_at":            updatedKey.CreatedAt,
+	})
 }
 
 func VerifyAPIKey(key string) (*metadata.APIKey, error) {

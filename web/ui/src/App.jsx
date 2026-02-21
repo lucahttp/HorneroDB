@@ -1080,9 +1080,22 @@ function Settings() {
 
   const [showCreateRole, setShowCreateRole] = useState(false)
   const [showCreateKey, setShowCreateKey] = useState(false)
+  const [selectedKey, setSelectedKey] = useState(null)
   const [newRoleName, setNewRoleName] = useState('')
   const [newKeyName, setNewKeyName] = useState('')
   const [newKeyRole, setNewKeyRole] = useState('')
+  const [newKeyExpiresIn, setNewKeyExpiresIn] = useState(0)
+  const [newKeyRateLimit, setNewKeyRateLimit] = useState(0)
+  const [newKeyRateLimitPerHour, setNewKeyRateLimitPerHour] = useState(0)
+
+  // API key editing state
+  const [editingKeyName, setEditingKeyName] = useState('')
+  const [editingKeyRole, setEditingKeyRole] = useState('')
+  const [editingKeyRateLimit, setEditingKeyRateLimit] = useState(60)
+  const [editingKeyRateLimitPerHour, setEditingKeyRateLimitPerHour] = useState(3600)
+  const [editingKeyOrigins, setEditingKeyOrigins] = useState('')
+  const [editingKeyReferers, setEditingKeyReferers] = useState('')
+  const [savingKey, setSavingKey] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -1104,8 +1117,14 @@ function Settings() {
           axios.get(`${API_URL}/workspaces/${workspaceId}/roles`),
           axios.get(`${API_URL}/workspaces/${workspaceId}/tables`)
         ])
+        const tablesWithCols = await Promise.all(tablesRes.data.map(async (t) => {
+          try {
+            const cr = await axios.get(`${API_URL}/workspaces/${workspaceId}/tables/${t.id}/columns`)
+            return { ...t, columns: cr.data }
+          } catch (e) { return t }
+        }))
         setRoles(rolesRes.data)
-        setTables(tablesRes.data)
+        setTables(tablesWithCols)
       } else if (activeSection === 'keys') {
         const keysRes = await axios.get(`${API_URL}/workspaces/${workspaceId}/keys`)
         setAPIKeys(keysRes.data)
@@ -1165,12 +1184,17 @@ function Settings() {
       const res = await axios.post(`${API_URL}/workspaces/${workspaceId}/keys`, {
         name: newKeyName,
         role_id: newKeyRole,
-        expires_in_days: 365
+        expires_in_days: parseInt(newKeyExpiresIn) || 0,
+        rate_limit_per_minute: parseInt(newKeyRateLimit) || 0,
+        rate_limit_per_hour: parseInt(newKeyRateLimitPerHour) || 0
       })
       notify(t('api_key_created', { key: res.data.key }), 'success')
       setShowCreateKey(false)
       setNewKeyName('')
       setNewKeyRole('')
+      setNewKeyExpiresIn(0)
+      setNewKeyRateLimit(0)
+      setNewKeyRateLimitPerHour(0)
       loadData()
     } catch (err) {
       console.error(err)
@@ -1187,6 +1211,47 @@ function Settings() {
         console.error(err)
       }
     }
+  }
+
+  const openKeySettings = (key) => {
+    setSelectedKey(key)
+    setEditingKeyName(key.name)
+    // Handle role_id as it can be a pointer
+    const roleIdStr = key.role_id ? (typeof key.role_id === 'string' ? key.role_id : key.role_id.toString()) : ''
+    setEditingKeyRole(roleIdStr)
+    setEditingKeyRateLimit(key.rate_limit_per_minute ?? 60)
+    setEditingKeyRateLimitPerHour(key.rate_limit_per_hour ?? 3600)
+    setEditingKeyOrigins((key.allowed_origins || []).join(', '))
+    setEditingKeyReferers((key.allowed_referers || []).join(', '))
+  }
+
+  const closeKeySettings = () => {
+    setSelectedKey(null)
+  }
+
+  const saveKeySettings = async () => {
+    if (!selectedKey) return
+    setSavingKey(true)
+    try {
+      const originsArray = editingKeyOrigins.split(',').map(o => o.trim()).filter(o => o.length > 0)
+      const referersArray = editingKeyReferers.split(',').map(r => r.trim()).filter(r => r.length > 0)
+
+      await axios.put(`${API_URL}/workspaces/${workspaceId}/keys/${selectedKey.id}`, {
+        name: editingKeyName,
+        role_id: editingKeyRole || null,
+        rate_limit_per_minute: editingKeyRateLimit,
+        rate_limit_per_hour: editingKeyRateLimitPerHour,
+        allowed_origins: originsArray,
+        allowed_referers: referersArray
+      })
+      notify(t('api_key_updated') || 'API key updated', 'success')
+      loadData()
+      setSelectedKey(null)
+    } catch (err) {
+      console.error(err)
+      notify(t('error_update_api_key') || 'Error updating API key', 'error')
+    }
+    setSavingKey(false)
   }
 
   const savePermissions = async ({ roleId, permissions }) => {
@@ -1368,15 +1433,156 @@ function Settings() {
                           {key.prefix}...{key.key_hash?.slice(-8)}
                         </div>
                       </div>
-                      <button
-                        onClick={() => deleteAPIKey(key.id)}
-                        className="btn btn-ghost btn-sm"
-                        style={{ color: 'var(--danger)' }}
-                      >
-                        <Trash width="1rem" height="1rem" />
-                      </button>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button
+                          onClick={() => openKeySettings(key)}
+                          className="btn btn-ghost btn-sm"
+                          title={t('edit_key_settings') || 'Edit settings'}
+                        >
+                          <SettingsIcon width="1rem" height="1rem" />
+                        </button>
+                        <button
+                          onClick={() => deleteAPIKey(key.id)}
+                          className="btn btn-ghost btn-sm"
+                          style={{ color: 'var(--danger)' }}
+                        >
+                          <Trash width="1rem" height="1rem" />
+                        </button>
+                      </div>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* API Key Settings Panel - fuera del ternary */}
+              {selectedKey && (
+                <div className="card" style={{ marginTop: '1rem', padding: '1.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+                    <h3 style={{ fontSize: '1.125rem', fontWeight: 700 }}>
+                      {t('edit_key_settings') || 'API Key Settings'}
+                    </h3>
+                    <button onClick={closeKeySettings} className="btn btn-ghost btn-sm">
+                      <Xmark width="1rem" height="1rem" />
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <div className="form-group">
+                      <label className="form-label">{t('name')}</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={editingKeyName}
+                        onChange={e => setEditingKeyName(e.target.value)}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">{t('role_label')}</label>
+                      <select
+                        className="form-select"
+                        value={editingKeyRole}
+                        onChange={e => setEditingKeyRole(e.target.value)}
+                      >
+                        <option value="">{t('select_role') || 'Sin rol'}</option>
+                        {roles.map(r => (
+                          <option key={r.id} value={r.id}>{r.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
+                    <div className="form-group">
+                      <label className="form-label">{t('rate_limit_per_minute')} & {t('rate_limit_per_hour', 'per hour')}</label>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <input
+                          type="number"
+                          className="form-input"
+                          value={editingKeyRateLimit}
+                          onChange={e => setEditingKeyRateLimit(Number(e.target.value))}
+                          min="0"
+                          title="Rate limit per minute"
+                          placeholder="Per minute"
+                        />
+                        <input
+                          type="number"
+                          className="form-input"
+                          value={editingKeyRateLimitPerHour}
+                          onChange={e => setEditingKeyRateLimitPerHour(Number(e.target.value))}
+                          min="0"
+                          title="Rate limit per hour"
+                          placeholder="Per hour"
+                        />
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">{t('expires_at')}</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={selectedKey.expires_at ? new Date(selectedKey.expires_at).toLocaleDateString() : '-'}
+                        disabled
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-group" style={{ marginTop: '1rem' }}>
+                    <label className="form-label">{t('allowed_origins')}</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={editingKeyOrigins}
+                      onChange={e => setEditingKeyOrigins(e.target.value)}
+                      placeholder="https://example.com, https://app.example.com"
+                    />
+                    <small style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                      {t('allowed_origins_hint') || 'Separate with commas'}
+                    </small>
+                  </div>
+
+                  <div className="form-group" style={{ marginTop: '1rem' }}>
+                    <label className="form-label">{t('allowed_referers')}</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={editingKeyReferers}
+                      onChange={e => setEditingKeyReferers(e.target.value)}
+                      placeholder="https://example.com/, https://app.example.com/"
+                    />
+                    <small style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                      {t('allowed_referers_hint') || 'Separate with commas'}
+                    </small>
+                  </div>
+
+                  {/* Usage Metrics */}
+                  <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'var(--bg-hover)', borderRadius: '8px' }}>
+                    <h4 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.75rem' }}>
+                      {t('usage_metrics') || 'Usage Metrics'}
+                    </h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t('created_at')}</div>
+                        <div style={{ fontSize: '0.875rem' }}>
+                          {selectedKey.created_at ? new Date(selectedKey.created_at).toLocaleString() : '-'}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t('last_used')}</div>
+                        <div style={{ fontSize: '0.875rem' }}>
+                          {selectedKey.last_used_at ? new Date(selectedKey.last_used_at).toLocaleString() : t('never_used') || 'Never'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                    <Button variant="secondary" onClick={closeKeySettings}>
+                      {t('cancel')}
+                    </Button>
+                    <Button onClick={saveKeySettings} loading={savingKey}>
+                      {t('save_changes')}
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>
@@ -1449,6 +1655,22 @@ function Settings() {
                     <option key={r.id} value={r.id}>{r.name}</option>
                   ))}
                 </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Expiration</label>
+                <select className="form-select" value={newKeyExpiresIn} onChange={e => setNewKeyExpiresIn(e.target.value)}>
+                  <option value={0}>Unlimited</option>
+                  <option value={30}>30 Days</option>
+                  <option value={60}>60 Days</option>
+                  <option value={90}>90 Days</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Rate Limits (0 for unlimited)</label>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input type="number" className="form-input" placeholder="Per Min" value={newKeyRateLimit} onChange={e => setNewKeyRateLimit(e.target.value)} />
+                  <input type="number" className="form-input" placeholder="Per Hr" value={newKeyRateLimitPerHour} onChange={e => setNewKeyRateLimitPerHour(e.target.value)} />
+                </div>
               </div>
             </div>
             <div className="modal-footer">

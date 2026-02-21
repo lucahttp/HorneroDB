@@ -76,18 +76,19 @@ func (u *UserRole) BeforeCreate(tx *gorm.DB) (err error) {
 
 // API Keys para acceso programático
 type APIKey struct {
-	ID              uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
-	WorkspaceID     uuid.UUID  `gorm:"type:uuid;index" json:"workspace_id"`
-	Name            string     `gorm:"type:varchar(100);not null" json:"name"`
-	KeyHash         string     `gorm:"type:varchar(255);not null" json:"-"`
-	Prefix          string     `gorm:"type:varchar(20);not null" json:"prefix"`
-	RoleID          uuid.UUID  `gorm:"type:uuid" json:"role_id"`
-	LastUsedAt      *time.Time `json:"last_used_at"`
-	ExpiresAt       *time.Time `json:"expires_at"`
-	RateLimitPerMin *int       `json:"rate_limit_per_minute,omitempty"`              // Custom rate limit for this key
-	AllowedOrigins  []string   `gorm:"type:jsonb" json:"allowed_origins,omitempty"`  // Allowed origins for CORS
-	AllowedReferers []string   `gorm:"type:jsonb" json:"allowed_referers,omitempty"` // Allowed referer domains
-	CreatedAt       time.Time  `json:"created_at"`
+	ID               uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"`
+	WorkspaceID      uuid.UUID  `gorm:"type:uuid;index" json:"workspace_id"`
+	Name             string     `gorm:"type:varchar(100);not null" json:"name"`
+	KeyHash          string     `gorm:"type:varchar(255);not null" json:"-"`
+	Prefix           string     `gorm:"type:varchar(20);not null" json:"prefix"`
+	RoleID           uuid.UUID  `gorm:"type:uuid" json:"role_id"`
+	LastUsedAt       *time.Time `json:"last_used_at"`
+	ExpiresAt        *time.Time `json:"expires_at"`
+	RateLimitPerMin  *int       `json:"rate_limit_per_minute,omitempty"`              // Custom rate limit for this key
+	RateLimitPerHour *int       `json:"rate_limit_per_hour,omitempty"`                // Hourly rate limit
+	AllowedOrigins   []string   `gorm:"type:jsonb" json:"allowed_origins,omitempty"`  // Allowed origins for CORS
+	AllowedReferers  []string   `gorm:"type:jsonb" json:"allowed_referers,omitempty"` // Allowed referer domains
+	CreatedAt        time.Time  `json:"created_at"`
 }
 
 func (a *APIKey) TableName() string {

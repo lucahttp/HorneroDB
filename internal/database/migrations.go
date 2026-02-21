@@ -54,6 +54,7 @@ func Migrate() error {
 
 	// Add new columns to existing API keys table if they don't exist
 	DB.Exec("ALTER TABLE _hornero_api_keys ADD COLUMN IF NOT EXISTS rate_limit_per_minute INT")
+	DB.Exec("ALTER TABLE _hornero_api_keys ADD COLUMN IF NOT EXISTS rate_limit_per_hour INT")
 	DB.Exec("ALTER TABLE _hornero_api_keys ADD COLUMN IF NOT EXISTS allowed_origins JSONB")
 	DB.Exec("ALTER TABLE _hornero_api_keys ADD COLUMN IF NOT EXISTS allowed_referers JSONB")
 

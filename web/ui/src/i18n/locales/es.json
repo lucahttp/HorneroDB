@@ -132,5 +132,20 @@
     "legend_own": "Solo propias",
     "legend_none": "Sin acceso",
     "table_permissions": "Permisos de Tabla",
-    "table": "Tabla"
+    "table": "Tabla",
+    "edit_key_settings": "Editar API Key",
+    "rate_limit_per_minute": "Rate Limit (req/min)",
+    "rate_limit_hint": "Requests por minuto permitidos",
+    "allowed_origins": "Orígenes Permitidos",
+    "allowed_origins_hint": "Separar con comas",
+    "allowed_referers": "Referers Permitidos",
+    "allowed_referers_hint": "Separar con comas",
+    "usage_metrics": "Métricas de Uso",
+    "created_at": "Creado",
+    "last_used": "Último uso",
+    "never_used": "Nunca",
+    "select_role": "Sin rol (solo lectura)",
+    "api_key_updated": "API Key actualizada",
+    "error_update_api_key": "Error al actualizar API key",
+    "expires_at": "Expira"
 }

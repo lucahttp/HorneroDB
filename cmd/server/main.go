@@ -143,6 +143,7 @@ func main() {
 			// === API KEYS ===
 			workspaceGroup.GET("/keys", api.ListAPIKeys)
 			workspaceGroup.POST("/keys", api.CreateAPIKey)
+			workspaceGroup.PUT("/keys/:key_id", api.UpdateAPIKey)
 			workspaceGroup.DELETE("/keys/:key_id", api.DeleteAPIKey)
 		}
 
