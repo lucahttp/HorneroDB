@@ -57,8 +57,8 @@ function App() {
               <Route path="/callback" element={<Callback onLogin={setToken} onUser={setUser} />} />
               <Route path="/dashboard" element={token ? <Dashboard user={user} onLogout={handleLogout} /> : <Login />} />
               <Route path="/workspace/:workspaceId" element={token ? <Workspace user={user} onLogout={handleLogout} /> : <Login />} />
-              <Route path="/workspace/:workspaceId/tables/:tableId" element={token ? <TableView user={user} /> : <Login />} />
-              <Route path="/workspace/:workspaceId/settings" element={token ? <Settings /> : <Login />} />
+              <Route path="/workspace/:workspaceId/tables/:tableId" element={token ? <TableView user={user} onLogout={handleLogout} /> : <Login />} />
+              <Route path="/workspace/:workspaceId/settings" element={token ? <Settings user={user} onLogout={handleLogout} /> : <Login />} />
             </Routes>
           </ToastProvider>
         </BrowserRouter>
@@ -164,95 +164,67 @@ function Callback({ onLogin, onUser }) {
 /* ═══════════════════════════════════════════
    SIDEBAR
    ═══════════════════════════════════════════ */
-function Sidebar({ user, onLogout, workspaceId }) {
+function TopNavbar({ user, onLogout, workspaceId }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { pathname } = window.location
-  const [isOpen, setIsOpen] = useState(false)
 
-  const links = [
-    { id: 'data', label: t('data'), icon: <Table2Columns width="1.25rem" height="1.25rem" />, path: `/workspace/${workspaceId}` },
-    { id: 'settings', label: t('settings'), icon: <SettingsIcon width="1.25rem" height="1.25rem" />, path: `/workspace/${workspaceId}/settings` },
-  ]
-
-  const closeSidebar = () => setIsOpen(false)
+  const links = workspaceId ? [
+    { id: 'data', label: t('data') || 'Data', icon: <Table2Columns width="1rem" height="1rem" />, path: `/workspace/${workspaceId}` },
+    { id: 'settings', label: t('settings') || 'Settings', icon: <SettingsIcon width="1rem" height="1rem" />, path: `/workspace/${workspaceId}/settings` },
+  ] : []
 
   return (
-    <>
-      {/* Mobile Top Header (pegs to top on mobile) */}
-      <div className="mobile-header-bar">
-        <button className="btn btn-ghost btn-sm" onClick={() => setIsOpen(true)} style={{ padding: '4px' }}>
-          <svg width="1.5rem" height="1.5rem" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
+    <header className="top-navbar-global" style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: '1rem 2rem',
+      borderBottom: 'var(--border-thick) solid var(--border-color)',
+      background: 'var(--bg-elevated)',
+      position: 'sticky',
+      top: 0,
+      zIndex: 100,
+      gap: '1rem',
+      flexWrap: 'wrap'
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '2rem', flexWrap: 'wrap' }}>
+        <Link to="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', textDecoration: 'none', color: 'inherit' }}>
+          <img src={horneroLogo} alt="Logo" style={{ width: '32px', height: '32px', objectFit: 'contain' }} />
+          <span style={{ fontSize: '1.25rem', fontWeight: 800, letterSpacing: '-0.02em', display: 'block' }}>HorneroDB</span>
+        </Link>
+
+        {links.length > 0 && (
+          <nav style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {links.map(link => {
+              const isActive = pathname === link.path || pathname.startsWith(link.path + '/settings') && link.id === 'settings'
+              return (
+                <button
+                  key={link.id}
+                  onClick={() => navigate(link.path)}
+                  className={`btn btn-sm ${isActive ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', borderRadius: 'var(--radius-pill)' }}
+                >
+                  {link.icon}
+                  {link.label}
+                </button>
+              )
+            })}
+          </nav>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        <LanguageSelector />
+        <ThemeToggle />
+        <div className="avatar" style={{ width: '2rem', height: '2rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {user?.email?.charAt(0).toUpperCase() || 'U'}
+        </div>
+        <button onClick={onLogout} className="btn btn-ghost btn-sm" style={{ padding: '0.375rem 0.5rem' }} title={t('logout') || 'Logout'}>
+          <LogOut width="1rem" height="1rem" />
         </button>
-        <div style={{ fontWeight: 800, fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <img src={horneroLogo} alt="Logo" style={{ width: '24px', height: '24px', objectFit: 'contain' }} />
-          HorneroDB
-        </div>
       </div>
-
-      {/* Backdrop overlay for mobile */}
-      <div
-        className={`sidebar-overlay ${isOpen ? 'active' : ''}`}
-        onClick={closeSidebar}
-      />
-
-      <div className={`sidebar ${isOpen ? 'sidebar-open' : ''}`}>
-        <div className="sidebar-header">
-          <Link to="/dashboard" className="sidebar-logo" onClick={closeSidebar}>
-            <img src={horneroLogo} alt="Logo" style={{ width: '32px', height: '32px', objectFit: 'contain' }} />
-            <span>HorneroDB</span>
-          </Link>
-          <button className="sidebar-close-btn" onClick={closeSidebar}>
-            <Xmark width="1.5rem" height="1.5rem" />
-          </button>
-        </div>
-
-        <nav className="sidebar-nav">
-          {links.map(link => (
-            <button
-              key={link.id}
-              className={`sidebar-link ${pathname === link.path ? 'active' : ''}`}
-              onClick={() => {
-                navigate(link.path);
-                closeSidebar();
-              }}
-            >
-              {link.icon}
-              {link.label}
-            </button>
-          ))}
-        </nav>
-
-        <div className="sidebar-footer">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0' }}>
-            <div className="avatar">
-              {user?.email?.charAt(0).toUpperCase() || 'U'}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: '0.875rem', color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {user?.email || t('user_fallback')}
-              </div>
-              <div style={{ fontSize: '0.75rem', color: '#666' }}>
-                {user?.role || 'user'}
-              </div>
-            </div>
-          </div>
-          <button
-            onClick={() => {
-              onLogout();
-              closeSidebar();
-            }}
-            className="sidebar-link"
-            style={{ marginTop: '0.5rem', fontSize: '0.8125rem', color: '#888', padding: '0.5rem 1rem' }}
-          >
-            <LogOut width="1rem" height="1rem" />
-            {t('logout')}
-          </button>
-        </div>
-      </div>
-    </>
+    </header>
   )
 }
 
@@ -337,30 +309,8 @@ function Dashboard({ user, onLogout }) {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
-      {/* Top bar */}
-      <header style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '1rem 2rem',
-        borderBottom: 'var(--border-thick) solid var(--border-color)',
-        background: 'var(--bg-elevated)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <img src={horneroLogo} alt="Logo" style={{ width: '40px', height: '40px', objectFit: 'contain' }} />
-          <span style={{ fontSize: '1.25rem', fontWeight: 800, letterSpacing: '-0.02em' }}>HorneroDB</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <LanguageSelector />
-          <ThemeToggle />
-          <div className="avatar" style={{ width: '2rem', height: '2rem', fontSize: '0.8rem' }}>
-            {user?.email?.charAt(0).toUpperCase() || 'U'}
-          </div>
-          <button onClick={onLogout} className="btn btn-ghost btn-sm" style={{ fontSize: '0.8125rem' }}>
-            {t('logout')}
-          </button>
-        </div>
-      </header>
+      {/* Top bar (Global) */}
+      <TopNavbar user={user} onLogout={onLogout} />
 
       {/* Content */}
       <div style={{ flex: 1, maxWidth: '960px', width: '100%', margin: '0 auto', padding: '3rem 2rem' }}>
@@ -611,8 +561,8 @@ function Workspace({ user, onLogout, workspaceProp }) {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex' }}>
-      <Sidebar user={user} onLogout={onLogout} workspaceId={wsId} />
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <TopNavbar user={user} onLogout={onLogout} workspaceId={wsId} />
 
       <div className="main-content">
         <div className="main-body">
@@ -630,10 +580,7 @@ function Workspace({ user, onLogout, workspaceProp }) {
                   @{workspace?.slug}
                 </p>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <LanguageSelector />
-                <ThemeToggle />
-              </div>
+
             </div>
 
             {/* Tables section header */}
@@ -773,7 +720,7 @@ function Workspace({ user, onLogout, workspaceProp }) {
 /* ═══════════════════════════════════════════
    TABLE VIEW
    ═══════════════════════════════════════════ */
-function TableView() {
+function TableView({ user, onLogout }) {
   const { t } = useTranslation()
   const { workspaceId, tableId } = useParams()
   const navigate = useNavigate()
@@ -952,30 +899,8 @@ function TableView() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex' }}>
-      {/* Sidebar */}
-      <div className="sidebar">
-        <div className="sidebar-header">
-          <Link to={`/workspace/${workspaceId}`} className="sidebar-logo">
-            <img src={horneroLogo} alt="Logo" style={{ width: '32px', height: '32px', objectFit: 'contain' }} />
-            <span>HorneroDB</span>
-          </Link>
-        </div>
-        <nav className="sidebar-nav">
-          <button className="sidebar-link" onClick={() => navigate(`/workspace/${workspaceId}`)}>
-            <svg style={{ width: '1.25rem', height: '1.25rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-            {t('data')}
-          </button>
-          <button className="sidebar-link" onClick={() => navigate(`/workspace/${workspaceId}/settings`)}>
-            <svg style={{ width: '1.25rem', height: '1.25rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-            </svg>
-            {t('settings')}
-          </button>
-        </nav>
-      </div>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <TopNavbar user={user} onLogout={onLogout} workspaceId={workspaceId} />
 
       {/* Main content */}
       <div className="main-content">
@@ -1100,7 +1025,7 @@ function TableView() {
 /* ═══════════════════════════════════════════
    SETTINGS
    ═══════════════════════════════════════════ */
-function Settings() {
+function Settings({ user, onLogout }) {
   const { t } = useTranslation()
   const { workspaceId } = useParams()
   const navigate = useNavigate()
@@ -1302,30 +1227,8 @@ function Settings() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex' }}>
-      {/* Sidebar */}
-      <div className="sidebar">
-        <div className="sidebar-header">
-          <Link to={`/workspace/${workspaceId}`} className="sidebar-logo">
-            <img src={horneroLogo} alt="Logo" style={{ width: '32px', height: '32px', objectFit: 'contain' }} />
-            <span>HorneroDB</span>
-          </Link>
-        </div>
-        <nav className="sidebar-nav">
-          <button className="sidebar-link" onClick={() => navigate(`/workspace/${workspaceId}`)}>
-            <svg style={{ width: '1.25rem', height: '1.25rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-            {t('data')}
-          </button>
-          <button className="sidebar-link active">
-            <svg style={{ width: '1.25rem', height: '1.25rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-            </svg>
-            {t('settings')}
-          </button>
-        </nav>
-      </div>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <TopNavbar user={user} onLogout={onLogout} workspaceId={workspaceId} />
 
       {/* Main content */}
       <div className="main-content">
