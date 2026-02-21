@@ -1,190 +1,168 @@
-let servicios = [];
-let horarios = [];
-let selectedHorario = null;
+// HorneroDB Public Demo App
+document.addEventListener('DOMContentLoaded', () => {
+    init();
+});
 
-const API_BASE = `${CONFIG.API_BASE}/workspaces/${CONFIG.WORKSPACE_ID}/data`;
+let services = [];
+let bookings = [];
+let selectedService = null;
 
-async function apiRequest(endpoint, options = {}) {
-  const url = `${API_BASE}${endpoint}`;
-  const headers = {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${CONFIG.API_KEY}`,
-    ...options.headers
-  };
-
-  const response = await fetch(url, {
-    ...options,
-    headers
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw new Error(error.error || `HTTP ${response.status}`);
-  }
-
-  return response.json();
+async function init() {
+    await fetchServices();
+    renderServices();
 }
 
-async function loadServicios() {
-  try {
-    const result = await apiRequest(`/${CONFIG.TABLES.SERVICIOS}`);
-    servicios = result.data || [];
-    
-    const select = document.getElementById('service');
-    select.innerHTML = '<option value="">Seleccionar servicio</option>';
-    
-    servicios.forEach(servicio => {
-      const option = document.createElement('option');
-      option.value = servicio.id;
-      option.textContent = `${servicio.nombre} - $${servicio.precio}`;
-      select.appendChild(option);
+async function fetchServices() {
+    try {
+        const response = await fetch(`${CONFIG.API_URL}/workspaces/${CONFIG.WORKSPACE_ID}/data/servicios`, {
+            headers: {
+                'Authorization': CONFIG.API_KEY,
+                'X-Workspace-ID': CONFIG.WORKSPACE_ID
+            }
+        });
+        const result = await response.json();
+        services = result.data || [];
+    } catch (error) {
+        console.error('Error fetching services:', error);
+        document.getElementById('services-list').innerHTML = '<p class="error">Error al cargar servicios. Verifica la configuración.</p>';
+    }
+}
+
+async function fetchBookings() {
+    try {
+        const response = await fetch(`${CONFIG.API_URL}/workspaces/${CONFIG.WORKSPACE_ID}/data/turnos`, {
+            headers: {
+                'Authorization': CONFIG.API_KEY,
+                'X-Workspace-ID': CONFIG.WORKSPACE_ID
+            }
+        });
+        const result = await response.json();
+        bookings = result.data || [];
+    } catch (error) {
+        console.error('Error fetching bookings:', error);
+    }
+}
+
+function renderServices() {
+    const list = document.getElementById('services-list');
+    list.innerHTML = '';
+
+    if (services.length === 0) {
+        list.innerHTML = '<p>No hay servicios disponibles.</p>';
+        return;
+    }
+
+    services.forEach(service => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+            <h3>${service.nombre || service.name}</h3>
+            <p>${service.descripcion || service.description || ''}</p>
+            <span class="price">$${service.precio || service.price}</span>
+        `;
+        card.onclick = () => selectService(service);
+        list.appendChild(card);
     });
-  } catch (error) {
-    showError('Error al cargar servicios: ' + error.message);
-  }
 }
 
-async function loadHorarios() {
-  const container = document.getElementById('horarios');
-  container.innerHTML = '<p class="loading">Cargando horarios...</p>';
-  hideError();
-
-  const fecha = document.getElementById('date').value;
-  const servicioId = document.getElementById('service').value;
-
-  if (!fecha || !servicioId) {
-    container.innerHTML = '<p class="empty">Selecciona un servicio y una fecha</p>';
-    return;
-  }
-
-  try {
-    const [horariosResult, turnosResult] = await Promise.all([
-      apiRequest(`/${CONFIG.TABLES.HORARIOS}?limit=100`),
-      apiRequest(`/${CONFIG.TABLES.TURNOS}?limit=100`)
-    ]);
-
-    const turnos = (turnosResult.data || []).filter(t => t.fecha === fecha);
-    const servicio = servicios.find(s => s.id === servicioId);
-
-    renderHorarios(horariosResult.data || [], turnos, servicio);
-  } catch (error) {
-    showError('Error al cargar horarios: ' + error.message);
-    container.innerHTML = '';
-  }
+async function selectService(service) {
+    selectedService = service;
+    document.getElementById('services-section').classList.add('hidden');
+    document.getElementById('booking-section').classList.remove('hidden');
+    document.getElementById('selected-service-info').innerText = `Servicio: ${service.nombre || service.name}`;
+    
+    document.getElementById('slots-grid').innerHTML = '<p class="loading">Cargando disponibilidad...</p>';
+    
+    await fetchBookings();
+    renderSlots();
 }
 
-function renderHorarios(horariosDisponibles, turnos, servicio) {
-  const container = document.getElementById('horarios');
-  
-  if (!horariosDisponibles.length) {
-    container.innerHTML = '<p class="empty">No hay horarios disponibles</p>';
-    return;
-  }
+function renderSlots() {
+    const grid = document.getElementById('slots-grid');
+    grid.innerHTML = '';
 
-  container.innerHTML = '';
+    // Generar slots de ejemplo para hoy (9am a 18pm)
+    const today = new Date();
+    today.setHours(9, 0, 0, 0);
 
-  const maxHorarios = 10;
-  horariosDisponibles.slice(0, maxHorarios).forEach(horario => {
-    const isOccupied = turnos.some(t => 
-      t.from === horario.hora_inicio && t.to === horario.hora_fin
-    );
+    for (let i = 0; i < 9; i++) {
+        const from = new Date(today);
+        from.setHours(today.getHours() + i);
+        
+        const to = new Date(from);
+        to.setHours(from.getHours() + 1);
 
-    const card = document.createElement('div');
-    card.className = 'horario-card';
-    card.innerHTML = `
-      <div class="horario-info">
-        <span class="horario-time">${horario.hora_inicio} - ${horario.hora_fin}</span>
-        ${servicio ? `<span class="horario-service">${servicio.nombre}</span>` : ''}
-      </div>
-      <span class="horario-status ${isOccupied ? 'occupied' : 'available'}">
-        ${isOccupied ? 'Ocupado' : 'Disponible'}
-      </span>
-      ${!isOccupied ? `
-        <button class="btn btn-primary" onclick="openReserva('${horario.hora_inicio}', '${horario.hora_fin}')">
-          Reservar
-        </button>
-      ` : ''}
-    `;
-    container.appendChild(card);
-  });
+        const slotFromStr = from.toISOString();
+        const slotToStr = to.toISOString();
+
+        // Verificar si el slot está ocupado
+        // OJO: Solo vemos 'from' y 'to' en los turnos por seguridad
+        const isOccupied = bookings.some(b => b.from === slotFromStr);
+
+        const slotEl = document.createElement('div');
+        slotEl.className = `slot ${isOccupied ? 'occupied' : ''}`;
+        slotEl.innerText = `${from.getHours()}:00`;
+        
+        if (!isOccupied) {
+            slotEl.onclick = () => selectSlot(slotFromStr, slotToStr, slotEl);
+        }
+        
+        grid.appendChild(slotEl);
+    }
 }
 
-function openReserva(from, to) {
-  selectedHorario = { from, to };
-  
-  const details = document.getElementById('reserva-details');
-  const fecha = document.getElementById('date').value;
-  const servicio = servicios.find(s => s.id === document.getElementById('service').value);
-  
-  details.innerHTML = `
-    <p><strong>Fecha:</strong> ${fecha}</p>
-    <p><strong>Horario:</strong> ${from} - ${to}</p>
-    ${servicio ? `<p><strong>Servicio:</strong> ${servicio.nombre} - $${servicio.precio}</p>` : ''}
-  `;
+function selectSlot(from, to, element) {
+    // Deseleccionar otros
+    document.querySelectorAll('.slot').forEach(el => el.classList.remove('selected'));
+    element.classList.add('selected');
 
-  document.getElementById('reserva-modal').style.display = 'flex';
+    document.getElementById('slot-from').value = from;
+    document.getElementById('slot-to').value = to;
+    document.getElementById('booking-form-container').classList.remove('hidden');
+    
+    // Scroll to form
+    document.getElementById('booking-form-container').scrollIntoView({ behavior: 'smooth' });
 }
 
-function closeModal() {
-  document.getElementById('reserva-modal').style.display = 'none';
-  document.getElementById('reserva-form').reset();
-  selectedHorario = null;
-}
+document.getElementById('cancel-btn').onclick = () => {
+    document.getElementById('booking-section').classList.add('hidden');
+    document.getElementById('services-section').classList.remove('hidden');
+    document.getElementById('booking-form-container').classList.add('hidden');
+    selectedService = null;
+};
 
-async function handleReserva(e) {
-  e.preventDefault();
+document.getElementById('booking-form').onsubmit = async (e) => {
+    e.preventDefault();
+    
+    const formData = {
+        from: document.getElementById('slot-from').value,
+        to: document.getElementById('slot-to').value,
+        client_name: document.getElementById('client_name').value,
+        client_email: document.getElementById('client_email').value,
+        client_phone: document.getElementById('client_phone').value,
+        servicio_id: selectedService.id
+    };
 
-  const fecha = document.getElementById('date').value;
-  const servicioId = document.getElementById('service').value;
-  const servicio = servicios.find(s => s.id === servicioId);
+    try {
+        const response = await fetch(`${CONFIG.API_URL}/workspaces/${CONFIG.WORKSPACE_ID}/data/turnos`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': CONFIG.API_KEY,
+                'X-Workspace-ID': CONFIG.WORKSPACE_ID
+            },
+            body: JSON.stringify(formData)
+        });
 
-  const reserva = {
-    cliente: document.getElementById('cliente').value,
-    email: document.getElementById('email').value,
-    telefono: document.getElementById('telefono').value,
-    servicio_id: servicioId,
-    servicio_nombre: servicio?.nombre || '',
-    from: selectedHorario.from,
-    to: selectedHorario.to,
-    fecha: fecha,
-    estado: 'confirmado'
-  };
-
-  try {
-    await apiRequest(`/${CONFIG.TABLES.TURNOS}`, {
-      method: 'POST',
-      body: JSON.stringify(reserva)
-    });
-
-    alert('¡Reserva confirmada! Te enviaremos un email de confirmación.');
-    closeModal();
-    loadHorarios();
-  } catch (error) {
-    alert('Error al realizar la reserva: ' + error.message);
-  }
-}
-
-function showError(message) {
-  const el = document.getElementById('error');
-  el.textContent = message;
-  el.style.display = 'block';
-}
-
-function hideError() {
-  document.getElementById('error').style.display = 'none';
-}
-
-function init() {
-  const dateInput = document.getElementById('date');
-  const today = new Date().toISOString().split('T')[0];
-  dateInput.min = today;
-  dateInput.value = today;
-
-  document.getElementById('reserva-form').addEventListener('submit', handleReserva);
-
-  loadServicios().then(() => {
-    loadHorarios();
-  });
-}
-
-document.addEventListener('DOMContentLoaded', init);
+        if (response.ok) {
+            alert('¡Turno reservado con éxito!');
+            location.reload();
+        } else {
+            const err = await response.json();
+            alert('Error al reservar: ' + (err.error || 'Intenta de nuevo'));
+        }
+    } catch (error) {
+        console.error('Booking error:', error);
+        alert('Ocurrió un error en la conexión.');
+    }
+};

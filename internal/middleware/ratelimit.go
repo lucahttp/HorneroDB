@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"hornerodb/internal/config"
+	"hornerodb/internal/database"
 	"hornerodb/internal/models/metadata"
 
 	"github.com/gin-gonic/gin"
@@ -76,14 +78,53 @@ func WorkspaceSecurity() gin.HandlerFunc {
 		}
 
 		// Get workspace context set by WorkspaceAuth middleware
+		var workspace *metadata.Workspace
 		wsRaw, exists := c.Get("workspace")
-		if !exists {
+		if exists {
+			if w, ok := wsRaw.(*metadata.Workspace); ok {
+				workspace = w
+			}
+		}
+
+		// Fallback: If not in context (e.g. public route without :workspace_id in URL),
+		// check X-Workspace-ID header
+		if workspace == nil {
+			wsIDStr := c.GetHeader("X-Workspace-ID")
+			if wsIDStr != "" {
+				wsID, err := uuid.Parse(wsIDStr)
+				if err == nil {
+					var ws metadata.Workspace
+					if err := database.DB.Table("_hornero_workspaces").Where("id = ?", wsID).First(&ws).Error; err == nil {
+						workspace = &ws
+						c.Set("workspace", &ws)
+					}
+				}
+			}
+		}
+
+		if workspace == nil {
 			c.Next()
 			return
 		}
 
-		workspace, ok := wsRaw.(*metadata.Workspace)
-		if !ok {
+		// EXEMPTION: If the request comes from the management UI (authenticated via OIDC/JWT),
+		// we bypass origin and rate limit checks, BUT ONLY if the Origin matches our global ADMIN_URL
+		// (or if there is no Origin, e.g. from CLI/Scripts).
+		authSource := GetAuthSource(c)
+		if authSource != "apikey" && authSource != "anonymous" {
+			cfg, _ := config.Load()
+			adminURL := cfg.Server.AdminURL
+			reqOrigin := c.GetHeader("Origin")
+
+			// If coming from a browser (has Origin), it MUST match our AdminURL
+			if reqOrigin != "" && adminURL != "" && reqOrigin != adminURL {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+					"error": "Authenticated request from unauthorized origin.",
+				})
+				return
+			}
+
+			// All good (either matching origin or no origin at all)
 			c.Next()
 			return
 		}

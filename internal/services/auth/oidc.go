@@ -381,6 +381,7 @@ func GenerateJWTWithRole(secret string, userID, email, role, workspaceID string,
 		"email":        email,
 		"role":         role,
 		"workspace_id": workspaceID,
+		"source":       "oidc",
 		"exp":          time.Now().Add(expiresIn).Unix(),
 		"iat":          time.Now().Unix(),
 	}

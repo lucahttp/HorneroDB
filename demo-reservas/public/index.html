@@ -1,74 +1,68 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Reservas - Demo HorneroDB</title>
-  <link rel="stylesheet" href="styles.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reserva de Turnos - HorneroDB Demo</title>
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="container">
-    <header>
-      <h1>Reservas</h1>
-      <p class="subtitle">Demo HorneroDB - Peluquería</p>
-    </header>
+    <div class="container">
+        <header>
+            <h1>Reserva tu Turno</h1>
+            <p class="subtitle">HorneroDB E-commerce Demo</p>
+        </header>
 
-    <main>
-      <section class="filters">
-        <div class="form-group">
-          <label for="service">Servicio</label>
-          <select id="service" onchange="loadHorarios()">
-            <option value="">Cargando...</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="date">Fecha</label>
-          <input type="date" id="date" onchange="loadHorarios()">
-        </div>
-      </section>
+        <main>
+            <section id="services-section">
+                <h2>Servicios Disponibles</h2>
+                <div id="services-list" class="grid">
+                    <p class="loading">Cargando servicios...</p>
+                </div>
+            </section>
 
-      <section id="error" class="error" style="display: none;"></section>
+            <section id="booking-section" class="hidden">
+                <h2>Elige un Horario</h2>
+                <p id="selected-service-info"></p>
+                <div id="slots-grid" class="slots-grid">
+                    <!-- Horarios se cargarán aquí -->
+                </div>
 
-      <section class="horarios-section">
-        <h2>Horarios Disponibles</h2>
-        <div id="horarios" class="horarios-grid">
-          <p class="loading">Cargando horarios...</p>
-        </div>
-      </section>
-    </main>
+                <div id="booking-form-container" class="hidden">
+                    <h3>Confirmar Reserva</h3>
+                    <form id="booking-form">
+                        <input type="hidden" id="service-id">
+                        <input type="hidden" id="slot-from">
+                        <input type="hidden" id="slot-to">
+                        
+                        <div class="form-group">
+                            <label for="client_name">Nombre Completo</label>
+                            <input type="text" id="client_name" required placeholder="Tu nombre">
+                        </div>
+                        <div class="form-group">
+                            <label for="client_email">Correo Electrónico</label>
+                            <input type="email" id="client_email" required placeholder="tu@email.com">
+                        </div>
+                        <div class="form-group">
+                            <label for="client_phone">Teléfono</label>
+                            <input type="tel" id="client_phone" required placeholder="Ej: +54 9 11 ...">
+                        </div>
+                        
+                        <div class="actions">
+                            <button type="button" id="cancel-btn" class="btn btn-secondary">Cancelar</button>
+                            <button type="submit" class="btn btn-primary">Confirmar Turno</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+        </main>
 
-    <footer>
-      <p>Powered by <a href="https://hornerodb.com" target="_blank">HorneroDB</a></p>
-    </footer>
-  </div>
-
-  <!-- Modal de reserva -->
-  <div id="reserva-modal" class="modal" style="display: none;">
-    <div class="modal-content">
-      <h3>Confirmar Reserva</h3>
-      <div id="reserva-details"></div>
-      <form id="reserva-form">
-        <div class="form-group">
-          <label for="cliente">Nombre</label>
-          <input type="text" id="cliente" required>
-        </div>
-        <div class="form-group">
-          <label for="email">Email</label>
-          <input type="email" id="email" required>
-        </div>
-        <div class="form-group">
-          <label for="telefono">Teléfono</label>
-          <input type="tel" id="telefono" required>
-        </div>
-        <div class="modal-actions">
-          <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
-          <button type="submit" class="btn btn-primary">Confirmar Reserva</button>
-        </div>
-      </form>
+        <footer>
+            <p>Powered by <a href="https://hornerodb.com" target="_blank">HorneroDB</a></p>
+        </footer>
     </div>
-  </div>
 
-  <script src="config.js"></script>
-  <script src="app.js"></script>
+    <script src="config.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>

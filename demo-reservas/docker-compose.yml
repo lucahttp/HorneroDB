@@ -29,5 +29,17 @@ services:
       retries: 2
       start_period: 10s
 
+  hornerodb-server:
+      build:
+        context: .
+        dockerfile: Dockerfile
+      container_name: hornerodb-server
+      ports:
+        - "8080:8080"
+      environment:
+        - DATABASE_URL=postgres://user:pass@db:5432/hornerodb
+      depends_on:
+        db:
+          condition: service_healthy
 volumes:
   postgres_data:

@@ -82,7 +82,12 @@ func AuthRequired(secret string) gin.HandlerFunc {
 		c.Set("email", claims.Email)
 		c.Set("workspace_id", claims.WorkspaceID)
 		c.Set("role", claims.Role)
-		c.Set("auth_source", claims.Source)
+
+		authSrc := claims.Source
+		if authSrc == "" {
+			authSrc = "oidc"
+		}
+		c.Set("auth_source", authSrc)
 
 		c.Next()
 	}
