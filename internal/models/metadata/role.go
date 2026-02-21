@@ -84,11 +84,11 @@ type APIKey struct {
 	RoleID           uuid.UUID  `gorm:"type:uuid" json:"role_id"`
 	LastUsedAt       *time.Time `json:"last_used_at"`
 	ExpiresAt        *time.Time `json:"expires_at"`
-	RateLimitPerMin  *int       `json:"rate_limit_per_minute,omitempty"`              // Custom rate limit for this key
-	RateLimitPerHour *int       `json:"rate_limit_per_hour,omitempty"`                // Hourly rate limit
-	AllowedOrigins   []string   `gorm:"type:jsonb" json:"allowed_origins,omitempty"`  // Allowed origins for CORS
-	AllowedReferers  []string   `gorm:"type:jsonb" json:"allowed_referers,omitempty"` // Allowed referer domains
-	CreatedAt        time.Time  `json:"created_at"`
+	RateLimitPerMin  *int      `json:"rate_limit_per_minute,omitempty"`              // Custom rate limit for this key
+	RateLimitPerHour *int      `json:"rate_limit_per_hour,omitempty"`                // Hourly rate limit
+	AllowedOrigins   JSON      `gorm:"type:jsonb" json:"allowed_origins,omitempty"`  // Allowed origins for CORS
+	AllowedReferers  JSON      `gorm:"type:jsonb" json:"allowed_referers,omitempty"` // Allowed referer domains
+	CreatedAt        time.Time `json:"created_at"`
 }
 
 func (a *APIKey) TableName() string {

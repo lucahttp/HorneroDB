@@ -39,10 +39,14 @@ func (j JSON) MarshalJSON() ([]byte, error) {
 }
 
 func (j JSON) Value() (driver.Value, error) {
-	if j == nil {
+	if len(j) == 0 {
 		return "{}", nil
 	}
 	return string(j), nil
+}
+
+func (JSON) GormDataType() string {
+	return "jsonb"
 }
 
 type Workspace struct {

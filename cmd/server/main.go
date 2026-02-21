@@ -1,11 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/joho/godotenv"
 
@@ -16,7 +16,6 @@ import (
 	"hornerodb/internal/middleware"
 	"hornerodb/web"
 
-	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
@@ -63,15 +62,33 @@ func main() {
 	// Setup Gin
 	r := gin.Default()
 
-	// CORS middleware - allow Authorization header
-	r.Use(cors.New(cors.Config{
-		AllowOriginFunc:  func(origin string) bool { return true },
-		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
-		MaxAge:           12 * time.Hour,
-	}))
+	// Robust CORS middleware
+	r.Use(func(c *gin.Context) {
+		origin := c.GetHeader("Origin")
+		if origin == "" {
+			origin = "*"
+		}
+
+		c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With, X-Workspace-ID, x-workspace-id, X-Workspace-Id")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE, PATCH")
+		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
+		c.Writer.Header().Set("Vary", "Origin")
+
+		if c.Request.Method == "OPTIONS" {
+			fmt.Printf("DEBUG: CORS Preflight from %s. Requested Headers: %s\n", origin, c.GetHeader("Access-Control-Request-Headers"))
+			c.AbortWithStatus(204)
+			return
+		}
+
+		c.Next()
+	})
+
+	// Catch-all OPTIONS route to trigger the CORS middleware for any path
+	r.OPTIONS("/*path", func(c *gin.Context) {
+		// Handled by the CORS middleware which aborts with 204
+	})
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {

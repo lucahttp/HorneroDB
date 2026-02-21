@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math/rand"
@@ -80,6 +81,10 @@ func ListAPIKeys(c *gin.Context) {
 
 	responseList := make([]APIKeyResponse, len(keys))
 	for i, key := range keys {
+		var origins, referers []string
+		json.Unmarshal(key.AllowedOrigins, &origins)
+		json.Unmarshal(key.AllowedReferers, &referers)
+
 		responseList[i] = APIKeyResponse{
 			ID:               key.ID,
 			WorkspaceID:      key.WorkspaceID,
@@ -92,8 +97,8 @@ func ListAPIKeys(c *gin.Context) {
 			ExpiresAt:        key.ExpiresAt,
 			RateLimitPerMin:  key.RateLimitPerMin,
 			RateLimitPerHour: key.RateLimitPerHour,
-			AllowedOrigins:   key.AllowedOrigins,
-			AllowedReferers:  key.AllowedReferers,
+			AllowedOrigins:   origins,
+			AllowedReferers:  referers,
 			CreatedAt:        key.CreatedAt,
 		}
 	}
@@ -149,6 +154,9 @@ func CreateAPIKey(c *gin.Context) {
 		expiresAt = &t
 	}
 
+	originsJSON, _ := json.Marshal(input.AllowedOrigins)
+	referersJSON, _ := json.Marshal(input.AllowedReferers)
+
 	apiKey := metadata.APIKey{
 		WorkspaceID:      wsID,
 		Name:             input.Name,
@@ -158,8 +166,8 @@ func CreateAPIKey(c *gin.Context) {
 		ExpiresAt:        expiresAt,
 		RateLimitPerMin:  input.RateLimitPerMin,
 		RateLimitPerHour: input.RateLimitPerHour,
-		AllowedOrigins:   input.AllowedOrigins,
-		AllowedReferers:  input.AllowedReferers,
+		AllowedOrigins:   metadata.JSON(originsJSON),
+		AllowedReferers:  metadata.JSON(referersJSON),
 	}
 
 	result := database.DB.Table("_hornero_api_keys").Create(&apiKey)
@@ -241,56 +249,50 @@ func UpdateAPIKey(c *gin.Context) {
 	}
 
 	// Find existing key
-	var existingKey metadata.APIKey
-	err = database.DB.Table("_hornero_api_keys").Where("id = ?", keyID).First(&existingKey).Error
+	var apiKey metadata.APIKey
+	err = database.DB.Table("_hornero_api_keys").Where("id = ?", keyID).First(&apiKey).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			response.NotFoundError(c, "API key")
 			return
 		}
-		slog.Error("failed to fetch API key",
-			"error", err,
-			"key_id", keyID,
-			"user_id", userID,
-		)
+		slog.Error("failed to fetch API key", "error", err, "key_id", keyID)
 		response.DatabaseError(c, err, "fetching API key")
 		return
 	}
 
-	// Build update map
-	updates := make(map[string]interface{})
-
+	// Update fields
 	if input.Name != "" {
-		updates["name"] = input.Name
+		apiKey.Name = input.Name
 	}
 
 	if input.RoleID != "" {
 		roleID, err := uuid.Parse(input.RoleID)
 		if err == nil {
-			updates["role_id"] = roleID
+			apiKey.RoleID = roleID
 		}
-	} else {
-		// Allow clearing the role
-		updates["role_id"] = nil
 	}
 
 	if input.RateLimitPerMin != nil {
-		updates["rate_limit_per_minute"] = *input.RateLimitPerMin
+		apiKey.RateLimitPerMin = input.RateLimitPerMin
 	}
 
 	if input.RateLimitPerHour != nil {
-		updates["rate_limit_per_hour"] = *input.RateLimitPerHour
+		apiKey.RateLimitPerHour = input.RateLimitPerHour
 	}
 
 	if input.AllowedOrigins != nil {
-		updates["allowed_origins"] = input.AllowedOrigins
+		originsJSON, _ := json.Marshal(input.AllowedOrigins)
+		apiKey.AllowedOrigins = metadata.JSON(originsJSON)
 	}
 
 	if input.AllowedReferers != nil {
-		updates["allowed_referers"] = input.AllowedReferers
+		referersJSON, _ := json.Marshal(input.AllowedReferers)
+		apiKey.AllowedReferers = metadata.JSON(referersJSON)
 	}
 
-	result := database.DB.Table("_hornero_api_keys").Where("id = ?", keyID).Updates(updates)
+	// Use Save to update the whole struct safely - GORM will use model metadata
+	result := database.DB.Table("_hornero_api_keys").Save(&apiKey)
 	if result.Error != nil {
 		slog.Error("failed to update API key",
 			"error", result.Error,
@@ -301,25 +303,8 @@ func UpdateAPIKey(c *gin.Context) {
 		return
 	}
 
-	// Return updated key
-	var updatedKey metadata.APIKey
-	database.DB.Table("_hornero_api_keys").Where("id = ?", keyID).First(&updatedKey)
-
 	slog.Info("API key updated", "key_id", keyID, "user_id", userID)
-	response.Success(c, gin.H{
-		"id":                    updatedKey.ID,
-		"workspace_id":          updatedKey.WorkspaceID,
-		"name":                  updatedKey.Name,
-		"prefix":                updatedKey.Prefix,
-		"role_id":               updatedKey.RoleID,
-		"last_used_at":          updatedKey.LastUsedAt,
-		"expires_at":            updatedKey.ExpiresAt,
-		"rate_limit_per_minute": updatedKey.RateLimitPerMin,
-		"rate_limit_per_hour":   updatedKey.RateLimitPerHour,
-		"allowed_origins":       updatedKey.AllowedOrigins,
-		"allowed_referers":      updatedKey.AllowedReferers,
-		"created_at":            updatedKey.CreatedAt,
-	})
+	response.Success(c, apiKey)
 }
 
 func VerifyAPIKey(key string) (*metadata.APIKey, error) {

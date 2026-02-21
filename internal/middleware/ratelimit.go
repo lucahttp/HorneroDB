@@ -71,7 +71,7 @@ func getVisitorLimit(identifier string) int {
 // and per-API-key settings
 func WorkspaceSecurity() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Handle preflight directly if it reaches here, though it mostly won't if handled by gin-cors globally before
+		// Handle preflight directly if it reaches here
 		if c.Request.Method == "OPTIONS" {
 			c.Next()
 			return
@@ -158,10 +158,13 @@ func WorkspaceSecurity() gin.HandlerFunc {
 
 		// Check if API key has custom allowed origins (override workspace)
 		if apiKeyOrigins, exists := c.Get("api_key_allowed_origins"); exists && apiKeyOrigins != nil {
-			if origins, ok := apiKeyOrigins.([]string); ok && len(origins) > 0 {
-				allowedOrigins = make([]interface{}, len(origins))
-				for i, o := range origins {
-					allowedOrigins[i] = o
+			if originsRaw, ok := apiKeyOrigins.(metadata.JSON); ok && len(originsRaw) > 0 {
+				var origins []string
+				if err := json.Unmarshal(originsRaw, &origins); err == nil && len(origins) > 0 {
+					allowedOrigins = make([]interface{}, len(origins))
+					for i, o := range origins {
+						allowedOrigins[i] = o
+					}
 				}
 			}
 		}
@@ -190,22 +193,25 @@ func WorkspaceSecurity() gin.HandlerFunc {
 
 		// Enforce Allowed Referers (if configured)
 		if apiKeyReferers, exists := c.Get("api_key_allowed_referers"); exists && apiKeyReferers != nil {
-			if referers, ok := apiKeyReferers.([]string); ok && len(referers) > 0 {
-				reqReferer := c.GetHeader("Referer")
-				refererAllowed := false
-				if reqReferer != "" {
-					for _, r := range referers {
-						if strings.HasPrefix(reqReferer, r) {
-							refererAllowed = true
-							break
+			if referersRaw, ok := apiKeyReferers.(metadata.JSON); ok && len(referersRaw) > 0 {
+				var referers []string
+				if err := json.Unmarshal(referersRaw, &referers); err == nil && len(referers) > 0 {
+					reqReferer := c.GetHeader("Referer")
+					refererAllowed := false
+					if reqReferer != "" {
+						for _, r := range referers {
+							if strings.HasPrefix(reqReferer, r) {
+								refererAllowed = true
+								break
+							}
 						}
 					}
-				}
-				if !refererAllowed && len(referers) > 0 {
-					c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-						"error": "Referer not allowed for this API key.",
-					})
-					return
+					if !refererAllowed && len(referers) > 0 {
+						c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+							"error": "Referer not allowed for this API key.",
+						})
+						return
+					}
 				}
 			}
 		}

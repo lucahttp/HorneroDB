@@ -26,6 +26,11 @@ type Claims struct {
 
 func AuthRequired(secret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if c.Request.Method == "OPTIONS" {
+			c.Next()
+			return
+		}
+
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
 			c.JSON(401, gin.H{"error": "authorization header required"})
