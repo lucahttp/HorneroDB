@@ -1,0 +1,58 @@
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+2026/02/21 16:05:43 ERROR API Error code=ERR_VALIDATION message="Invalid input" status_code=400 path=/api/test method=GET user_id="" workspace_id="" query=""
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+2026/02/21 16:05:43 ERROR database operation failed error="pq: column \"user_emails\" does not exist" operation="creating user" path=/api/users user_id=""
+2026/02/21 16:05:43 ERROR API Error code=ERR_DATABASE message="Failed to creating user. Please try again later." status_code=500 path=/api/users method=POST user_id="" workspace_id="" query=""
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+2026/02/21 16:05:43 ERROR API Error code=ERR_FORBIDDEN message="You do not have permission to perform this action" status_code=403 path=/api/resource method=DELETE user_id="" workspace_id="" query=""
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+2026/02/21 16:05:43 ERROR API Error code=ERR_UNAUTHORIZED message="Authentication required" status_code=401 path=/api/secure method=GET user_id="" workspace_id="" query=""
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+--- FAIL: TestNotFoundError (0.00s)
+panic: runtime error: invalid memory address or nil pointer dereference [recovered, repanicked]
+[signal 0xc0000005 code=0x0 addr=0x10 pc=0x7ff652ef5c06]
+
+goroutine 13 [running]:
+testing.tRunner.func1.2({0x7ff652f8fb00, 0x7ff653535630})
+	C:/Program Files/Go/src/testing/testing.go:1974 +0x239
+testing.tRunner.func1()
+	C:/Program Files/Go/src/testing/testing.go:1977 +0x349
+panic({0x7ff652f8fb00?, 0x7ff653535630?})
+	C:/Program Files/Go/src/runtime/panic.go:860 +0x13a
+hornerodb/internal/response.Error(0x20cecd952800, 0x194, {0x7ff65301a53e, 0xd}, {0x20cecd95fa30, 0xe})
+	C:/Users/lucas/HorneroDB/internal/response/response.go:67 +0x206
+hornerodb/internal/response.NotFoundError(...)
+	C:/Users/lucas/HorneroDB/internal/response/response.go:114
+hornerodb/internal/response.TestNotFoundError(0x20cecd955200)
+	C:/Users/lucas/HorneroDB/internal/response/response_test.go:123 +0xdf
+testing.tRunner(0x20cecd955200, 0x7ff65303b0d0)
+	C:/Program Files/Go/src/testing/testing.go:2036 +0xc3
+created by testing.(*T).Run in goroutine 1
+	C:/Program Files/Go/src/testing/testing.go:2101 +0x4a9
+FAIL	hornerodb/internal/response	0.076s
+ok  	hornerodb/internal/middleware	0.074s
+ok  	hornerodb/internal/query	(cached)
+FAIL

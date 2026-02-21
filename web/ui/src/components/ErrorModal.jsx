@@ -7,8 +7,6 @@ export function ErrorModal() {
   const { t } = useTranslation()
   const { error, isModalOpen, hideError } = useGlobalError()
 
-  if (!isModalOpen || !error) return null
-
   // Helper to safely stringify error details
   const getErrorDetails = () => {
     if (!error) return ''
@@ -29,7 +27,7 @@ export function ErrorModal() {
 
   return (
     <AnimatePresence>
-      {isModalOpen && (
+      {(isModalOpen && error) && (
         <motion.div
           className="modal-overlay"
           initial={{ opacity: 0 }}
@@ -86,9 +84,10 @@ export function ErrorModal() {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontSize: '1.25rem'
+                  fontSize: '1.25rem',
+                  flexShrink: 0
                 }}>
-                  <WarningTriangle width="1.5rem" height="1.5rem" />
+                  <WarningTriangle width="1.5rem" height="1.5rem" style={{ pointerEvents: 'none' }} />
                 </div>
                 <div>
                   <h3 style={{

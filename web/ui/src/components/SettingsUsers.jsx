@@ -38,7 +38,7 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
         setLoading(true)
         try {
             const res = await axios.get(`${API_URL}/workspaces/${workspaceId}/users`)
-            setUsers(res.data || [])
+            setUsers(res.data.data || [])
         } catch (err) {
             console.error(err)
             if (notify) notify(t('system_error'), 'error')
@@ -62,8 +62,8 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
             setSelectedRole('')
 
             // Check for QR code in response
-            if (res.data.qr_code) {
-                setQrCodeData(res.data.qr_code)
+            if (res.data.data && res.data.data.qr_code) {
+                setQrCodeData(res.data.data.qr_code)
                 setShowQrModal(true)
             }
 
@@ -71,7 +71,7 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
         } catch (err) {
             console.error(err)
             // Check for specific error message
-            const msg = err.response?.data?.error || t('error_import_user')
+            const msg = err.response?.data?.error?.message || t('error_import_user')
             notify(msg, 'error')
         } finally {
             setImporting(false)
@@ -94,15 +94,15 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
     const handleShowQR = async () => {
         try {
             const res = await axios.get(`${API_URL}/auth/qr`)
-            if (res.data.qr_code) {
-                setQrCodeData(res.data.qr_code)
+            if (res.data.data && res.data.data.qr_code) {
+                setQrCodeData(res.data.data.qr_code)
                 setShowQrModal(true)
             } else {
                 notify(t('error_qr_code') || 'No se pudo obtener el QR', 'error')
             }
         } catch (err) {
             console.error(err)
-            const msg = err.response?.data?.error || t('error_qr_code') || 'Error obteniendo QR'
+            const msg = err.response?.data?.error?.message || t('error_qr_code') || 'Error obteniendo QR'
             notify(msg, 'error')
         }
     }

@@ -2,12 +2,17 @@ package api
 
 import (
 	"hornerodb/internal/database"
+	"hornerodb/internal/middleware"
 	"hornerodb/internal/models/metadata"
+	"hornerodb/internal/query"
+	"hornerodb/internal/response"
+	"log/slog"
 	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // SanitizeSlug converts a name to a safe slug format
@@ -35,18 +40,40 @@ func ValidateSlug(slug string) bool {
 
 func ListTables(c *gin.Context) {
 	workspaceID := c.Param("workspace_id")
-	var tables []metadata.Table
-
-	result := database.DB.Table("_hornero_tables").Where("workspace_id = ?", workspaceID).Find(&tables)
-	if result.Error != nil {
-		c.JSON(500, gin.H{"error": result.Error.Error()})
+	userID, err := middleware.GetUserIDSafe(c)
+	if err != nil {
+		response.UnauthorizedError(c)
 		return
 	}
-	c.JSON(200, tables)
+
+	var tables []metadata.Table
+	q := database.DB.Table("_hornero_tables").Where("workspace_id = ?", workspaceID)
+	q = query.ApplyPagination(q, c)
+
+	result := q.Find(&tables)
+	if result.Error != nil {
+		slog.Error("failed to fetch tables",
+			"error", result.Error,
+			"workspace_id", workspaceID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, result.Error, "fetching tables")
+		return
+	}
+
+	meta := map[string]interface{}{
+		"count": len(tables),
+	}
+	response.SuccessWithMeta(c, tables, meta)
 }
 
 func CreateTable(c *gin.Context) {
 	workspaceID := c.Param("workspace_id")
+	userID, err := middleware.GetUserIDSafe(c)
+	if err != nil {
+		response.UnauthorizedError(c)
+		return
+	}
 
 	var input struct {
 		Name     string `json:"name" binding:"required"`
@@ -55,13 +82,13 @@ func CreateTable(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		response.ValidationError(c, "Invalid table data")
 		return
 	}
 
 	wsID, err := uuid.Parse(workspaceID)
 	if err != nil {
-		c.JSON(400, gin.H{"error": "invalid workspace_id"})
+		response.ValidationError(c, "invalid workspace_id format")
 		return
 	}
 
@@ -76,7 +103,7 @@ func CreateTable(c *gin.Context) {
 
 	// Validate slug is safe
 	if !ValidateSlug(slug) {
-		c.JSON(400, gin.H{"error": "invalid slug: must start with letter, only alphanumeric and underscores"})
+		response.ValidationError(c, "invalid slug: must start with letter, only alphanumeric and underscores")
 		return
 	}
 
@@ -88,7 +115,12 @@ func CreateTable(c *gin.Context) {
 
 	result := database.DB.Table("_hornero_tables").Create(&table)
 	if result.Error != nil {
-		c.JSON(500, gin.H{"error": result.Error.Error()})
+		slog.Error("failed to create table",
+			"error", result.Error,
+			"workspace_id", workspaceID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, result.Error, "creating table")
 		return
 	}
 
@@ -105,58 +137,114 @@ func CreateTable(c *gin.Context) {
 	if err := database.DB.Exec(createSQL).Error; err != nil {
 		// Rollback: delete the metadata record if table creation fails
 		database.DB.Table("_hornero_tables").Delete(&table)
-		c.JSON(500, gin.H{"error": "failed to create table: " + err.Error()})
+		slog.Error("failed to create physical table",
+			"error", err,
+			"workspace_id", workspaceID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, err, "creating table")
 		return
 	}
 
-	c.JSON(201, table)
+	slog.Info("table created", "table_id", table.ID, "name", table.Name, "user_id", userID)
+	response.Created(c, table)
 }
 
 func GetTable(c *gin.Context) {
 	tableID := c.Param("table_id")
+	userID, err := middleware.GetUserIDSafe(c)
+	if err != nil {
+		response.UnauthorizedError(c)
+		return
+	}
+
 	var table metadata.Table
 
 	result := database.DB.Table("_hornero_tables").First(&table, "id = ?", tableID)
 	if result.Error != nil {
-		c.JSON(404, gin.H{"error": "table not found"})
+		if result.Error == gorm.ErrRecordNotFound {
+			response.NotFoundError(c, "table")
+			return
+		}
+		slog.Error("failed to fetch table",
+			"error", result.Error,
+			"table_id", tableID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, result.Error, "fetching table")
 		return
 	}
 
-	c.JSON(200, table)
+	response.Success(c, table)
 }
 
 func UpdateTable(c *gin.Context) {
 	tableID := c.Param("table_id")
+	userID, err := middleware.GetUserIDSafe(c)
+	if err != nil {
+		response.UnauthorizedError(c)
+		return
+	}
+
 	var input map[string]interface{}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		response.ValidationError(c, "Invalid table data")
 		return
 	}
 
 	result := database.DB.Table("_hornero_tables").Where("id = ?", tableID).Updates(input)
 	if result.Error != nil {
-		c.JSON(500, gin.H{"error": result.Error.Error()})
+		slog.Error("failed to update table",
+			"error", result.Error,
+			"table_id", tableID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, result.Error, "updating table")
 		return
 	}
 
-	c.JSON(200, gin.H{"message": "updated"})
+	if result.RowsAffected == 0 {
+		response.NotFoundError(c, "table")
+		return
+	}
+
+	response.Success(c, map[string]interface{}{"message": "table updated"})
 }
 
 func DeleteTable(c *gin.Context) {
 	tableID := c.Param("table_id")
+	userID, err := middleware.GetUserIDSafe(c)
+	if err != nil {
+		response.UnauthorizedError(c)
+		return
+	}
 
 	// Get table info first
 	var table metadata.Table
 	if err := database.DB.Table("_hornero_tables").First(&table, "id = ?", tableID).Error; err != nil {
-		c.JSON(404, gin.H{"error": "table not found"})
+		if err == gorm.ErrRecordNotFound {
+			response.NotFoundError(c, "table")
+			return
+		}
+		slog.Error("failed to fetch table for deletion",
+			"error", err,
+			"table_id", tableID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, err, "fetching table")
 		return
 	}
 
 	// Delete from metadata
 	result := database.DB.Table("_hornero_tables").Delete(&metadata.Table{}, "id = ?", tableID)
 	if result.Error != nil {
-		c.JSON(500, gin.H{"error": result.Error.Error()})
+		slog.Error("failed to delete table",
+			"error", result.Error,
+			"table_id", tableID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, result.Error, "deleting table")
 		return
 	}
 
@@ -165,9 +253,13 @@ func DeleteTable(c *gin.Context) {
 	dropResult := database.DB.Exec(`DROP TABLE IF EXISTS "` + safeTableName + `"`)
 	if dropResult.Error != nil {
 		// Log but don't fail - table metadata is already deleted
-		c.JSON(500, gin.H{"error": "warning: failed to drop table: " + dropResult.Error.Error()})
-		return
+		slog.Warn("failed to drop physical table",
+			"error", dropResult.Error,
+			"table_name", safeTableName,
+			"user_id", userID,
+		)
 	}
 
-	c.JSON(200, gin.H{"message": "deleted"})
+	slog.Info("table deleted", "table_id", tableID, "name", table.Name, "user_id", userID)
+	response.Success(c, map[string]interface{}{"message": "table deleted"})
 }

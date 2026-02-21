@@ -1,0 +1,35 @@
+{
+	"servers": {
+		"sequential-thinking": {
+			"command": "npx",
+			"args": [
+				"-y",
+				"@modelcontextprotocol/server-sequential-thinking@2025.12.18"
+			],
+			"type": "stdio"
+		},
+		"chrome-devtools": {
+			"command": "npx",
+			"args": [
+				"chrome-devtools-mcp@latest",
+				"--no-usage-statistics",
+				"--no-performance-crux",
+				"--browser-url=http://127.0.0.1:9222",
+				"-y"
+			],
+			"type": "stdio"
+		},
+		"memory": {
+			"command": "npx",
+			"args": [
+				"-y",
+				"@modelcontextprotocol/server-memory"
+			],
+			"type": "stdio",
+			"env": {
+				"MEMORY_FILE_PATH": "./misc/memory/memory.jsonl"
+			}
+		}
+	},
+	"inputs": []
+}

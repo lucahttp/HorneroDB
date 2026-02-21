@@ -71,7 +71,14 @@ func AuthRequired(secret string) gin.HandlerFunc {
 			return
 		}
 
-		c.Set("user_id", claims.UserID)
+		// Resolve database ID from email
+		var user metadata.User
+		if err := database.DB.Table("_hornero_users").Where("email = ?", claims.Email).First(&user).Error; err == nil {
+			c.Set("user_id", user.ID)
+		} else {
+			// Fallback to sub if not in DB yet
+			c.Set("user_id", claims.UserID)
+		}
 		c.Set("email", claims.Email)
 		c.Set("workspace_id", claims.WorkspaceID)
 		c.Set("role", claims.Role)
@@ -162,14 +169,18 @@ func OptionalAuth(secret string) gin.HandlerFunc {
 
 func GetUserID(c *gin.Context) string {
 	if id, exists := c.Get("user_id"); exists {
-		return id.(string)
+		if idStr, ok := id.(string); ok {
+			return idStr
+		}
 	}
 	return ""
 }
 
 func GetUserRole(c *gin.Context) string {
 	if role, exists := c.Get("role"); exists {
-		return role.(string)
+		if roleStr, ok := role.(string); ok {
+			return roleStr
+		}
 	}
 	return ""
 }
@@ -184,28 +195,36 @@ func GetUserRoles(c *gin.Context) []string {
 
 func GetUserWorkspace(c *gin.Context) string {
 	if ws, exists := c.Get("workspace_id"); exists {
-		return ws.(string)
+		if wsStr, ok := ws.(string); ok {
+			return wsStr
+		}
 	}
 	return ""
 }
 
 func GetAuthSource(c *gin.Context) string {
 	if source, exists := c.Get("auth_source"); exists {
-		return source.(string)
+		if sourceStr, ok := source.(string); ok {
+			return sourceStr
+		}
 	}
 	return "anonymous"
 }
 
 func GetAPIKeyID(c *gin.Context) string {
 	if id, exists := c.Get("api_key_id"); exists {
-		return id.(string)
+		if idStr, ok := id.(string); ok {
+			return idStr
+		}
 	}
 	return ""
 }
 
 func GetRolePermissions(c *gin.Context) string {
 	if perms, exists := c.Get("role_permissions"); exists {
-		return perms.(string)
+		if permsStr, ok := perms.(string); ok {
+			return permsStr
+		}
 	}
 	return ""
 }

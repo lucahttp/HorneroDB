@@ -4,14 +4,19 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"time"
 
 	"hornerodb/internal/database"
+	"hornerodb/internal/middleware"
 	"hornerodb/internal/models/metadata"
+	"hornerodb/internal/query"
+	"hornerodb/internal/response"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 func generateAPIKey(prefix string) (string, string) {
@@ -30,15 +35,29 @@ func generateAPIKey(prefix string) (string, string) {
 
 func ListAPIKeys(c *gin.Context) {
 	workspaceID := c.Param("workspace_id")
+	userID, err := middleware.GetUserIDSafe(c)
+	if err != nil {
+		response.UnauthorizedError(c)
+		return
+	}
+
 	var keys []metadata.APIKey
 
-	result := database.DB.Table("_hornero_api_keys").
+	dbQuery := database.DB.Table("_hornero_api_keys").
 		Select("id, workspace_id, name, prefix, key_hash, role_id, last_used_at, expires_at, created_at, rate_limit_per_minute, rate_limit_per_hour, allowed_origins, allowed_referers").
-		Where("workspace_id = ?", workspaceID).
-		Find(&keys)
+		Where("workspace_id = ?", workspaceID)
+
+	dbQuery = query.ApplyPagination(dbQuery, c)
+
+	result := dbQuery.Find(&keys)
 
 	if result.Error != nil {
-		c.JSON(500, gin.H{"error": result.Error.Error()})
+		slog.Error("failed to list API keys",
+			"error", result.Error,
+			"workspace_id", workspaceID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, result.Error, "listing API keys")
 		return
 	}
 
@@ -59,9 +78,9 @@ func ListAPIKeys(c *gin.Context) {
 		CreatedAt        time.Time  `json:"created_at"`
 	}
 
-	response := make([]APIKeyResponse, len(keys))
+	responseList := make([]APIKeyResponse, len(keys))
 	for i, key := range keys {
-		response[i] = APIKeyResponse{
+		responseList[i] = APIKeyResponse{
 			ID:               key.ID,
 			WorkspaceID:      key.WorkspaceID,
 			Name:             key.Name,
@@ -79,11 +98,16 @@ func ListAPIKeys(c *gin.Context) {
 		}
 	}
 
-	c.JSON(200, response)
+	response.SuccessWithMeta(c, responseList, map[string]interface{}{"count": len(responseList)})
 }
 
 func CreateAPIKey(c *gin.Context) {
 	workspaceID := c.Param("workspace_id")
+	userID, err := middleware.GetUserIDSafe(c)
+	if err != nil {
+		response.UnauthorizedError(c)
+		return
+	}
 
 	var input struct {
 		Name             string   `json:"name" binding:"required"`
@@ -97,13 +121,13 @@ func CreateAPIKey(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		response.ValidationError(c, "Invalid API key data")
 		return
 	}
 
 	wsID, err := uuid.Parse(workspaceID)
 	if err != nil {
-		c.JSON(400, gin.H{"error": "invalid workspace_id"})
+		response.ValidationError(c, "invalid workspace_id format")
 		return
 	}
 
@@ -140,11 +164,17 @@ func CreateAPIKey(c *gin.Context) {
 
 	result := database.DB.Table("_hornero_api_keys").Create(&apiKey)
 	if result.Error != nil {
-		c.JSON(500, gin.H{"error": result.Error.Error()})
+		slog.Error("failed to create API key",
+			"error", result.Error,
+			"workspace_id", workspaceID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, result.Error, "creating API key")
 		return
 	}
 
-	c.JSON(201, gin.H{
+	slog.Info("API key created", "workspace_id", workspaceID, "user_id", userID, "key_name", input.Name)
+	response.Created(c, gin.H{
 		"id":                    apiKey.ID,
 		"workspace_id":          apiKey.WorkspaceID,
 		"name":                  apiKey.Name,
@@ -162,18 +192,39 @@ func CreateAPIKey(c *gin.Context) {
 
 func DeleteAPIKey(c *gin.Context) {
 	keyID := c.Param("key_id")
-
-	result := database.DB.Table("_hornero_api_keys").Delete(&metadata.APIKey{}, "id = ?", keyID)
-	if result.Error != nil {
-		c.JSON(500, gin.H{"error": result.Error.Error()})
+	userID, err := middleware.GetUserIDSafe(c)
+	if err != nil {
+		response.UnauthorizedError(c)
 		return
 	}
 
-	c.JSON(200, gin.H{"message": "deleted"})
+	result := database.DB.Table("_hornero_api_keys").Delete(&metadata.APIKey{}, "id = ?", keyID)
+	if result.Error != nil {
+		slog.Error("failed to delete API key",
+			"error", result.Error,
+			"key_id", keyID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, result.Error, "deleting API key")
+		return
+	}
+
+	if result.RowsAffected == 0 {
+		response.NotFoundError(c, "API key")
+		return
+	}
+
+	slog.Info("API key deleted", "key_id", keyID, "user_id", userID)
+	response.Success(c, map[string]interface{}{"message": "API key deleted"})
 }
 
 func UpdateAPIKey(c *gin.Context) {
 	keyID := c.Param("key_id")
+	userID, err := middleware.GetUserIDSafe(c)
+	if err != nil {
+		response.UnauthorizedError(c)
+		return
+	}
 
 	var input struct {
 		Name             string   `json:"name"`
@@ -185,15 +236,24 @@ func UpdateAPIKey(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		response.ValidationError(c, "Invalid API key data")
 		return
 	}
 
 	// Find existing key
 	var existingKey metadata.APIKey
-	err := database.DB.Table("_hornero_api_keys").Where("id = ?", keyID).First(&existingKey).Error
+	err = database.DB.Table("_hornero_api_keys").Where("id = ?", keyID).First(&existingKey).Error
 	if err != nil {
-		c.JSON(404, gin.H{"error": "API key not found"})
+		if err == gorm.ErrRecordNotFound {
+			response.NotFoundError(c, "API key")
+			return
+		}
+		slog.Error("failed to fetch API key",
+			"error", err,
+			"key_id", keyID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, err, "fetching API key")
 		return
 	}
 
@@ -232,7 +292,12 @@ func UpdateAPIKey(c *gin.Context) {
 
 	result := database.DB.Table("_hornero_api_keys").Where("id = ?", keyID).Updates(updates)
 	if result.Error != nil {
-		c.JSON(500, gin.H{"error": result.Error.Error()})
+		slog.Error("failed to update API key",
+			"error", result.Error,
+			"key_id", keyID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, result.Error, "updating API key")
 		return
 	}
 
@@ -240,7 +305,8 @@ func UpdateAPIKey(c *gin.Context) {
 	var updatedKey metadata.APIKey
 	database.DB.Table("_hornero_api_keys").Where("id = ?", keyID).First(&updatedKey)
 
-	c.JSON(200, gin.H{
+	slog.Info("API key updated", "key_id", keyID, "user_id", userID)
+	response.Success(c, gin.H{
 		"id":                    updatedKey.ID,
 		"workspace_id":          updatedKey.WorkspaceID,
 		"name":                  updatedKey.Name,

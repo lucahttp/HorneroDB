@@ -31,7 +31,7 @@ function App() {
     if (token) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
       axios.get(`${API_URL}/auth/me`)
-        .then(res => setUser(res.data))
+        .then(res => setUser(res.data.data))
         .catch(() => {
           localStorage.removeItem('hornero_token')
           setToken(null)
@@ -145,7 +145,7 @@ function Callback({ onLogin, onUser }) {
       onLogin(token)
       axios.get(`${API_URL}/auth/me`)
         .then(res => {
-          onUser(res.data)
+          onUser(res.data.data)
           navigate('/dashboard')
         })
         .catch(() => navigate('/'))
@@ -242,27 +242,33 @@ function Dashboard({ user, onLogout }) {
 
   useEffect(() => {
     axios.get(`${API_URL}/workspaces`)
-      .then(res => setWorkspaces(Array.isArray(res.data) ? res.data : []))
+      .then(res => setWorkspaces(Array.isArray(res.data.data) ? res.data.data : []))
       .catch(() => setWorkspaces([]))
       .finally(() => setLoading(false))
   }, [])
 
   const handleCreate = async () => {
     if (!newName.trim()) return
+    const ownerId = user?.id || user?.user_id
+    if (!ownerId) {
+      notify(t('error_create_workspace') + ': User ID missing', 'error')
+      return
+    }
+
     setCreating(true)
     try {
       await axios.post(`${API_URL}/workspaces`, {
         name: newName,
         slug: newName.toLowerCase().replace(/\s+/g, '-'),
-        owner_id: user?.id || user?.user_id
+        owner_id: ownerId
       })
       setShowCreate(false)
       setNewName('')
       const res = await axios.get(`${API_URL}/workspaces`)
-      setWorkspaces(Array.isArray(res.data) ? res.data : [])
+      setWorkspaces(Array.isArray(res.data.data) ? res.data.data : [])
     } catch (err) {
-      console.error(err)
-      notify(t('error_create_workspace'), 'error')
+      console.error('Workspace Create Error:', err)
+      // notify is already called by AxiosInterceptor
     } finally {
       setCreating(false)
     }
@@ -294,8 +300,7 @@ function Dashboard({ user, onLogout }) {
       setWorkspaces(prev => prev.filter(w => w.id !== id))
       notify(t('workspace_deleted'), 'success')
     } catch (err) {
-      console.error(err)
-      notify(t('error_delete_workspace'), 'error')
+      console.error('Delete Workspace Error:', err)
     }
   }
 
@@ -329,7 +334,7 @@ function Dashboard({ user, onLogout }) {
             </Button>
           </div>
 
-          {workspaces.length === 0 ? (
+          {(workspaces.length === 0) ? (
             <div className="empty-state">
               <div className="empty-icon"><Folder width="2rem" height="2rem" /></div>
               <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>
@@ -417,53 +422,67 @@ function Dashboard({ user, onLogout }) {
                 </motion.div>
               ))}
 
-              {/* Create new card / Inline Form */}
+              {/* Create new card */}
               <div
                 className="card border-dashed"
-                onClick={() => !showCreate && setShowCreate(true)}
+                onClick={() => setShowCreate(true)}
                 style={{
                   minHeight: '140px',
                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  cursor: showCreate ? 'default' : 'pointer'
+                  cursor: 'pointer'
                 }}
               >
-                {!showCreate ? (
-                  <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
-                    <div style={{ fontSize: '2rem', marginBottom: '0.25rem' }}>+</div>
-                    <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>{t('new_workspace_button')}</div>
-                  </div>
-                ) : (
-                  <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={newName}
-                      onChange={e => setNewName(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' && newName.trim()) {
-                          handleCreate(e);
-                        } else if (e.key === 'Escape') {
-                          setShowCreate(false);
-                          setNewName('');
-                        }
-                      }}
-                      placeholder={t('workspace_placeholder')}
-                      autoFocus
-                    />
-                    <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                      <Button variant="secondary" size="sm" onClick={(e) => { e.stopPropagation(); setShowCreate(false); setNewName(''); }}>{t('cancel')}</Button>
-                      <Button size="sm" onClick={(e) => { e.stopPropagation(); handleCreate(e); }} loading={creating} disabled={!newName.trim()}>{t('create')}</Button>
-                    </div>
-                  </div>
-                )}
+                <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+                  <div style={{ fontSize: '2rem', marginBottom: '0.25rem' }}>+</div>
+                  <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>{t('new_workspace_button')}</div>
+                </div>
               </div>
             </div>
           )}
         </motion.div>
       </div>
+
+      {/* Create Workspace Modal */}
+      {showCreate && (
+        <div className="modal-overlay" onClick={() => setShowCreate(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">{t('new_workspace_title')}</h3>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreate(false)} style={{ borderRadius: '8px' }}>
+                <Xmark width="1.25rem" height="1.25rem" />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label className="form-label">{t('name')}</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={newName}
+                  onChange={e => setNewName(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && newName.trim()) {
+                      handleCreate();
+                    } else if (e.key === 'Escape') {
+                      setShowCreate(false);
+                      setNewName('');
+                    }
+                  }}
+                  placeholder={t('workspace_placeholder')}
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <Button variant="secondary" onClick={() => { setShowCreate(false); setNewName(''); }}>{t('cancel')}</Button>
+              <Button onClick={handleCreate} loading={creating} disabled={!newName.trim()}>{t('create')}</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -486,11 +505,11 @@ function Workspace({ user, onLogout, workspaceProp }) {
     const wsId = workspaceId || workspace?.id
     if (wsId) {
       axios.get(`${API_URL}/workspaces/${wsId}`)
-        .then(res => setWorkspace(res.data))
+        .then(res => setWorkspace(res.data.data))
         .catch(console.error)
 
       axios.get(`${API_URL}/workspaces/${wsId}/tables`)
-        .then(res => setTables(res.data))
+        .then(res => setTables(res.data.data))
         .catch(() => setTables([]))
         .finally(() => setLoading(false))
     }
@@ -508,7 +527,7 @@ function Workspace({ user, onLogout, workspaceProp }) {
       setShowCreateTable(false)
       setTableName('')
       const res = await axios.get(`${API_URL}/workspaces/${wsId}/tables`)
-      setTables(res.data)
+      setTables(res.data.data)
     } catch (err) {
       console.error(err)
       notify(t('error_create_table'), 'error')
@@ -592,7 +611,7 @@ function Workspace({ user, onLogout, workspaceProp }) {
             </div>
 
             {/* Tables grid */}
-            {tables.length === 0 ? (
+            {(tables.length === 0 && !showCreateTable) ? (
               <div className="empty-state">
                 <div className="empty-icon"><ClipboardCheck width="2rem" height="2rem" /></div>
                 <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>{t('no_tables_yet')}</h3>
@@ -747,11 +766,11 @@ function TableView({ user, onLogout }) {
         axios.get(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}/columns`),
         axios.get(`${API_URL}/workspaces/${workspaceId}/roles`)
       ])
-      setTable(tableRes.data)
-      setColumns(columnsRes.data)
-      setRoles(rolesRes.data)
+      setTable(tableRes.data.data)
+      setColumns(columnsRes.data.data)
+      setRoles(rolesRes.data.data)
 
-      const recordsRes = await axios.get(`${API_URL}/workspaces/${workspaceId}/data/${tableRes.data.slug}`)
+      const recordsRes = await axios.get(`${API_URL}/workspaces/${workspaceId}/data/${tableRes.data.data.slug}`)
       setRecords(recordsRes.data.data || [])
     } catch (err) {
       console.error(err)
@@ -1067,8 +1086,8 @@ function Settings({ user, onLogout }) {
     try {
       if (!workspace) {
         const wsRes = await axios.get(`${API_URL}/workspaces/${workspaceId}`)
-        setWorkspace(wsRes.data)
-        const st = wsRes.data.settings || {}
+        setWorkspace(wsRes.data.data)
+        const st = wsRes.data.data.settings || {}
         setRateLimit(st.rate_limit_per_minute ?? 60)
         setAllowedOrigins((st.allowed_origins || []).join(', '))
       }
@@ -1078,17 +1097,17 @@ function Settings({ user, onLogout }) {
           axios.get(`${API_URL}/workspaces/${workspaceId}/roles`),
           axios.get(`${API_URL}/workspaces/${workspaceId}/tables`)
         ])
-        const tablesWithCols = await Promise.all(tablesRes.data.map(async (t) => {
+        const tablesWithCols = await Promise.all(tablesRes.data.data.map(async (t) => {
           try {
             const cr = await axios.get(`${API_URL}/workspaces/${workspaceId}/tables/${t.id}/columns`)
-            return { ...t, columns: cr.data }
+            return { ...t, columns: cr.data.data }
           } catch (e) { return t }
         }))
-        setRoles(rolesRes.data)
+        setRoles(rolesRes.data.data)
         setTables(tablesWithCols)
       } else if (activeSection === 'keys') {
         const keysRes = await axios.get(`${API_URL}/workspaces/${workspaceId}/keys`)
-        setAPIKeys(keysRes.data)
+        setAPIKeys(keysRes.data.data)
       }
     } catch (err) {
       console.error(err)
@@ -1114,7 +1133,7 @@ function Settings({ user, onLogout }) {
       })
       notify(t('settings_saved') || 'Settings saved', 'success')
       const wsRes = await axios.get(`${API_URL}/workspaces/${workspaceId}`)
-      setWorkspace(wsRes.data)
+      setWorkspace(wsRes.data.data)
     } catch (err) {
       console.error(err)
       notify(t('error_save_settings') || 'Error fetching', 'error')

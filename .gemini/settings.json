@@ -1,0 +1,45 @@
+{
+    "ui": {
+        "theme": "user-preferred-dark-theme"
+    },
+    "mcpServers": {
+        "chrome-devtools": {
+            "command": "npx",
+            "args": [
+                "chrome-devtools-mcp@latest",
+                "--no-usage-statistics",
+                "--no-performance-crux",
+                "--browser-url=http://127.0.0.1:9222",
+                "-y"
+            ],
+            "trust": true
+        },
+        "memory": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-memory"
+            ],
+            "type": "stdio",
+            "env": {
+                "MEMORY_FILE_PATH": "./misc/memory/memory.jsonl"
+            }
+        },
+		"sequential-thinking": {
+			"command": "npx",
+			"args": [
+				"-y",
+				"@modelcontextprotocol/server-sequential-thinking@2025.12.18"
+			],
+			"trust": true
+        }
+    },
+    "context": {
+        "includeDirectories": [
+            "~/gemini-context"
+        ]
+    },
+    "experimental": {
+        "plan": true
+    }
+}

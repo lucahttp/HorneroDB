@@ -37,7 +37,10 @@ test.describe('User Management UI', () => {
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify([{ id: 'ws-123', name: 'Test Workspace', owner_id: TEST_USER_ID, slug: 'test-ws' }])
+                body: JSON.stringify({
+                    success: true,
+                    data: [{ id: 'ws-123', name: 'Test Workspace', owner_id: TEST_USER_ID, slug: 'test-ws' }]
+                })
             });
         });
 
@@ -45,26 +48,57 @@ test.describe('User Management UI', () => {
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify({ id: 'ws-123', name: 'Test Workspace', owner_id: TEST_USER_ID })
+                body: JSON.stringify({
+                    success: true,
+                    data: { id: 'ws-123', name: 'Test Workspace', owner_id: TEST_USER_ID, slug: 'test-ws' }
+                })
             });
         });
 
         await page.route('**/api/v1/workspaces/ws-123/tables', async route => {
-            await route.fulfill({ status: 200, body: JSON.stringify([]) });
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: []
+                })
+            });
         });
 
         await page.route('**/api/v1/workspaces/ws-123/roles', async route => {
-            await route.fulfill({ status: 200, body: JSON.stringify([{ id: 'role-1', name: 'Editor' }]) });
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: [{ id: 'role-1', name: 'Editor' }]
+                })
+            });
         });
 
         await page.route('**/api/v1/workspaces/ws-123/users', async route => {
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
-                body: JSON.stringify([
-                    { id: TEST_USER_ID, name: 'Admin User', email: 'admin@hornero.dev', role_name: 'admin', picture: '' },
-                    { id: 'user-2', name: 'Guest User', email: 'guest@hornero.dev', role_name: 'Editor', picture: '' }
-                ])
+                body: JSON.stringify({
+                    success: true,
+                    data: [
+                        { id: TEST_USER_ID, name: 'Admin User', email: 'admin@hornero.dev', role_name: 'admin', picture: '' },
+                        { id: 'user-2', name: 'Guest User', email: 'guest@hornero.dev', role_name: 'Editor', picture: '' }
+                    ]
+                })
+            });
+        });
+
+        await page.route('**/api/v1/auth/me', async route => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: { id: TEST_USER_ID, email: 'test@hornero.dev', role: 'admin' }
+                })
             });
         });
 
@@ -99,7 +133,7 @@ test.describe('User Management UI', () => {
         await addButton.click();
 
         // Check Modal
-        await expect(page.locator('text=Importar Usuario|Import User')).toBeVisible();
+        await expect(page.getByRole('heading', { name: /Importar Usuario|Import User/i })).toBeVisible();
         await expect(page.locator('input[type="email"]')).toBeVisible();
 
         // Close modal

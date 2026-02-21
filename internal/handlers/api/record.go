@@ -1,15 +1,18 @@
 package api
 
 import (
-	"strconv"
+	"log/slog"
 
 	"hornerodb/internal/database"
 	"hornerodb/internal/middleware"
 	"hornerodb/internal/models/metadata"
+	"hornerodb/internal/query"
+	"hornerodb/internal/response"
 	"hornerodb/internal/services/permission"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 var permService = permission.NewService()
@@ -17,47 +20,70 @@ var permService = permission.NewService()
 func ListRecords(c *gin.Context) {
 	workspaceID := c.Param("workspace_id")
 	tableSlug := c.Param("table_slug")
-	userID := middleware.GetUserID(c)
-	roleName := middleware.GetUserRole(c)
+	userID, err := middleware.GetUserIDSafe(c)
+	if err != nil {
+		response.UnauthorizedError(c)
+		return
+	}
+	roleName, _ := middleware.GetUserRoleSafe(c)
 
 	wsID, err := uuid.Parse(workspaceID)
 	if err != nil {
-		c.JSON(400, gin.H{"error": "invalid workspace_id"})
+		response.ValidationError(c, "invalid workspace_id format")
 		return
 	}
 
 	var table metadata.Table
 	if err := database.DB.Table("_hornero_tables").
 		First(&table, "workspace_id = ? AND slug = ?", workspaceID, tableSlug).Error; err != nil {
-		c.JSON(404, gin.H{"error": "table not found"})
+		if err == gorm.ErrRecordNotFound {
+			response.NotFoundError(c, "table")
+			return
+		}
+		slog.Error("failed to fetch table",
+			"error", err,
+			"table_slug", tableSlug,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, err, "fetching table")
 		return
 	}
 
 	accessLevel, err := permService.CheckTableAccess(wsID, roleName, tableSlug, "read")
 	if err != nil {
-		c.JSON(500, gin.H{"error": "error checking permissions"})
+		slog.Error("error checking permissions",
+			"error", err,
+			"table_slug", tableSlug,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, err, "checking permissions")
 		return
 	}
 	if accessLevel == permission.AccessNone {
-		c.JSON(403, gin.H{"error": "no permission to read this table"})
+		response.PermissionError(c)
 		return
 	}
 
 	tableName := "data_" + workspaceID + "_" + tableSlug
 
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
-	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
-
-	query := database.DB.Table(tableName)
+	dbQuery := database.DB.Table(tableName)
 
 	if accessLevel == permission.AccessOwn {
-		query = query.Where("created_by = ?", userID)
+		dbQuery = dbQuery.Where("created_by = ?", userID)
 	}
 
+	// Apply pagination
+	dbQuery = query.ApplyPagination(dbQuery, c)
+
 	var records []map[string]interface{}
-	result := query.Limit(limit).Offset(offset).Find(&records)
+	result := dbQuery.Find(&records)
 	if result.Error != nil {
-		c.JSON(500, gin.H{"error": result.Error.Error()})
+		slog.Error("failed to fetch records",
+			"error", result.Error,
+			"table_slug", tableSlug,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, result.Error, "fetching records")
 		return
 	}
 
@@ -68,39 +94,56 @@ func ListRecords(c *gin.Context) {
 		}
 	}
 
-	c.JSON(200, gin.H{
-		"data":   records,
-		"limit":  limit,
-		"offset": offset,
-	})
+	meta := map[string]interface{}{
+		"count": len(records),
+	}
+	response.SuccessWithMeta(c, records, meta)
 }
 
 func CreateRecord(c *gin.Context) {
 	workspaceID := c.Param("workspace_id")
 	tableSlug := c.Param("table_slug")
-	userID := middleware.GetUserID(c)
-	roleName := middleware.GetUserRole(c)
+	userID, err := middleware.GetUserIDSafe(c)
+	if err != nil {
+		response.UnauthorizedError(c)
+		return
+	}
+	roleName, _ := middleware.GetUserRoleSafe(c)
 
 	wsID, err := uuid.Parse(workspaceID)
 	if err != nil {
-		c.JSON(400, gin.H{"error": "invalid workspace_id"})
+		response.ValidationError(c, "invalid workspace_id format")
 		return
 	}
 
 	var table metadata.Table
 	if err := database.DB.Table("_hornero_tables").
 		First(&table, "workspace_id = ? AND slug = ?", workspaceID, tableSlug).Error; err != nil {
-		c.JSON(404, gin.H{"error": "table not found"})
+		if err == gorm.ErrRecordNotFound {
+			response.NotFoundError(c, "table")
+			return
+		}
+		slog.Error("failed to fetch table",
+			"error", err,
+			"table_slug", tableSlug,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, err, "fetching table")
 		return
 	}
 
 	accessLevel, err := permService.CheckTableAccess(wsID, roleName, tableSlug, "create")
 	if err != nil {
-		c.JSON(500, gin.H{"error": "error checking permissions"})
+		slog.Error("error checking permissions",
+			"error", err,
+			"table_slug", tableSlug,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, err, "checking permissions")
 		return
 	}
 	if accessLevel == permission.AccessNone {
-		c.JSON(403, gin.H{"error": "no permission to create in this table"})
+		response.PermissionError(c)
 		return
 	}
 
@@ -108,7 +151,7 @@ func CreateRecord(c *gin.Context) {
 
 	var input map[string]interface{}
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		response.ValidationError(c, "Invalid record data")
 		return
 	}
 
@@ -121,55 +164,88 @@ func CreateRecord(c *gin.Context) {
 
 	result := database.DB.Table(tableName).Create(input)
 	if result.Error != nil {
-		c.JSON(500, gin.H{"error": result.Error.Error()})
+		slog.Error("failed to create record",
+			"error", result.Error,
+			"table_slug", tableSlug,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, result.Error, "creating record")
 		return
 	}
 
-	c.JSON(201, input)
+	slog.Info("record created", "table_slug", tableSlug, "user_id", userID)
+	response.Created(c, input)
 }
 
 func GetRecord(c *gin.Context) {
 	workspaceID := c.Param("workspace_id")
 	tableSlug := c.Param("table_slug")
 	recordID := c.Param("id")
-	userID := middleware.GetUserID(c)
-	roleName := middleware.GetUserRole(c)
+	userID, err := middleware.GetUserIDSafe(c)
+	if err != nil {
+		response.UnauthorizedError(c)
+		return
+	}
+	roleName, _ := middleware.GetUserRoleSafe(c)
 
 	wsID, err := uuid.Parse(workspaceID)
 	if err != nil {
-		c.JSON(400, gin.H{"error": "invalid workspace_id"})
+		response.ValidationError(c, "invalid workspace_id format")
 		return
 	}
 
 	var table metadata.Table
 	if err := database.DB.Table("_hornero_tables").
 		First(&table, "workspace_id = ? AND slug = ?", workspaceID, tableSlug).Error; err != nil {
-		c.JSON(404, gin.H{"error": "table not found"})
+		if err == gorm.ErrRecordNotFound {
+			response.NotFoundError(c, "table")
+			return
+		}
+		slog.Error("failed to fetch table",
+			"error", err,
+			"table_slug", tableSlug,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, err, "fetching table")
 		return
 	}
 
 	accessLevel, err := permService.CheckTableAccess(wsID, roleName, tableSlug, "read")
 	if err != nil {
-		c.JSON(500, gin.H{"error": "error checking permissions"})
+		slog.Error("error checking permissions",
+			"error", err,
+			"table_slug", tableSlug,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, err, "checking permissions")
 		return
 	}
 	if accessLevel == permission.AccessNone {
-		c.JSON(403, gin.H{"error": "no permission to read this table"})
+		response.PermissionError(c)
 		return
 	}
 
 	tableName := "data_" + workspaceID + "_" + tableSlug
 
-	query := database.DB.Table(tableName).Where("id = ?", recordID)
+	dbQuery := database.DB.Table(tableName).Where("id = ?", recordID)
 
 	if accessLevel == permission.AccessOwn {
-		query = query.Where("created_by = ?", userID)
+		dbQuery = dbQuery.Where("created_by = ?", userID)
 	}
 
 	var record map[string]interface{}
-	result := query.First(&record)
+	result := dbQuery.First(&record)
 	if result.Error != nil {
-		c.JSON(404, gin.H{"error": "record not found"})
+		if result.Error == gorm.ErrRecordNotFound {
+			response.NotFoundError(c, "record")
+			return
+		}
+		slog.Error("failed to fetch record",
+			"error", result.Error,
+			"table_slug", tableSlug,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, result.Error, "fetching record")
 		return
 	}
 
@@ -178,50 +254,68 @@ func GetRecord(c *gin.Context) {
 		filterRecordColumns(record, allowedColumns)
 	}
 
-	c.JSON(200, record)
+	response.Success(c, record)
 }
 
 func UpdateRecord(c *gin.Context) {
 	workspaceID := c.Param("workspace_id")
 	tableSlug := c.Param("table_slug")
 	recordID := c.Param("id")
-	userID := middleware.GetUserID(c)
-	roleName := middleware.GetUserRole(c)
+	userID, err := middleware.GetUserIDSafe(c)
+	if err != nil {
+		response.UnauthorizedError(c)
+		return
+	}
+	roleName, _ := middleware.GetUserRoleSafe(c)
 
 	wsID, err := uuid.Parse(workspaceID)
 	if err != nil {
-		c.JSON(400, gin.H{"error": "invalid workspace_id"})
+		response.ValidationError(c, "invalid workspace_id format")
 		return
 	}
 
 	var table metadata.Table
 	if err := database.DB.Table("_hornero_tables").
 		First(&table, "workspace_id = ? AND slug = ?", workspaceID, tableSlug).Error; err != nil {
-		c.JSON(404, gin.H{"error": "table not found"})
+		if err == gorm.ErrRecordNotFound {
+			response.NotFoundError(c, "table")
+			return
+		}
+		slog.Error("failed to fetch table",
+			"error", err,
+			"table_slug", tableSlug,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, err, "fetching table")
 		return
 	}
 
 	accessLevel, err := permService.CheckTableAccess(wsID, roleName, tableSlug, "update")
 	if err != nil {
-		c.JSON(500, gin.H{"error": "error checking permissions"})
+		slog.Error("error checking permissions",
+			"error", err,
+			"table_slug", tableSlug,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, err, "checking permissions")
 		return
 	}
 	if accessLevel == permission.AccessNone {
-		c.JSON(403, gin.H{"error": "no permission to update this table"})
+		response.PermissionError(c)
 		return
 	}
 
 	tableName := "data_" + workspaceID + "_" + tableSlug
 
-	query := database.DB.Table(tableName).Where("id = ?", recordID)
+	dbQuery := database.DB.Table(tableName).Where("id = ?", recordID)
 
 	if accessLevel == permission.AccessOwn {
-		query = query.Where("created_by = ?", userID)
+		dbQuery = dbQuery.Where("created_by = ?", userID)
 	}
 
 	var input map[string]interface{}
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		response.ValidationError(c, "Invalid record data")
 		return
 	}
 
@@ -230,70 +324,100 @@ func UpdateRecord(c *gin.Context) {
 		input = filterInputColumns(input, writableColumns)
 	}
 
-	result := query.Updates(input)
+	result := dbQuery.Updates(input)
 	if result.Error != nil {
-		c.JSON(500, gin.H{"error": result.Error.Error()})
+		slog.Error("failed to update record",
+			"error", result.Error,
+			"table_slug", tableSlug,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, result.Error, "updating record")
 		return
 	}
 
 	if result.RowsAffected == 0 {
-		c.JSON(404, gin.H{"error": "record not found"})
+		response.NotFoundError(c, "record")
 		return
 	}
 
-	c.JSON(200, gin.H{"message": "updated"})
+	slog.Info("record updated", "table_slug", tableSlug, "user_id", userID)
+	response.Success(c, map[string]interface{}{"message": "record updated"})
 }
 
 func DeleteRecord(c *gin.Context) {
 	workspaceID := c.Param("workspace_id")
 	tableSlug := c.Param("table_slug")
 	recordID := c.Param("id")
-	userID := middleware.GetUserID(c)
-	roleName := middleware.GetUserRole(c)
+	userID, err := middleware.GetUserIDSafe(c)
+	if err != nil {
+		response.UnauthorizedError(c)
+		return
+	}
+	roleName, _ := middleware.GetUserRoleSafe(c)
 
 	wsID, err := uuid.Parse(workspaceID)
 	if err != nil {
-		c.JSON(400, gin.H{"error": "invalid workspace_id"})
+		response.ValidationError(c, "invalid workspace_id format")
 		return
 	}
 
 	var table metadata.Table
 	if err := database.DB.Table("_hornero_tables").
 		First(&table, "workspace_id = ? AND slug = ?", workspaceID, tableSlug).Error; err != nil {
-		c.JSON(404, gin.H{"error": "table not found"})
+		if err == gorm.ErrRecordNotFound {
+			response.NotFoundError(c, "table")
+			return
+		}
+		slog.Error("failed to fetch table",
+			"error", err,
+			"table_slug", tableSlug,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, err, "fetching table")
 		return
 	}
 
 	accessLevel, err := permService.CheckTableAccess(wsID, roleName, tableSlug, "delete")
 	if err != nil {
-		c.JSON(500, gin.H{"error": "error checking permissions"})
+		slog.Error("error checking permissions",
+			"error", err,
+			"table_slug", tableSlug,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, err, "checking permissions")
 		return
 	}
 	if accessLevel == permission.AccessNone {
-		c.JSON(403, gin.H{"error": "no permission to delete this table"})
+		response.PermissionError(c)
 		return
 	}
 
 	tableName := "data_" + workspaceID + "_" + tableSlug
 
-	query := database.DB.Table(tableName).Where("id = ?", recordID)
+	dbQuery := database.DB.Table(tableName).Where("id = ?", recordID)
 
 	if accessLevel == permission.AccessOwn {
-		query = query.Where("created_by = ?", userID)
+		dbQuery = dbQuery.Where("created_by = ?", userID)
 	}
 
-	result := query.Delete(nil)
+	result := dbQuery.Delete(nil)
 	if result.Error != nil {
-		c.JSON(500, gin.H{"error": result.Error.Error()})
+		slog.Error("failed to delete record",
+			"error", result.Error,
+			"table_slug", tableSlug,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, result.Error, "deleting record")
 		return
 	}
 
 	if result.RowsAffected == 0 {
-		c.JSON(404, gin.H{"error": "record not found"})
+		response.NotFoundError(c, "record")
 		return
 	}
 
-	c.JSON(200, gin.H{"message": "deleted"})
+	slog.Info("record deleted", "table_slug", tableSlug, "user_id", userID)
+	response.Success(c, map[string]interface{}{"message": "record deleted"})
 }
 
 func filterRecordColumns(record map[string]interface{}, allowedColumns []string) {

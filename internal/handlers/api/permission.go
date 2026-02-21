@@ -1,8 +1,13 @@
 package api
 
 import (
+	"log/slog"
+
 	"hornerodb/internal/database"
+	"hornerodb/internal/middleware"
 	"hornerodb/internal/models/metadata"
+	"hornerodb/internal/query"
+	"hornerodb/internal/response"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -13,22 +18,33 @@ func ListPermissions(c *gin.Context) {
 	tableID := c.Query("table_id")
 
 	var permissions []metadata.Permission
-	query := database.DB.Table("_hornero_permissions").Where("workspace_id = ?", workspaceID)
+	dbQuery := database.DB.Table("_hornero_permissions").Where("workspace_id = ?", workspaceID)
 
 	if tableID != "" {
-		query = query.Where("table_id = ? OR table_id IS NULL", tableID)
+		dbQuery = dbQuery.Where("table_id = ? OR table_id IS NULL", tableID)
 	}
 
-	if err := query.Find(&permissions).Error; err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+	dbQuery = query.ApplyPagination(dbQuery, c)
+
+	if err := dbQuery.Find(&permissions).Error; err != nil {
+		slog.Error("failed to list permissions",
+			"error", err,
+			"workspace_id", workspaceID,
+		)
+		response.DatabaseError(c, err, "listing permissions")
 		return
 	}
 
-	c.JSON(200, permissions)
+	response.SuccessWithMeta(c, permissions, map[string]interface{}{"count": len(permissions)})
 }
 
 func CreatePermission(c *gin.Context) {
 	workspaceID := c.Param("workspace_id")
+	userID, err := middleware.GetUserIDSafe(c)
+	if err != nil {
+		response.UnauthorizedError(c)
+		return
+	}
 
 	var input struct {
 		TableID     *string `json:"table_id"`
@@ -43,13 +59,13 @@ func CreatePermission(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		response.ValidationError(c, "Invalid permission data")
 		return
 	}
 
 	wsID, err := uuid.Parse(workspaceID)
 	if err != nil {
-		c.JSON(400, gin.H{"error": "invalid workspace_id"})
+		response.ValidationError(c, "invalid workspace_id format")
 		return
 	}
 
@@ -78,38 +94,79 @@ func CreatePermission(c *gin.Context) {
 		}
 	}
 
-	if err := database.DB.Table("_hornero_permissions").Create(&perm).Error; err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+	result := database.DB.Table("_hornero_permissions").Create(&perm)
+	if result.Error != nil {
+		slog.Error("failed to create permission",
+			"error", result.Error,
+			"workspace_id", workspaceID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, result.Error, "creating permission")
 		return
 	}
 
-	c.JSON(201, perm)
+	slog.Info("permission created", "workspace_id", workspaceID, "user_id", userID, "role", input.Role)
+	response.Created(c, perm)
 }
 
 func UpdatePermission(c *gin.Context) {
 	permissionID := c.Param("permission_id")
+	userID, err := middleware.GetUserIDSafe(c)
+	if err != nil {
+		response.UnauthorizedError(c)
+		return
+	}
 
 	var input map[string]interface{}
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		response.ValidationError(c, "Invalid permission data")
 		return
 	}
 
-	if err := database.DB.Table("_hornero_permissions").Where("id = ?", permissionID).Updates(input).Error; err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+	result := database.DB.Table("_hornero_permissions").Where("id = ?", permissionID).Updates(input)
+	if result.Error != nil {
+		slog.Error("failed to update permission",
+			"error", result.Error,
+			"permission_id", permissionID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, result.Error, "updating permission")
 		return
 	}
 
-	c.JSON(200, gin.H{"message": "updated"})
+	if result.RowsAffected == 0 {
+		response.NotFoundError(c, "permission")
+		return
+	}
+
+	slog.Info("permission updated", "permission_id", permissionID, "user_id", userID)
+	response.Success(c, map[string]interface{}{"message": "permission updated"})
 }
 
 func DeletePermission(c *gin.Context) {
 	permissionID := c.Param("permission_id")
-
-	if err := database.DB.Table("_hornero_permissions").Delete(&metadata.Permission{}, "id = ?", permissionID).Error; err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+	userID, err := middleware.GetUserIDSafe(c)
+	if err != nil {
+		response.UnauthorizedError(c)
 		return
 	}
 
-	c.JSON(200, gin.H{"message": "deleted"})
+	result := database.DB.Table("_hornero_permissions").Delete(&metadata.Permission{}, "id = ?", permissionID)
+	if result.Error != nil {
+		slog.Error("failed to delete permission",
+			"error", result.Error,
+			"permission_id", permissionID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, result.Error, "deleting permission")
+		return
+	}
+
+	if result.RowsAffected == 0 {
+		response.NotFoundError(c, "permission")
+		return
+	}
+
+	slog.Info("permission deleted", "permission_id", permissionID, "user_id", userID)
+	response.Success(c, map[string]interface{}{"message": "permission deleted"})
 }

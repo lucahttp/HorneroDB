@@ -27,10 +27,97 @@ test.describe('Fixes Verification', () => {
     });
 
     test.beforeEach(async ({ page }) => {
-        // Inject token
-        // We go to login page first to set localStorage
-        await page.goto('/');
+        // Mock essential auth/workspace APIs
+        await page.route('**/api/v1/auth/me', async route => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: { id: TEST_USER_ID, email: 'test@hornero.dev', role: 'admin' }
+                })
+            });
+        });
 
+        await page.route('**/api/v1/workspaces', async route => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: [{ id: 'ws-1', name: 'Fixes Workspace', owner_id: TEST_USER_ID, slug: 'fixes-ws' }]
+                })
+            });
+        });
+
+        await page.route('**/api/v1/workspaces/ws-1', async route => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: { id: 'ws-1', name: 'Fixes Workspace', owner_id: TEST_USER_ID, slug: 'fixes-ws' }
+                })
+            });
+        });
+
+        await page.route('**/api/v1/workspaces/ws-1/tables', async route => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: [{ id: 'tbl-1', name: 'Fixes Table', slug: 'fixes_table' }]
+                })
+            });
+        });
+
+        await page.route('**/api/v1/workspaces/ws-1/tables/tbl-1', async route => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: { id: 'tbl-1', name: 'Fixes Table', slug: 'fixes_table' }
+                })
+            });
+        });
+
+        await page.route('**/api/v1/workspaces/ws-1/tables/tbl-1/columns', async route => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: [{ id: 'col-1', name: 'Name', slug: 'name', field_type: 'text' }]
+                })
+            });
+        });
+
+        await page.route('**/api/v1/workspaces/ws-1/roles', async route => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: []
+                })
+            });
+        });
+
+        await page.route('**/api/v1/workspaces/ws-1/data/fixes_table', async route => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    success: true,
+                    data: [{ id: 'rec-1', name: 'Test Record' }]
+                })
+            });
+        });
+
+        // Inject token
+        await page.goto('/');
         await page.evaluate((t) => localStorage.setItem('hornero_token', t), token);
     });
 
