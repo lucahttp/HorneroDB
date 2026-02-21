@@ -168,58 +168,91 @@ function Sidebar({ user, onLogout, workspaceId }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { pathname } = window.location
+  const [isOpen, setIsOpen] = useState(false)
 
   const links = [
     { id: 'data', label: t('data'), icon: <Table2Columns width="1.25rem" height="1.25rem" />, path: `/workspace/${workspaceId}` },
     { id: 'settings', label: t('settings'), icon: <SettingsIcon width="1.25rem" height="1.25rem" />, path: `/workspace/${workspaceId}/settings` },
   ]
 
+  const closeSidebar = () => setIsOpen(false)
+
   return (
-    <div className="sidebar">
-      <div className="sidebar-header">
-        <Link to="/dashboard" className="sidebar-logo">
-          <img src={horneroLogo} alt="Logo" style={{ width: '32px', height: '32px', objectFit: 'contain' }} />
-          <span>HorneroDB</span>
-        </Link>
-      </div>
-
-      <nav className="sidebar-nav">
-        {links.map(link => (
-          <button
-            key={link.id}
-            className={`sidebar-link ${pathname === link.path ? 'active' : ''}`}
-            onClick={() => navigate(link.path)}
-          >
-            {link.icon}
-            {link.label}
-          </button>
-        ))}
-      </nav>
-
-      <div className="sidebar-footer">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0' }}>
-          <div className="avatar">
-            {user?.email?.charAt(0).toUpperCase() || 'U'}
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: '0.875rem', color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {user?.email || t('user_fallback')}
-            </div>
-            <div style={{ fontSize: '0.75rem', color: '#666' }}>
-              {user?.role || 'user'}
-            </div>
-          </div>
-        </div>
-        <button
-          onClick={onLogout}
-          className="sidebar-link"
-          style={{ marginTop: '0.5rem', fontSize: '0.8125rem', color: '#888', padding: '0.5rem 1rem' }}
-        >
-          <LogOut width="1rem" height="1rem" />
-          {t('logout')}
+    <>
+      {/* Mobile Top Header (pegs to top on mobile) */}
+      <div className="mobile-header-bar">
+        <button className="btn btn-ghost btn-sm" onClick={() => setIsOpen(true)} style={{ padding: '4px' }}>
+          <svg width="1.5rem" height="1.5rem" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
         </button>
+        <div style={{ fontWeight: 800, fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <img src={horneroLogo} alt="Logo" style={{ width: '24px', height: '24px', objectFit: 'contain' }} />
+          HorneroDB
+        </div>
       </div>
-    </div>
+
+      {/* Backdrop overlay for mobile */}
+      <div
+        className={`sidebar-overlay ${isOpen ? 'active' : ''}`}
+        onClick={closeSidebar}
+      />
+
+      <div className={`sidebar ${isOpen ? 'sidebar-open' : ''}`}>
+        <div className="sidebar-header">
+          <Link to="/dashboard" className="sidebar-logo" onClick={closeSidebar}>
+            <img src={horneroLogo} alt="Logo" style={{ width: '32px', height: '32px', objectFit: 'contain' }} />
+            <span>HorneroDB</span>
+          </Link>
+          <button className="sidebar-close-btn" onClick={closeSidebar}>
+            <Xmark width="1.5rem" height="1.5rem" />
+          </button>
+        </div>
+
+        <nav className="sidebar-nav">
+          {links.map(link => (
+            <button
+              key={link.id}
+              className={`sidebar-link ${pathname === link.path ? 'active' : ''}`}
+              onClick={() => {
+                navigate(link.path);
+                closeSidebar();
+              }}
+            >
+              {link.icon}
+              {link.label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="sidebar-footer">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0' }}>
+            <div className="avatar">
+              {user?.email?.charAt(0).toUpperCase() || 'U'}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: '0.875rem', color: '#FFFFFF', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {user?.email || t('user_fallback')}
+              </div>
+              <div style={{ fontSize: '0.75rem', color: '#666' }}>
+                {user?.role || 'user'}
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              onLogout();
+              closeSidebar();
+            }}
+            className="sidebar-link"
+            style={{ marginTop: '0.5rem', fontSize: '0.8125rem', color: '#888', padding: '0.5rem 1rem' }}
+          >
+            <LogOut width="1rem" height="1rem" />
+            {t('logout')}
+          </button>
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -434,52 +467,53 @@ function Dashboard({ user, onLogout }) {
                 </motion.div>
               ))}
 
-              {/* Create new card */}
+              {/* Create new card / Inline Form */}
               <div
-                className="card border-dashed cursor-pointer"
-                onClick={() => setShowCreate(true)}
-                style={{ minHeight: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                className="card border-dashed"
+                onClick={() => !showCreate && setShowCreate(true)}
+                style={{
+                  minHeight: '140px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: showCreate ? 'default' : 'pointer'
+                }}
               >
-                <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
-                  <div style={{ fontSize: '2rem', marginBottom: '0.25rem' }}>+</div>
-                  <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>{t('new_workspace_button')}</div>
-                </div>
+                {!showCreate ? (
+                  <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+                    <div style={{ fontSize: '2rem', marginBottom: '0.25rem' }}>+</div>
+                    <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>{t('new_workspace_button')}</div>
+                  </div>
+                ) : (
+                  <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={newName}
+                      onChange={e => setNewName(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && newName.trim()) {
+                          handleCreate(e);
+                        } else if (e.key === 'Escape') {
+                          setShowCreate(false);
+                          setNewName('');
+                        }
+                      }}
+                      placeholder={t('workspace_placeholder')}
+                      autoFocus
+                    />
+                    <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                      <Button variant="secondary" size="sm" onClick={(e) => { e.stopPropagation(); setShowCreate(false); setNewName(''); }}>{t('cancel')}</Button>
+                      <Button size="sm" onClick={(e) => { e.stopPropagation(); handleCreate(e); }} loading={creating} disabled={!newName.trim()}>{t('create')}</Button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
         </motion.div>
       </div>
-
-      {/* Create Workspace Modal */}
-      {showCreate && (
-        <div className="modal-overlay" onClick={() => setShowCreate(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">{t('new_workspace_title')}</h3>
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreate(false)} style={{ borderRadius: '8px' }}>
-                <Xmark width="1.25rem" height="1.25rem" />
-              </button>
-            </div>
-            <div className="modal-body">
-              <div className="form-group">
-                <label className="form-label">{t('name')}</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  value={newName}
-                  onChange={e => setNewName(e.target.value)}
-                  placeholder={t('workspace_placeholder')}
-                  autoFocus
-                />
-              </div>
-            </div>
-            <div className="modal-footer">
-              <Button variant="secondary" onClick={() => setShowCreate(false)}>{t('cancel')}</Button>
-              <Button onClick={handleCreate} loading={creating} disabled={!newName.trim()}>{t('create')}</Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -678,58 +712,60 @@ function Workspace({ user, onLogout, workspaceProp }) {
                   </motion.div>
                 ))}
 
-                {/* New table card */}
+                {/* Create Table Card / Inline Form */}
                 <div
-                  className="card border-dashed cursor-pointer"
-                  onClick={() => setShowCreateTable(true)}
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '120px' }}
+                  className="card border-dashed"
+                  onClick={() => !showCreateTable && setShowCreateTable(true)}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    minHeight: '120px',
+                    cursor: showCreateTable ? 'default' : 'pointer'
+                  }}
                 >
-                  <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
-                    <div style={{ fontSize: '1.75rem', marginBottom: '0.25rem' }}>+</div>
-                    <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>{t('new_table_card_text')}</div>
-                  </div>
+                  {!showCreateTable ? (
+                    <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+                      <div style={{ fontSize: '1.75rem', marginBottom: '0.25rem' }}>+</div>
+                      <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>{t('new_table_card_text')}</div>
+                    </div>
+                  ) : (
+                    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      <div>
+                        <input
+                          type="text"
+                          className="form-input"
+                          value={tableName}
+                          onChange={e => setTableName(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' && tableName.trim()) {
+                              handleCreateTable(e);
+                            } else if (e.key === 'Escape') {
+                              setShowCreateTable(false);
+                              setTableName('');
+                            }
+                          }}
+                          placeholder={t('table_name_placeholder')}
+                          autoFocus
+                          style={{ marginBottom: '0.25rem' }}
+                        />
+                        <p className="form-hint" style={{ fontSize: '0.75rem', textAlign: 'left', margin: 0, paddingLeft: '2px' }}>
+                          {t('will_be_created_as')} <code style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>{tableName.toLowerCase().replace(/\s+/g, '_') || '...'}</code>
+                        </p>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                        <Button variant="secondary" size="sm" onClick={(e) => { e.stopPropagation(); setShowCreateTable(false); setTableName(''); }}>{t('cancel')}</Button>
+                        <Button size="sm" onClick={(e) => { e.stopPropagation(); handleCreateTable(e); }} loading={creating} disabled={!tableName.trim()}>{t('create')}</Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
           </motion.div>
         </div>
       </div>
-
-      {/* Create Table Modal */}
-      {showCreateTable && (
-        <div className="modal-overlay" onClick={() => setShowCreateTable(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">{t('new_table_title')}</h3>
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreateTable(false)} style={{ borderRadius: '8px' }}>
-                <svg style={{ width: '1.25rem', height: '1.25rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            <div className="modal-body">
-              <div className="form-group">
-                <label className="form-label">{t('table_name_label')}</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  value={tableName}
-                  onChange={e => setTableName(e.target.value)}
-                  placeholder={t('table_name_placeholder')}
-                  autoFocus
-                />
-                <p className="form-hint">
-                  {t('will_be_created_as')} <code style={{ fontFamily: 'var(--font-mono)', background: 'var(--bg-surface)', padding: '0.125rem 0.375rem', borderRadius: '4px', fontSize: '0.8125rem' }}>{tableName.toLowerCase().replace(/\s+/g, '_') || '...'}</code>
-                </p>
-              </div>
-            </div>
-            <div className="modal-footer">
-              <Button variant="secondary" onClick={() => setShowCreateTable(false)}>{t('cancel')}</Button>
-              <Button onClick={handleCreateTable} loading={creating} disabled={!tableName.trim()}>{t('create_table_button')}</Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -1373,20 +1409,17 @@ function Settings() {
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
                 <p style={{ color: 'var(--text-secondary)' }}>{t('manage_roles_desc')}</p>
-                <Button size="sm" onClick={() => setShowCreateRole(true)}>
-                  {t('new_role')}
-                </Button>
               </div>
 
-              {roles.length === 0 ? (
-                <div className="empty-state">
-                  <div className="empty-icon"><ShieldCheck width="2rem" height="2rem" /></div>
-                  <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>{t('no_roles')}</h3>
-                  <p style={{ color: 'var(--text-secondary)' }}>{t('create_roles_hint')}</p>
-                </div>
-              ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem' }}>
-                  {roles.map(role => (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem' }}>
+                {roles.length === 0 && !showCreateRole ? (
+                  <div className="empty-state" style={{ gridColumn: '1 / -1', border: '1px dashed var(--border)', background: 'var(--bg-subtle)' }}>
+                    <div className="empty-icon"><ShieldCheck width="2rem" height="2rem" /></div>
+                    <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>{t('no_roles')}</h3>
+                    <p style={{ color: 'var(--text-secondary)' }}>{t('create_roles_hint')}</p>
+                  </div>
+                ) : (
+                  roles.map((role) => (
                     <div key={role.id} className="card">
                       <div style={{ fontWeight: 700, marginBottom: '0.25rem' }}>{role.name}</div>
                       <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
@@ -1396,9 +1429,53 @@ function Settings() {
                         <Badge variant="primary" className="" style={{ marginTop: '0.75rem' }}>{t('default')}</Badge>
                       )}
                     </div>
-                  ))}
+                  ))
+                )}
+
+                {/* Create Role Card / Inline Form */}
+                <div
+                  className="card border-dashed"
+                  onClick={() => !showCreateRole && setShowCreateRole(true)}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    minHeight: roles.length === 0 ? '140px' : 'auto',
+                    cursor: showCreateRole ? 'default' : 'pointer'
+                  }}
+                >
+                  {!showCreateRole ? (
+                    <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+                      <div style={{ fontSize: '1.75rem', marginBottom: '0.25rem' }}>+</div>
+                      <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>{t('new_role')}</div>
+                    </div>
+                  ) : (
+                    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={newRoleName}
+                        onChange={e => setNewRoleName(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && newRoleName.trim()) {
+                            handleCreateRole(e);
+                          } else if (e.key === 'Escape') {
+                            setShowCreateRole(false);
+                            setNewRoleName('');
+                          }
+                        }}
+                        placeholder={t('role_placeholder')}
+                        autoFocus
+                      />
+                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                        <Button variant="secondary" size="sm" onClick={(e) => { e.stopPropagation(); setShowCreateRole(false); setNewRoleName(''); }}>{t('cancel')}</Button>
+                        <Button size="sm" onClick={(e) => { e.stopPropagation(); handleCreateRole(e); }} disabled={!newRoleName.trim()}>{t('create')}</Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
 
               {/* Inline Permission Matrix */}
               <PermissionMatrix
@@ -1589,37 +1666,6 @@ function Settings() {
           )}
         </div>
       </div>
-
-      {/* Create Role Modal */}
-      {showCreateRole && (
-        <div className="modal-overlay" onClick={() => setShowCreateRole(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">{t('new_role')}</h3>
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreateRole(false)} style={{ borderRadius: '8px' }}>
-                <Xmark width="1.25rem" height="1.25rem" />
-              </button>
-            </div>
-            <div className="modal-body">
-              <div className="form-group">
-                <label className="form-label">{t('role_name')}</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  value={newRoleName}
-                  onChange={e => setNewRoleName(e.target.value)}
-                  placeholder={t('role_placeholder')}
-                  autoFocus
-                />
-              </div>
-            </div>
-            <div className="modal-footer">
-              <Button variant="secondary" onClick={() => setShowCreateRole(false)}>{t('cancel')}</Button>
-              <Button onClick={handleCreateRole} disabled={!newRoleName.trim()}>{t('create')}</Button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Create API Key Modal */}
       {showCreateKey && (
