@@ -108,6 +108,19 @@ func GetRole(c *gin.Context) {
 	response.Success(c, role)
 }
 
+func deepMerge(dst, src map[string]interface{}) map[string]interface{} {
+	for k, v := range src {
+		if vMap, vIsMap := v.(map[string]interface{}); vIsMap {
+			if dstMap, dstIsMap := dst[k].(map[string]interface{}); dstIsMap {
+				dst[k] = deepMerge(dstMap, vMap)
+				continue
+			}
+		}
+		dst[k] = v
+	}
+	return dst
+}
+
 func UpdateRole(c *gin.Context) {
 	roleID := c.Param("role_id")
 	userID, err := middleware.GetUserIDSafe(c)
@@ -124,7 +137,28 @@ func UpdateRole(c *gin.Context) {
 	}
 
 	if permissions, ok := input["permissions"]; ok {
-		permissionsJSON, err := json.Marshal(permissions)
+		var existingRole metadata.Role
+		if err := database.DB.Table("_hornero_roles").First(&existingRole, "id = ?", roleID).Error; err != nil {
+			response.NotFoundError(c, "role")
+			return
+		}
+
+		var mergedPerms map[string]interface{}
+		if len(existingRole.Permissions) > 0 {
+			if err := json.Unmarshal(existingRole.Permissions, &mergedPerms); err != nil {
+				slog.Error("failed to unmarshal existing permissions", "error", err)
+			}
+		}
+		if mergedPerms == nil {
+			mergedPerms = make(map[string]interface{})
+		}
+
+		newPerms, ok := permissions.(map[string]interface{})
+		if ok {
+			mergedPerms = deepMerge(mergedPerms, newPerms)
+		}
+
+		permissionsJSON, err := json.Marshal(mergedPerms)
 		if err != nil {
 			response.ValidationError(c, "invalid permissions format")
 			return
