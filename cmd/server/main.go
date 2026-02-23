@@ -61,6 +61,9 @@ func main() {
 
 	// Setup Gin
 	r := gin.Default()
+	// Disable automatic redirects to prevent static file trailing slash 301 loops
+	r.RedirectTrailingSlash = false
+	r.RedirectFixedPath = false
 
 	// Robust CORS middleware
 	r.Use(func(c *gin.Context) {
@@ -180,21 +183,69 @@ func main() {
 		if err != nil {
 			log.Printf("Warning: Failed to load embedded UI: %v", err)
 		} else {
-			fileServer := http.FileServer(http.FS(distFS))
 			r.NoRoute(func(c *gin.Context) {
 				path := c.Request.URL.Path
-				// Check if file exists in FS
-				f, err := distFS.Open(strings.TrimPrefix(path, "/"))
-				if err == nil {
-					defer f.Close()
-					stat, _ := f.Stat()
-					if !stat.IsDir() {
-						fileServer.ServeHTTP(c.Writer, c.Request)
+				cleanPath := strings.TrimPrefix(path, "/")
+				if cleanPath == "" {
+					cleanPath = "index.html"
+				}
+
+				// Try to open the requested file
+				f, err := distFS.Open(cleanPath)
+				if err != nil {
+					// Fallback to index.html for SPA routing
+					cleanPath = "index.html"
+					f, err = distFS.Open(cleanPath)
+					if err != nil {
+						c.String(http.StatusNotFound, "index.html not found")
 						return
 					}
 				}
-				// Fallback to index.html for SPA
-				c.FileFromFS("index.html", http.FS(distFS))
+				defer f.Close()
+
+				stat, err := f.Stat()
+				if err != nil || stat.IsDir() {
+					// Fallback to index.html for SPA routing if it's a directory
+					f.Close()
+					cleanPath = "index.html"
+					f, err = distFS.Open(cleanPath)
+					if err != nil {
+						c.String(http.StatusNotFound, "index.html not found")
+						return
+					}
+					defer f.Close()
+					stat, _ = f.Stat()
+				}
+
+				buf := make([]byte, stat.Size())
+				_, err = f.Read(buf)
+				if err != nil {
+					c.String(http.StatusInternalServerError, "error reading file")
+					return
+				}
+
+				// Basic content type sniffing based on extension
+				contentType := "text/plain"
+				switch {
+				case strings.HasSuffix(cleanPath, ".html"):
+					contentType = "text/html; charset=utf-8"
+				case strings.HasSuffix(cleanPath, ".js"):
+					contentType = "application/javascript"
+				case strings.HasSuffix(cleanPath, ".css"):
+					contentType = "text/css"
+				case strings.HasSuffix(cleanPath, ".png"):
+					contentType = "image/png"
+				case strings.HasSuffix(cleanPath, ".jpg") || strings.HasSuffix(cleanPath, ".jpeg"):
+					contentType = "image/jpeg"
+				case strings.HasSuffix(cleanPath, ".svg"):
+					contentType = "image/svg+xml"
+				case strings.HasSuffix(cleanPath, ".ico"):
+					contentType = "image/x-icon"
+				case strings.HasSuffix(cleanPath, ".json"):
+					contentType = "application/json"
+				}
+
+				c.Data(http.StatusOK, contentType, buf)
 			})
 			log.Println("📦 Serving embedded UI (production mode)")
 		}

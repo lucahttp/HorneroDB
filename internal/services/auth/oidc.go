@@ -57,26 +57,27 @@ func NewPocketIDAuth(cfg *config.OIDCProvider) (*OIDCAuth, error) {
 
 	ctx := context.Background()
 
-	provider, err := oidc.NewProvider(ctx, cfg.IssuerURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create OIDC provider: %w", err)
-	}
+	// Bypass automatic OIDC provider discovery.
+	// We want to fetch the JWKS from the internal Docker network (IssuerURL)
+	// but verify against the token's expected issuer signature (PublicURL).
+	jwksURL := cfg.IssuerURL + "/.well-known/jwks.json"
+	keySet := oidc.NewRemoteKeySet(ctx, jwksURL)
 
-	verifier := provider.Verifier(&oidc.Config{
+	verifier := oidc.NewVerifier(cfg.PublicURL, keySet, &oidc.Config{
 		ClientID: cfg.ClientID,
 	})
 
 	return &OIDCAuth{
 		config:   cfg,
 		verifier: verifier,
-		provider: provider,
+		provider: nil,
 	}, nil
 }
 
 func (o *OIDCAuth) GetLoginURL(state, codeVerifier string) string {
 	codeChallenge := generateCodeChallenge(codeVerifier)
 
-	url := o.config.IssuerURL + "/authorize?" +
+	url := o.config.PublicURL + "/authorize?" +
 		"client_id=" + o.config.ClientID +
 		"&redirect_uri=" + o.config.RedirectURL +
 		"&response_type=code" +
@@ -111,6 +112,7 @@ func (o *OIDCAuth) ExchangeCode(ctx context.Context, code, codeVerifier string) 
 		))
 	}
 
+	// We still use IssuerURL for internal container-to-container calls to fetch the token
 	req, err := http.NewRequestWithContext(ctx, "POST", o.config.IssuerURL+"/api/oidc/token", data)
 	if err != nil {
 		return nil, err

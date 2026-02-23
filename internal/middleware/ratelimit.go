@@ -108,7 +108,7 @@ func WorkspaceSecurity() gin.HandlerFunc {
 		}
 
 		// EXEMPTION: If the request comes from the management UI (authenticated via OIDC/JWT),
-		// we bypass origin and rate limit checks, BUT ONLY if the Origin matches our global ADMIN_URL
+		// we bypass origin and rate limit checks if the Origin matches our global ADMIN_URL
 		// (or if there is no Origin, e.g. from CLI/Scripts).
 		authSource := GetAuthSource(c)
 		if authSource != "apikey" && authSource != "anonymous" {
@@ -116,17 +116,15 @@ func WorkspaceSecurity() gin.HandlerFunc {
 			adminURL := cfg.Server.AdminURL
 			reqOrigin := c.GetHeader("Origin")
 
-			// If coming from a browser (has Origin), it MUST match our AdminURL
-			if reqOrigin != "" && adminURL != "" && reqOrigin != adminURL {
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-					"error": "Authenticated request from unauthorized origin.",
-				})
+			// If no origin (Server/CLI) or origin matches AdminURL, allow bypass
+			if reqOrigin == "" || (adminURL != "" && reqOrigin == adminURL) {
+				c.Next()
 				return
 			}
 
-			// All good (either matching origin or no origin at all)
-			c.Next()
-			return
+			// If it comes from a different origin (e.g. an external SPA using OIDC),
+			// we DO NOT abort. We let it fall through to workspace-level origin
+			// validation and rate limiting below.
 		}
 
 		// Parse workspace settings

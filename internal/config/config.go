@@ -42,6 +42,7 @@ type OIDCProvider struct {
 	ClientID     string
 	ClientSecret string
 	IssuerURL    string
+	PublicURL    string
 	RedirectURL  string
 	APIKey       string
 }
@@ -100,6 +101,7 @@ func Load() (*Config, error) {
 				ClientID:     getEnv("POCKETID_CLIENT_ID", ""),
 				ClientSecret: getEnv("POCKETID_CLIENT_SECRET", ""),
 				IssuerURL:    getEnv("POCKETID_ISSUER_URL", ""),
+				PublicURL:    getEnv("POCKETID_PUBLIC_URL", getEnv("POCKETID_ISSUER_URL", "")),
 				RedirectURL:  getEnv("POCKETID_REDIRECT_URL", "http://localhost:8080/api/v1/auth/oidc/callback"),
 				APIKey:       getEnv("POCKETID_API_KEY", ""),
 			},
