@@ -1,49 +1,43 @@
 # 🐦 HorneroDB
 
-### The Open-Source, Low-Code Database: Secure by Default.
+### Wanna vibecode an e-commerce, or build it by hand?
+But... What about the website's data? The actual database? Permissions and access control?
 
-**Built with Go + React.** A powerful, self-hostable alternative to Airtable, NocoDB, PocketBase, and Baserow. Designed for developers who need granular security and modern authentication (Passkeys/SSO) without the enterprise price tag.
+Your *vibecoded* app can have its **data protected just like large enterprises (enterprise grade)** using the highest security standards. That's what **HorneroDB** is for.
+
+**Built with Go + React (Optional).** A CRM / database in the style of Airtable, NocoDB, or PocketBase, but with an absolute focus on security: SSO using OIDC, and table, column, and row-level permissions (Dataverse style).
 
 ![Preview](web/ui/inline_edit_verify.png)
 
-## ✨ Features
+---
 
-* **Secure Table Creation** — Define schemas on the fly and control visibility (who sees what) via a sleek UI or a robust API.
-* **Rich Data Types** — Fully compatible with PostgreSQL types, giving you the flexibility of a professional relational database.
-* **Excel-like Experience** — Inline cell editing, full keyboard navigation, and seamless copy/paste functionality.
-* **Granular RBAC** — Role-Based Access Control at the table, column, and row levels. Security is a core feature, not a paid add-on.
-  * **Column-level security by operation** — Control which columns can be read, created, updated, or deleted separately.
-  * **Row-level security** — Filter data by user ownership or custom conditions.
-* **Modern Auth (OIDC)** — Native integration with OIDC providers; optimized for **PocketID** with Passkey support.
-* **API Security** — Rate limiting per API key, domain/origin restrictions, and automatic column filtering.
-* **Seamless Integrations** — Out-of-the-box support for PowerAutomate, n8n, and React applications via the OpenAPI standard.
-* **Simplified Deployment** — Spin up your database, connect your auth service, and you're ready for production.
+## ✨ Why use HorneroDB
+
+* **BYOIdP Security (Bring Your Own Identity Provider)** — Modern authentication (SSO/OIDC) and native support for Passkeys. Your security shouldn't be locked behind an "Enterprise" plan.
+* **PostgreSQL at its core** — Rich data types and the flexibility of a professional relational database.
+* **Granular Permissions (APIs and Staff)** — Strict control for your APIs (for your public frontend or *customer-facing* AI agents) and for your users (business staff).
+  * *Column-level security per operation* (control who reads, creates, updates, or deletes each field).
+  * *Row-level security* (filter data by owner or custom conditions).
+* **Excel-like Experience** — Inline cell editing, full keyboard navigation, and seamless copy/paste support.
+
+## 🛠️ Developer Tools
+
+We are building an ecosystem designed for the modern developer:
+
+* **(Upcoming) Hornero MCP** — Plug HorneroDB into the AI you are *vibecoding* with. The AI will understand your backend, configure your database, and program the UI automatically.
+* **(Upcoming) Data Security Agent** — A System Prompt for a specialized agent that can help you configure and manage your database security.
+* **OpenAPI Collection** — Making it extremely simple to integrate with other platforms (Native support for n8n, PowerAutomate, etc.).
+* **Implementation Examples** — Ready-to-use templates (e.g., Booking System, E-commerce).
 
 ---
 
-## 🆚 Comparison
+## 💼 Services and Business Model
 
-| Feature | 🐦 HorneroDB | 🟢 Supabase | 🧊 PocketBase | ⚡ NocoDB | 🧩 Airtable | 🛶 Baserow |
-| --- | --- | --- | --- | --- | --- | --- |
-| **Permissions** | **Granular (Row/Col)** | PG RLS | Collection | Table | Base | Table |
-| **Security** | **SSO + Passkeys** | Enterprise | Email/Pass | Enterprise | Enterprise | Enterprise |
-| **API** | **Auto-Secure** | REST/GQL | SDK | REST/GQL | REST | REST |
-| **Self-Host** | **Docker** | Docker | Binary | Docker | ❌ | Docker |
-| **Cost** | **Free / Community** | Free Tier | Free | Free | $$$ | Free /$$$ |
+Designed for small businesses that need to solve their management without complications:
 
----
-
-## 🛠 Why HorneroDB?
-
-HorneroDB started with a real-world problem. While building an e-commerce management tool for my girlfriend's shop, I hit a wall with existing solutions. Most tools either lacked the ability to restrict API calls by source/IP or locked basic security features—like **SSO and granular column visibility**—behind expensive "Enterprise" subscriptions.
-
-I needed a system where:
-
-1. **Security is accessible:** My girlfriend can log in with a Passkey (biometrics), so she never has to worry about forgotten passwords.
-2. **Granular Control:** Staff can manage inventory without seeing sensitive business data.
-3. **Developer Friendly:** A single API to rule them all, without the complexity of traditional ERPs.
-
-HorneroDB bridges the gap between the simplicity of a spreadsheet and the security of a modern cloud-native application.
+* **Turnkey installation and configuration ($$$)**.
+* **You choose where it runs:** On-premise or Cloud. It can be hosted on cloud servers, on a Raspberry Pi, on an old computer running in the back of your shop  or even on a Kubernetes cluster. We accompany your scale.
+* **Subscription Plans:** There are no subscription plans, you own your data, your server and your business.
 
 ---
 
@@ -64,12 +58,11 @@ Test HorneroDB instantly using the Docker Playground:
 ### Deployment (Docker)
 
 ```bash
-# Clone and prepare environment
+# Clone and prepare the environment
 cp .env.example .env
 
 # Start HorneroDB, PocketID, and PostgreSQL
 docker-compose up -d
-
 ```
 
 Visit `http://localhost:5173` to access the UI.
@@ -83,35 +76,21 @@ go build -o bin/hornerodb ./cmd/server
 
 # Run the Frontend
 cd web/ui && npm install && npm run dev
-
 ```
 
 ---
 
-## 📚 API Reference
+## 🔐 Security in Detail
 
-HorneroDB is built on the **OpenAPI 3.0** standard. You can find the full documentation in [`docs/openapi.yaml`]().
-
-**Core Endpoints:**
-
-* `GET /api/v1/workspaces`
-* `GET /api/v1/workspaces/:ws/tables`
-* `GET /api/v1/workspaces/:ws/data/:slug` (Secure Read)
-* `POST /api/v1/workspaces/:ws/data/:slug` (Secure Write)
-
----
-
-## 🔐 Granular Permissions
-
-HorneroDB provides **fine-grained security** at multiple levels:
+HorneroDB provides fine-grained security at multiple levels:
 
 ### Table-Level Permissions
 
-Control access per role: `all`, `own`, or `none`.
+Access control per role: `all`, `own`, or `none`.
 
 ```json
 {
-  "turnos": {
+  "appointments": {
     "create": "all",
     "read": "all",
     "update": "own",
@@ -122,47 +101,43 @@ Control access per role: `all`, `own`, or `none`.
 
 ### Column-Level Permissions by Operation
 
-Define which columns are visible/editable for each operation (read, create, update, delete):
+Define which columns are visible/editable for each operation (e.g., the public API only reads certain fields, staff sees everything):
 
 ```json
 {
-  "turnos": {
-    "create": "all",
-    "read": "all",
-    "update": "all",
+  "appointments": {
     "columns": {
-      "read": ["from", "to", "fecha"],
-      "create": ["cliente", "email", "telefono", "from", "to", "fecha"],
-      "update": ["estado"]
+      "read": ["from", "to", "date"],
+      "create": ["customer", "email", "phone", "from", "to", "date"],
+      "update": ["status"]
     }
   }
 }
 ```
 
-This allows:
-- **Public API keys** to only expose specific columns (e.g., appointment times)
-- **Limited write access** (e.g., users can only update their appointment status)
-
 ### API Key Security
 
-Each API key can have custom restrictions:
+Each API Key can have specific restrictions. Ideal for your public e-commerce:
 
 ```json
 {
-  "name": "Public Booking API",
-  "role_id": "...",
-  "rate_limit_per_minute": 10,
-  "allowed_origins": ["https://bookings.example.com"],
-  "allowed_referers": ["https://bookings.example.com/"]
+  "name": "Public E-commerce API",
+  "rate_limit_per_minute": 60,
+  "allowed_origins": ["https://mydomain.com"]
 }
 ```
 
-### Use Case: Booking System Demo
+---
 
-See [`demo-reservas/`](demo-reservas/) for a complete example:
-- **Public site**: View available slots, create reservations
-- **Admin site**: Full access to manage appointments and services
-- **Bot integration**: Limited update access (only status field)
+## 🆚 Comparison
+
+| Feature | 🐦 HorneroDB | 🟢 Supabase | 🧊 PocketBase | ⚡ NocoDB | 🧩 Airtable |
+| --- | --- | --- | --- | --- | --- |
+| **Permissions** | **Granular (Row/Col)** | PG RLS | Collection | Table | Base |
+| **Security** | **SSO + Passkeys (BYOIdP)** | Enterprise | Email/Pass | Enterprise | Enterprise |
+| **API** | **Auto-Secure** | REST/GQL | SDK | REST/GQL | REST |
+| **Self-Host** | **Docker / Local** | Docker | Binary | Docker | ❌ |
+| **Cost** | **Free / Open Source** | Free Tier | Free | Free | $$$ |
 
 ---
 
@@ -170,19 +145,18 @@ See [`demo-reservas/`](demo-reservas/) for a complete example:
 
 * [x] Full REST API (30+ endpoints)
 * [x] OIDC Auth & RBAC Permissions
-* [x] Simple UI
-* [x] Visual Table Editor
-* [x] Column-level permissions by operation
+* [x] Nice style UI
+* [x] Granular column-level permissions
 * [x] API key rate limiting & domain restrictions
-* [ ] Table Relations UI (In Progress)
-* [ ] Advanced Filters & Search
-* [ ] Webhooks & Automations
-* [ ] S3 Attachment Support
+* [ ] (WIP) Table Relations UI
+* [ ] (WIP) MCP Server for AI Assistants
+* [ ] Advanced Filters and Search
+* [ ] Webhooks and Automations
 
 ---
 
 ## 🐦 Fun Fact
 
-The **Hornero** is Argentina's national bird. They are master builders, creating incredibly strong nests made of mud and twigs that look like small ovens. Like the bird, **HorneroDB** is built to be a sturdy, reliable home for your data.
+The **Hornero** is Argentina's national bird. They are master builders, crafting incredibly strong nests made of mud and twigs that look like small ovens. Just like the bird, **HorneroDB** is built to be a solid, secure, and reliable home for your data.
 
 **Made in Argentina with ❤️**
