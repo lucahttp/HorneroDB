@@ -171,7 +171,26 @@ func main() {
 		protected.GET("/auth/me", api.GetCurrentUser)
 		protected.GET("/auth/permissions", api.GetMyPermissions)
 		protected.GET("/auth/qr", api.GetSystemLoginQR)
+
+		// === MCP (Model Context Protocol) ===
+		mcpServer := mcp.New()
+		protected.GET("/mcp/sse", mcpServer.HandleSSE)
+		protected.POST("/mcp/message", mcpServer.HandleMessage)
 	}
+
+	// === MCP OAuth2 (Dynamic Client Registration per RFC 7591 / MCP spec) ===
+	// These endpoints are intentionally public so MCP clients can self-register and login.
+	oauthServer := &mcp.OAuthServer{
+		OIDCAuth:  api.GetOIDCAuth(),
+		JWTSecret: api.GetJWTSecret(),
+		PublicURL: cfg.Server.PublicURL,
+	}
+	// RFC 8414: Authorization Server Metadata – MCP clients fetch this first
+	r.GET("/.well-known/oauth-authorization-server", oauthServer.Discovery)
+	v1.POST("/mcp/oauth/register", oauthServer.RegisterClient)
+	v1.GET("/mcp/oauth/authorize", oauthServer.Authorize)
+	v1.GET("/mcp/oauth/callback", oauthServer.OIDCCallback)
+	v1.POST("/mcp/oauth/token", oauthServer.Token)
 
 	// === AUTH OIDC (public) ===
 	v1.GET("/auth/oidc/login", api.LoginPocketID)

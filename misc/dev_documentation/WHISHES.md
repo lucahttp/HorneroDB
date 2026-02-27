@@ -183,3 +183,64 @@ which rows can see from the tables
 
 which actions can do from the tables
 
+
+
+
+
+
+## V 0.8.1
+
+### Tables office compatible shortcuts [Feature]
+
+copy from excel/google sheets
+paste to excel/google sheets
+import from excel/csv to generate table wizzard, inferring column types 
+
+
+### Tables relationships [Feature]
+add relationships between tables, like in nocodb
+
+### Encrypt sensitive data [Feature]
+allow column level encryption, only end user can see his data
+use cases, credit cards, PII, medical info, etc
+
+
+### Export/Import [Feature]
+allow export/import of tables
+allow export/import of workspaces schemas
+    table schemas
+    security policies
+    api configurations (not api keys)
+    users
+    roles
+    
+
+
+## V 1.0.0
+
+### Automation steps
+
+webhooks
+process flowchart mainly low-code/no-code editor
+
+use cases:
+appointment confirmation and booking system
+delivery tracking system updates
+
+
+### Automated Backups [Feature]
+allow automated backups of the database, with retention policies
+
+### Logs [Feature]
+allow automated logs of the database, with retention policies
+
+
+
+
+# FIXES
+
+## Column Security UI dropdown is broken
+
+doesnt even show the button to open the dropdown
+
+## 

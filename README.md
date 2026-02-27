@@ -78,6 +78,10 @@ go build -o bin/hornerodb ./cmd/server
 cd web/ui && npm install && npm run dev
 ```
 
+
+
+
+docker compose up -d --no-deps --build hornerodb-server
 ---
 
 ## 🔐 Security in Detail

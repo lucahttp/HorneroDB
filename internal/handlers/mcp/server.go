@@ -11,9 +11,9 @@ import (
 )
 
 type MCPRequest struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      interface{}    `json:"id"`
-	Method  string         `json:"method"`
+	JSONRPC string                 `json:"jsonrpc"`
+	ID      interface{}            `json:"id"`
+	Method  string                 `json:"method"`
 	Params  map[string]interface{} `json:"params,omitempty"`
 }
 
@@ -21,7 +21,7 @@ type MCPResponse struct {
 	JSONRPC string      `json:"jsonrpc"`
 	ID      interface{} `json:"id,omitempty"`
 	Result  interface{} `json:"result,omitempty"`
-	Error   *MCPError  `json:"error,omitempty"`
+	Error   *MCPError   `json:"error,omitempty"`
 }
 
 type MCPError struct {
@@ -31,15 +31,15 @@ type MCPError struct {
 }
 
 type Tool struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
 	InputSchema InputSchema `json:"inputSchema"`
 }
 
 type InputSchema struct {
-	Type       string `json:"type"`
+	Type       string              `json:"type"`
 	Properties map[string]Property `json:"properties"`
-	Required   []string `json:"required,omitempty"`
+	Required   []string            `json:"required,omitempty"`
 }
 
 type Property struct {
@@ -72,8 +72,8 @@ func New() *Server {
 					Type: "object",
 					Properties: map[string]Property{
 						"workspace_id": {Type: "string", Description: "ID del workspace"},
-						"table_slug":  {Type: "string", Description: "Slug de la tabla"},
-						"limit":       {Type: "number", Description: "Límite de registros"},
+						"table_slug":   {Type: "string", Description: "Slug de la tabla"},
+						"limit":        {Type: "number", Description: "Límite de registros"},
 					},
 					Required: []string{"workspace_id", "table_slug"},
 				},
@@ -85,8 +85,8 @@ func New() *Server {
 					Type: "object",
 					Properties: map[string]Property{
 						"workspace_id": {Type: "string", Description: "ID del workspace"},
-						"table_slug":  {Type: "string", Description: "Slug de la tabla"},
-						"data":        {Type: "object", Description: "Datos del registro"},
+						"table_slug":   {Type: "string", Description: "Slug de la tabla"},
+						"data":         {Type: "object", Description: "Datos del registro"},
 					},
 					Required: []string{"workspace_id", "table_slug", "data"},
 				},
@@ -98,8 +98,8 @@ func New() *Server {
 					Type: "object",
 					Properties: map[string]Property{
 						"workspace_id": {Type: "string", Description: "ID del workspace"},
-						"table_slug":  {Type: "string", Description: "Slug de la tabla"},
-						"record_id":   {Type: "string", Description: "ID del registro"},
+						"table_slug":   {Type: "string", Description: "Slug de la tabla"},
+						"record_id":    {Type: "string", Description: "ID del registro"},
 					},
 					Required: []string{"workspace_id", "table_slug", "record_id"},
 				},
@@ -111,9 +111,9 @@ func New() *Server {
 					Type: "object",
 					Properties: map[string]Property{
 						"workspace_id": {Type: "string", Description: "ID del workspace"},
-						"table_slug":  {Type: "string", Description: "Slug de la tabla"},
-						"record_id":   {Type: "string", Description: "ID del registro"},
-						"data":        {Type: "object", Description: "Datos a actualizar"},
+						"table_slug":   {Type: "string", Description: "Slug de la tabla"},
+						"record_id":    {Type: "string", Description: "ID del registro"},
+						"data":         {Type: "object", Description: "Datos a actualizar"},
 					},
 					Required: []string{"workspace_id", "table_slug", "record_id", "data"},
 				},
@@ -125,8 +125,8 @@ func New() *Server {
 					Type: "object",
 					Properties: map[string]Property{
 						"workspace_id": {Type: "string", Description: "ID del workspace"},
-						"table_slug":  {Type: "string", Description: "Slug de la tabla"},
-						"record_id":   {Type: "string", Description: "ID del registro"},
+						"table_slug":   {Type: "string", Description: "Slug de la tabla"},
+						"record_id":    {Type: "string", Description: "ID del registro"},
 					},
 					Required: []string{"workspace_id", "table_slug", "record_id"},
 				},
@@ -138,7 +138,7 @@ func New() *Server {
 					Type: "object",
 					Properties: map[string]Property{
 						"workspace_id": {Type: "string", Description: "ID del workspace"},
-						"table_id":    {Type: "string", Description: "ID de la tabla"},
+						"table_id":     {Type: "string", Description: "ID de la tabla"},
 					},
 					Required: []string{"workspace_id", "table_id"},
 				},
@@ -147,7 +147,7 @@ func New() *Server {
 				Name:        "list_workspaces",
 				Description: "Lista todos los workspaces disponibles",
 				InputSchema: InputSchema{
-					Type: "object",
+					Type:       "object",
 					Properties: map[string]Property{},
 				},
 			},
@@ -179,7 +179,7 @@ func (s *Server) handleInitialize(req MCPRequest) MCPResponse {
 		Result: map[string]interface{}{
 			"protocolVersion": "2024-11-05",
 			"capabilities": map[string]interface{}{
-				"tools":   true,
+				"tools":     true,
 				"resources": false,
 			},
 			"serverInfo": map[string]string{
@@ -253,7 +253,7 @@ func (s *Server) handleToolCall(req MCPRequest) MCPResponse {
 	return MCPResponse{
 		JSONRPC: "2.0",
 		ID:      req.ID,
-		Result:  map[string]interface{}{"content": []map[string]interface{}{
+		Result: map[string]interface{}{"content": []map[string]interface{}{
 			{"type": "text", "text": toJSON(result)},
 		}},
 	}

@@ -75,11 +75,17 @@ func NewPocketIDAuth(cfg *config.OIDCProvider) (*OIDCAuth, error) {
 }
 
 func (o *OIDCAuth) GetLoginURL(state, codeVerifier string) string {
+	return o.GetLoginURLWithRedirect(state, codeVerifier, o.config.RedirectURL)
+}
+
+// GetLoginURLWithRedirect is like GetLoginURL but with an explicit redirect_uri,
+// used by the MCP OAuth flow to send the callback to its own endpoint.
+func (o *OIDCAuth) GetLoginURLWithRedirect(state, codeVerifier, redirectURI string) string {
 	codeChallenge := generateCodeChallenge(codeVerifier)
 
 	url := o.config.PublicURL + "/authorize?" +
 		"client_id=" + o.config.ClientID +
-		"&redirect_uri=" + o.config.RedirectURL +
+		"&redirect_uri=" + redirectURI +
 		"&response_type=code" +
 		"&scope=openid+profile+email" +
 		"&state=" + state +
@@ -375,6 +381,55 @@ func (o *OIDCAuth) HandleCallbackAndRedirect(c *gin.Context, jwtSecret, redirect
 
 	c.Redirect(302, redirectURL+"?token="+appToken)
 	return nil
+}
+
+// ExchangeCodeForAppJWT exchanges an OIDC authorization code for a HorneroDB app JWT.
+// Unlike HandleCallbackAndRedirect, this does not write to gin.Context – it just returns
+// the signed token string so callers can process or forward it themselves.
+func (o *OIDCAuth) ExchangeCodeForAppJWT(ctx context.Context, code, codeVerifier, jwtSecret string) (string, error) {
+	tokenResp, err := o.ExchangeCode(ctx, code, codeVerifier)
+	if err != nil {
+		return "", fmt.Errorf("failed to exchange code: %w", err)
+	}
+
+	idToken, err := o.VerifyIDToken(ctx, tokenResp.IDToken)
+	if err != nil {
+		return "", fmt.Errorf("failed to verify ID token: %w", err)
+	}
+
+	var claims UserClaims
+	if err := idToken.Claims(&claims); err != nil {
+		return "", fmt.Errorf("failed to extract claims: %w", err)
+	}
+
+	roleName := "user"
+	workspaceID := ""
+
+	var ws metadata.Workspace
+	err = database.DB.Table("_hornero_workspaces").
+		Where("owner_id = ?", claims.Sub).
+		First(&ws).Error
+	if err == nil {
+		workspaceID = ws.ID.String()
+		roleName = "admin"
+	} else {
+		var userRole metadata.UserRole
+		err = database.DB.Table("_hornero_user_roles").
+			Where("user_id = ?", claims.Sub).
+			First(&userRole).Error
+		if err == nil && userRole.RoleID != uuid.Nil {
+			var role metadata.Role
+			err = database.DB.Table("_hornero_roles").
+				Where("id = ?", userRole.RoleID).
+				First(&role).Error
+			if err == nil {
+				roleName = role.Name
+			}
+			workspaceID = userRole.WorkspaceID.String()
+		}
+	}
+
+	return GenerateJWTWithRole(jwtSecret, claims.Sub, claims.Email, roleName, workspaceID, 24*time.Hour)
 }
 
 func GenerateJWTWithRole(secret string, userID, email, role, workspaceID string, expiresIn time.Duration) (string, error) {

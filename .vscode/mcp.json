@@ -29,6 +29,14 @@
 			"env": {
 				"MEMORY_FILE_PATH": "./misc/memory/memory.jsonl"
 			}
+		},
+		"HorneroDB1-MCP": {
+			"url": "http://localhost:8080/api/v1/mcp/sse",
+			"type": "http"
+		},
+		"my-mcp-server-ee951583": {
+			"url": "http://localhost:8080/api/v1/mcp/sse",
+			"type": "http"
 		}
 	},
 	"inputs": []

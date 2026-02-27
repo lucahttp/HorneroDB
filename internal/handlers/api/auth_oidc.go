@@ -34,6 +34,16 @@ func InitAuth(cfg *config.AuthConfig, secret string) error {
 	return initErr
 }
 
+// GetOIDCAuth returns the initialized OIDCAuth instance (may be nil if PocketID is disabled).
+func GetOIDCAuth() *auth.OIDCAuth {
+	return oidcAuth
+}
+
+// GetJWTSecret returns the configured JWT secret.
+func GetJWTSecret() string {
+	return jwtSecret
+}
+
 func LoginPocketID(c *gin.Context) {
 	if oidcAuth == nil {
 		c.JSON(400, gin.H{"error": "PocketID is not configured"})

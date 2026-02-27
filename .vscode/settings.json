@@ -1,0 +1,14 @@
+{
+    "chat.mcp.serverSampling": {
+        "HorneroDB/.vscode/mcp.json: HorneroDB-MCP": {
+            "allowedModels": [
+                "copilot/auto"
+            ]
+        },
+        "HorneroDB/.vscode/mcp.json: HorneroDB1-MCP": {
+            "allowedModels": [
+                "copilot/auto"
+            ]
+        }
+    }
+}
