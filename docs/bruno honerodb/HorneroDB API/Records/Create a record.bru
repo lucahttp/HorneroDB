@@ -1,0 +1,15 @@
+meta {
+  name: Create a record
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/workspaces/:workspace_id/data/:table_slug
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {}
+}

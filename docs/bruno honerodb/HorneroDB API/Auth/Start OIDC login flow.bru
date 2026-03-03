@@ -1,0 +1,11 @@
+meta {
+  name: Start OIDC login flow
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/auth/oidc/login
+  body: none
+  auth: inherit
+}

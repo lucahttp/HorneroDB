@@ -1,0 +1,52 @@
+{
+    "properties": {
+        "connectionParameters": {
+            "oauthSetting": {
+                "type": "oauthSetting",
+                "oAuthSettings": {
+                    "identityProvider": "oauth2",
+                    "clientId": "your-pocketid-client-id",
+                    "scopes": [
+                        "openid",
+                        "profile",
+                        "email",
+                        "offline_access"
+                    ],
+                    "redirectUrl": "https://global.consent.azure-apim.net/redirect",
+                    "propagateClientToProvider": false,
+                    "customParameters": {
+                        "authorizationUrl": {
+                            "value": "https://{YOUR_POCKETID_HOST}/api/v1/auth/oidc/login"
+                        },
+                        "tokenUrl": {
+                            "value": "https://{YOUR_POCKETID_HOST}/api/v1/auth/oidc/token"
+                        },
+                        "refreshUrl": {
+                            "value": "https://{YOUR_POCKETID_HOST}/api/v1/auth/oidc/token"
+                        }
+                    }
+                }
+            }
+        },
+        "iconBrandColor": "#ff6600",
+        "scriptOperations": [
+            "ListRecords",
+            "CreateRecord",
+            "UpdateRecord",
+            "DeleteRecord",
+            "ListWorkspaces",
+            "ListTables"
+        ],
+        "capabilities": [],
+        "policyTemplateInstances": [
+            {
+                "templateId": "setheader",
+                "title": "API Key Override (Optional)",
+                "parameters": {
+                    "headerName": "Authorization",
+                    "headerValue": "Bearer @connectionParameters('api_key')"
+                }
+            }
+        ]
+    }
+}

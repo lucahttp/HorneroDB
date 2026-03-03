@@ -1,0 +1,11 @@
+meta {
+  name: Delete a table
+  type: http
+  seq: 5
+}
+
+delete {
+  url: {{baseUrl}}/workspaces/:workspace_id/tables/:table_id
+  body: none
+  auth: inherit
+}

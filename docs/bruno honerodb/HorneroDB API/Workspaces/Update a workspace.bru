@@ -1,0 +1,18 @@
+meta {
+  name: Update a workspace
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{baseUrl}}/workspaces/:workspace_id
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "name": "",
+    "settings": {}
+  }
+}

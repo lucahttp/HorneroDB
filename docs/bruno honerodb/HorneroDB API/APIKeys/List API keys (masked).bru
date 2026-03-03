@@ -1,0 +1,11 @@
+meta {
+  name: List API keys (masked)
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/workspaces/:workspace_id/keys
+  body: none
+  auth: inherit
+}

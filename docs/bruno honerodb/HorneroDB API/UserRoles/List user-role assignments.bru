@@ -1,0 +1,11 @@
+meta {
+  name: List user-role assignments
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/workspaces/:workspace_id/users
+  body: none
+  auth: inherit
+}

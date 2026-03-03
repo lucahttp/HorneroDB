@@ -1,0 +1,11 @@
+meta {
+  name: Get a single record
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/workspaces/:workspace_id/data/:table_slug/:id
+  body: none
+  auth: inherit
+}

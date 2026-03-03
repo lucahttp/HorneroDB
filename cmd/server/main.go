@@ -107,8 +107,10 @@ func main() {
 	{
 		// === WORKSPACES ROUTES ===
 		// Routes that don't need workspace-specific auth (e.g., creating a workspace)
-		protected.GET("/workspaces", api.ListWorkspaces)
-		protected.POST("/workspaces", api.CreateWorkspace)
+		userRoutes := protected.Group("")
+		userRoutes.Use(middleware.RequireUserSession())
+		userRoutes.GET("/workspaces", api.ListWorkspaces)
+		userRoutes.POST("/workspaces", api.CreateWorkspace)
 
 		// Routes that REQUIRE workspace authorization (checking ownership/roles internally)
 		workspaceGroup := protected.Group("/workspaces/:workspace_id")
@@ -116,61 +118,79 @@ func main() {
 		workspaceGroup.Use(middleware.WorkspaceSecurity())
 		{
 			workspaceGroup.GET("", api.GetWorkspace)
-			workspaceGroup.PUT("", api.UpdateWorkspace)
-			workspaceGroup.DELETE("", api.DeleteWorkspace)
 
-			// === TABLES ===
+			// === TABLES (Read-only for all roles) ===
 			workspaceGroup.GET("/tables", api.ListTables)
-			workspaceGroup.POST("/tables", api.CreateTable)
 			workspaceGroup.GET("/tables/:table_id", api.GetTable)
-			workspaceGroup.PUT("/tables/:table_id", api.UpdateTable)
-			workspaceGroup.DELETE("/tables/:table_id", api.DeleteTable)
 
-			// === COLUMNS ===
+			// === COLUMNS (Read-only for all roles) ===
 			workspaceGroup.GET("/tables/:table_id/columns", api.ListColumns)
-			workspaceGroup.POST("/tables/:table_id/columns", api.CreateColumn)
-			workspaceGroup.PUT("/tables/:table_id/columns/:column_id", api.UpdateColumn)
-			workspaceGroup.DELETE("/tables/:table_id/columns/:column_id", api.DeleteColumn)
 
-			// === DATA (RECORDS) ===
+			// === DATA (RECORDS) (Dataverse permissions apply within handlers) ===
 			workspaceGroup.GET("/data/:table_slug", api.ListRecords)
 			workspaceGroup.POST("/data/:table_slug", api.CreateRecord)
 			workspaceGroup.GET("/data/:table_slug/:id", api.GetRecord)
 			workspaceGroup.PUT("/data/:table_slug/:id", api.UpdateRecord)
 			workspaceGroup.DELETE("/data/:table_slug/:id", api.DeleteRecord)
 
-			// === PERMISSIONS (legacy) ===
-			workspaceGroup.GET("/permissions", api.ListPermissions)
-			workspaceGroup.POST("/permissions", api.CreatePermission)
-			workspaceGroup.PUT("/permissions/:permission_id", api.UpdatePermission)
-			workspaceGroup.DELETE("/permissions/:permission_id", api.DeletePermission)
-
-			// === ROLES DE SEGURIDAD (Dataverse style) ===
+			// === ROLES DE SEGURIDAD (Read-only for all roles) ===
 			workspaceGroup.GET("/roles", api.ListRoles)
-			workspaceGroup.POST("/roles", api.CreateRole)
 			workspaceGroup.GET("/roles/:role_id", api.GetRole)
-			workspaceGroup.PUT("/roles/:role_id", api.UpdateRole)
-			workspaceGroup.DELETE("/roles/:role_id", api.DeleteRole)
 
-			// === USUARIOS Y ROLES ===
-			workspaceGroup.GET("/users", api.ListWorkspaceUsers)
-			workspaceGroup.POST("/users", api.ImportUser)
-			// workspaceGroup.GET("/users/roles", api.ListUserRoles) // Deprecated? Kept for backward compat if needed or just use ListWorkspaceUsers which includes roles
-			workspaceGroup.POST("/users/:user_id/role", api.AssignRoleToUser)
-			workspaceGroup.DELETE("/users/:user_id/role", api.RemoveRoleFromUser)
-			workspaceGroup.DELETE("/users/:user_id", api.RemoveRoleFromUser) // Short alias to remove from workspace (which is removing role)
+			// Admin-only Workspace Routes
+			adminWorkspaceGroup := workspaceGroup.Group("")
+			adminWorkspaceGroup.Use(middleware.RequireAdminRole())
+			{
+				adminWorkspaceGroup.PUT("", api.UpdateWorkspace)
+				adminWorkspaceGroup.DELETE("", api.DeleteWorkspace)
 
-			// === API KEYS ===
-			workspaceGroup.GET("/keys", api.ListAPIKeys)
-			workspaceGroup.POST("/keys", api.CreateAPIKey)
-			workspaceGroup.PUT("/keys/:key_id", api.UpdateAPIKey)
-			workspaceGroup.DELETE("/keys/:key_id", api.DeleteAPIKey)
+				// === TABLES (Admin operations) ===
+				adminWorkspaceGroup.POST("/tables", api.CreateTable)
+				adminWorkspaceGroup.PUT("/tables/:table_id", api.UpdateTable)
+				adminWorkspaceGroup.DELETE("/tables/:table_id", api.DeleteTable)
+
+				// === COLUMNS (Admin operations) ===
+				adminWorkspaceGroup.POST("/tables/:table_id/columns", api.CreateColumn)
+				adminWorkspaceGroup.PUT("/tables/:table_id/columns/:column_id", api.UpdateColumn)
+				adminWorkspaceGroup.DELETE("/tables/:table_id/columns/:column_id", api.DeleteColumn)
+
+				// === PERMISSIONS (legacy) ===
+				adminWorkspaceGroup.GET("/permissions", api.ListPermissions)
+				adminWorkspaceGroup.POST("/permissions", api.CreatePermission)
+				adminWorkspaceGroup.PUT("/permissions/:permission_id", api.UpdatePermission)
+				adminWorkspaceGroup.DELETE("/permissions/:permission_id", api.DeletePermission)
+
+				// === ROLES DE SEGURIDAD (Admin operations) ===
+				adminWorkspaceGroup.POST("/roles", api.CreateRole)
+				adminWorkspaceGroup.PUT("/roles/:role_id", api.UpdateRole)
+				adminWorkspaceGroup.DELETE("/roles/:role_id", api.DeleteRole)
+
+				// === USUARIOS Y ROLES (Admin operations) ===
+				adminWorkspaceGroup.GET("/users", api.ListWorkspaceUsers)
+				adminWorkspaceGroup.POST("/users", api.ImportUser)
+				adminWorkspaceGroup.POST("/users/:user_id/role", api.AssignRoleToUser)
+				adminWorkspaceGroup.DELETE("/users/:user_id/role", api.RemoveRoleFromUser)
+				adminWorkspaceGroup.DELETE("/users/:user_id", api.RemoveRoleFromUser) // Short alias
+
+				// === API KEYS (Admin operations) ===
+				adminWorkspaceGroup.GET("/keys", api.ListAPIKeys)
+				adminWorkspaceGroup.POST("/keys", api.CreateAPIKey)
+				adminWorkspaceGroup.PUT("/keys/:key_id", api.UpdateAPIKey)
+				adminWorkspaceGroup.DELETE("/keys/:key_id", api.DeleteAPIKey)
+
+				// === WEBHOOKS (Admin operations) ===
+				adminWorkspaceGroup.GET("/webhooks", api.ListWebhooks)
+				adminWorkspaceGroup.POST("/webhooks", api.CreateWebhook)
+				adminWorkspaceGroup.GET("/webhooks/:webhook_id", api.GetWebhook)
+				adminWorkspaceGroup.PUT("/webhooks/:webhook_id", api.UpdateWebhook)
+				adminWorkspaceGroup.DELETE("/webhooks/:webhook_id", api.DeleteWebhook)
+			}
 		}
 
 		// === AUTH ===
-		protected.GET("/auth/me", api.GetCurrentUser)
-		protected.GET("/auth/permissions", api.GetMyPermissions)
-		protected.GET("/auth/qr", api.GetSystemLoginQR)
+		userRoutes.GET("/auth/me", api.GetCurrentUser)
+		userRoutes.GET("/auth/permissions", api.GetMyPermissions)
+		userRoutes.GET("/auth/qr", api.GetSystemLoginQR)
 
 		// === MCP (Model Context Protocol) ===
 		mcpServer := mcp.New()

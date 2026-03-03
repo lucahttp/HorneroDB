@@ -1,0 +1,11 @@
+meta {
+  name: Delete a permission
+  type: http
+  seq: 4
+}
+
+delete {
+  url: {{baseUrl}}/workspaces/:workspace_id/permissions/:permission_id
+  body: none
+  auth: inherit
+}

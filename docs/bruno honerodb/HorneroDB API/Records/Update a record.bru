@@ -1,0 +1,15 @@
+meta {
+  name: Update a record
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{baseUrl}}/workspaces/:workspace_id/data/:table_slug/:id
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {}
+}

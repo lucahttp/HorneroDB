@@ -98,6 +98,48 @@ func AuthRequired(secret string) gin.HandlerFunc {
 	}
 }
 
+// RequireUserSession ensures the authenticated entity is a real user or an instance-level API key
+func RequireUserSession() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Request.Method == "OPTIONS" {
+			c.Next()
+			return
+		}
+
+		authSrc := GetAuthSource(c)
+		if authSrc == "anonymous" {
+			c.JSON(403, gin.H{"error": "Authentication required to access user-level endpoints"})
+			c.Abort()
+			return
+		}
+
+		if authSrc == "apikey" {
+			// Allow instance-level API keys (where WorkspaceID is nil/empty UUID)
+			workspaceID := GetUserWorkspace(c)
+			if workspaceID != "" && workspaceID != uuid.Nil.String() {
+				c.JSON(403, gin.H{"error": "Workspace-bound API keys are not allowed to access user-level endpoints"})
+				c.Abort()
+				return
+			}
+		}
+
+		c.Next()
+	}
+}
+
+// RequireAdminRole ensures the authenticated entity has the 'admin' role in the current workspace
+func RequireAdminRole() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role := GetUserRole(c)
+		if role != "admin" {
+			c.JSON(403, gin.H{"error": "Require 'admin' role to perform this action"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
 func verifyAPIKey(key string) (*metadata.APIKey, error) {
 	if len(key) < 10 {
 		return nil, fmt.Errorf("key too short")

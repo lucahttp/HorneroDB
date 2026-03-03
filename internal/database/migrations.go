@@ -69,6 +69,12 @@ func Migrate() error {
 		log.Printf("Warning: some indexes may not be created: %v", err)
 	}
 
+	// Webhooks
+	err = DB.Table("_hornero_webhooks").AutoMigrate(&metadata.Webhook{})
+	if err != nil {
+		return err
+	}
+
 	log.Println("✅ Metadata tables migrated")
 	return nil
 }
@@ -96,6 +102,10 @@ func createIndexes() error {
 		// API key indexes
 		`CREATE INDEX IF NOT EXISTS idx_api_keys_workspace_id ON _hornero_api_keys(workspace_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON _hornero_api_keys(key_hash)`,
+
+		// Webhook indexes
+		`CREATE INDEX IF NOT EXISTS idx_webhooks_workspace_id ON _hornero_webhooks(workspace_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_webhooks_resource ON _hornero_webhooks(resource)`,
 
 		// Permission indexes
 		`CREATE INDEX IF NOT EXISTS idx_permissions_workspace ON _hornero_permissions(workspace_id)`,

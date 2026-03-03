@@ -9,6 +9,7 @@ import (
 	"hornerodb/internal/query"
 	"hornerodb/internal/response"
 	"hornerodb/internal/services/permission"
+	"hornerodb/internal/workers"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -171,6 +172,12 @@ func CreateRecord(c *gin.Context) {
 		)
 		response.DatabaseError(c, result.Error, "creating record")
 		return
+	}
+
+	// Fetch full state for the webhook (including DB-generated UUID and dates)
+	var createdRecord map[string]interface{}
+	if err := database.DB.Table(tableName).Where("id = ?", input["id"]).First(&createdRecord).Error; err == nil {
+		go workers.DispatchWebhookAsync(wsID, table.ID, tableSlug, "created", createdRecord)
 	}
 
 	slog.Info("record created", "table_slug", tableSlug, "user_id", userID)
@@ -340,6 +347,11 @@ func UpdateRecord(c *gin.Context) {
 		return
 	}
 
+	var updatedRecord map[string]interface{}
+	if err := database.DB.Table(tableName).Where("id = ?", recordID).First(&updatedRecord).Error; err == nil {
+		go workers.DispatchWebhookAsync(wsID, table.ID, tableSlug, "updated", updatedRecord)
+	}
+
 	slog.Info("record updated", "table_slug", tableSlug, "user_id", userID)
 	response.Success(c, map[string]interface{}{"message": "record updated"})
 }
@@ -398,6 +410,11 @@ func DeleteRecord(c *gin.Context) {
 
 	if accessLevel == permission.AccessOwn {
 		dbQuery = dbQuery.Where("created_by = ?", userID)
+	}
+
+	var recordToDelete map[string]interface{}
+	if err := dbQuery.First(&recordToDelete).Error; err == nil {
+		go workers.DispatchWebhookAsync(wsID, table.ID, tableSlug, "deleted", recordToDelete)
 	}
 
 	result := dbQuery.Delete(nil)

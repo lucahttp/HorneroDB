@@ -1,0 +1,43 @@
+{
+  "name": "n8n-nodes-hornerodb",
+  "version": "1.0.0",
+  "description": "HorneroDB Node for n8n",
+  "keywords": [
+    "n8ncommunity",
+    "n8n-nodes-hornerodb",
+    "hornerodb",
+    "crm",
+    "baas"
+  ],
+  "author": "HorneroDB",
+  "license": "MIT",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc && gulp build:icons",
+    "dev": "tsc --watch",
+    "format": "prettier nodes credentials --write",
+    "lint": "eslint nodes credentials package.json",
+    "lintfix": "eslint nodes credentials package.json --fix",
+    "prepublishOnly": "npm run build && npm run lint -c .eslintrc.prepublish.js"
+  },
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "dist/credentials/HorneroDBApi.credentials.js",
+      "dist/credentials/HorneroDBOAuth2Api.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/HorneroDB/HorneroDB.node.js",
+      "dist/nodes/HorneroDBTrigger/HorneroDBTrigger.node.js"
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.5",
+    "eslint": "^8.2.0",
+    "gulp": "^4.0.2",
+    "n8n-core": "^1.53.2",
+    "n8n-workflow": "^1.53.2",
+    "prettier": "^3.0.3",
+    "typescript": "^5.2.2"
+  }
+}

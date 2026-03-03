@@ -500,6 +500,7 @@ paths:
     get:
       tags: [Auth]
       summary: Get current authenticated user
+      description: "Requires User Session (OIDC) or API Key."
       responses:
         "200":
           description: Current user info
@@ -512,6 +513,7 @@ paths:
     get:
       tags: [Auth]
       summary: Get permissions for current user
+      description: "Requires User Session (OIDC) or API Key."
       responses:
         "200":
           description: List of permissions
@@ -529,6 +531,7 @@ paths:
     get:
       tags: [Workspaces]
       summary: List all workspaces
+      description: "Requires User Session (OIDC). Instance-level API Keys (WorkspaceID = Nil) are allowed, standard API Keys are blocked."
       responses:
         "200":
           description: Array of workspaces
@@ -541,7 +544,9 @@ paths:
     post:
       tags: [Workspaces]
       summary: Create a workspace
-      description: Also creates default admin and user roles, assigns admin role to owner.
+      description: |
+        Requires User Session (OIDC) or an Instance-Level API Key.
+        Also creates default admin and user roles, assigns admin role to owner.
       requestBody:
         required: true
         content:
@@ -568,6 +573,7 @@ paths:
     get:
       tags: [Workspaces]
       summary: Get a workspace
+      description: "Requires User Session or API Key assigned to the workspace."
       responses:
         "200":
           content:
@@ -582,6 +588,7 @@ paths:
     put:
       tags: [Workspaces]
       summary: Update a workspace
+      description: "Requires 'admin' role within the workspace."
       requestBody:
         required: true
         content:
@@ -602,6 +609,7 @@ paths:
     delete:
       tags: [Workspaces]
       summary: Delete a workspace
+      description: "Requires 'admin' role within the workspace."
       responses:
         "200":
           content:
@@ -618,6 +626,7 @@ paths:
     get:
       tags: [Tables]
       summary: List tables in workspace
+      description: "Requires any assigned role within the workspace."
       responses:
         "200":
           content:
@@ -629,7 +638,9 @@ paths:
     post:
       tags: [Tables]
       summary: Create a table
-      description: Creates metadata entry and physical PostgreSQL table with id, created_by, created_at, updated_at.
+      description: |
+        Requires 'admin' role within the workspace.
+        Creates metadata entry and physical PostgreSQL table with id, created_by, created_at, updated_at.
       requestBody:
         required: true
         content:
@@ -650,6 +661,7 @@ paths:
     get:
       tags: [Tables]
       summary: Get a table
+      description: "Requires any assigned role within the workspace."
       responses:
         "200":
           content:
@@ -659,6 +671,7 @@ paths:
     put:
       tags: [Tables]
       summary: Update table metadata
+      description: "Requires 'admin' role within the workspace."
       requestBody:
         required: true
         content:
@@ -677,7 +690,9 @@ paths:
     delete:
       tags: [Tables]
       summary: Delete a table
-      description: Drops the physical PostgreSQL table and removes metadata.
+      description: |
+        Requires 'admin' role within the workspace.
+        Drops the physical PostgreSQL table and removes metadata.
       responses:
         "200":
           content:
@@ -695,6 +710,7 @@ paths:
     get:
       tags: [Columns]
       summary: List columns of a table
+      description: "Requires any assigned role within the workspace."
       responses:
         "200":
           content:
@@ -707,6 +723,7 @@ paths:
       tags: [Columns]
       summary: Create a column
       description: |
+        Requires 'admin' role within the workspace.
         Adds column metadata and ALTER TABLEs the physical table.
         Supported field_type values and their SQL mappings:
 
@@ -747,6 +764,7 @@ paths:
     put:
       tags: [Columns]
       summary: Update column metadata
+      description: "Requires 'admin' role within the workspace."
       requestBody:
         required: true
         content:
@@ -767,7 +785,9 @@ paths:
     delete:
       tags: [Columns]
       summary: Delete a column
-      description: Drops the physical column and removes metadata.
+      description: |
+        Requires 'admin' role within the workspace.
+        Drops the physical column and removes metadata.
       responses:
         "200":
           content:
@@ -785,7 +805,7 @@ paths:
     get:
       tags: [Records]
       summary: List records
-      description: Permission-aware. AccessOwn filters by created_by.
+      description: "Requires 'read' permission (all/own) on the table. AccessOwn filters by created_by."
       parameters:
         - name: limit
           in: query
@@ -811,6 +831,7 @@ paths:
     post:
       tags: [Records]
       summary: Create a record
+      description: "Requires 'create' permission (all/own) on the table."
       requestBody:
         required: true
         content:
@@ -837,6 +858,7 @@ paths:
     get:
       tags: [Records]
       summary: Get a single record
+      description: "Requires 'read' permission (all/own) on the table."
       responses:
         "200":
           content:
@@ -851,6 +873,7 @@ paths:
     put:
       tags: [Records]
       summary: Update a record
+      description: "Requires 'update' permission (all/own) on the table."
       requestBody:
         required: true
         content:
@@ -866,6 +889,7 @@ paths:
     delete:
       tags: [Records]
       summary: Delete a record
+      description: "Requires 'delete' permission (all/own) on the table."
       responses:
         "200":
           content:
@@ -882,6 +906,7 @@ paths:
     get:
       tags: [Roles]
       summary: List roles
+      description: "Requires any assigned role within the workspace."
       responses:
         "200":
           content:
@@ -893,6 +918,7 @@ paths:
     post:
       tags: [Roles]
       summary: Create a role
+      description: "Requires 'admin' role within the workspace."
       requestBody:
         required: true
         content:
@@ -913,6 +939,7 @@ paths:
     get:
       tags: [Roles]
       summary: Get a role
+      description: "Requires any assigned role within the workspace."
       responses:
         "200":
           content:
@@ -922,6 +949,7 @@ paths:
     put:
       tags: [Roles]
       summary: Update a role
+      description: "Requires 'admin' role within the workspace."
       requestBody:
         required: true
         content:
@@ -944,6 +972,7 @@ paths:
     delete:
       tags: [Roles]
       summary: Delete a role
+      description: "Requires 'admin' role within the workspace. Cannot delete default roles."
       responses:
         "200":
           content:
@@ -960,6 +989,7 @@ paths:
     get:
       tags: [UserRoles]
       summary: List user-role assignments
+      description: "Requires 'admin' role within the workspace."
       responses:
         "200":
           content:
@@ -976,6 +1006,7 @@ paths:
     post:
       tags: [UserRoles]
       summary: Assign role to user
+      description: "Requires 'admin' role within the workspace."
       requestBody:
         required: true
         content:
@@ -1002,6 +1033,7 @@ paths:
     delete:
       tags: [UserRoles]
       summary: Remove role from user
+      description: "Requires 'admin' role within the workspace."
       responses:
         "200":
           content:
@@ -1089,6 +1121,7 @@ paths:
     get:
       tags: [APIKeys]
       summary: List API keys (masked)
+      description: "Requires 'admin' role within the workspace."
       responses:
         "200":
           content:
@@ -1100,7 +1133,9 @@ paths:
     post:
       tags: [APIKeys]
       summary: Create an API key
-      description: Returns the full key only once at creation time.
+      description: |
+        Requires 'admin' role within the workspace.
+        Returns the full key only once at creation time.
       requestBody:
         required: true
         content:
@@ -1121,6 +1156,7 @@ paths:
     delete:
       tags: [APIKeys]
       summary: Delete an API key
+      description: "Requires 'admin' role within the workspace."
       responses:
         "200":
           content:

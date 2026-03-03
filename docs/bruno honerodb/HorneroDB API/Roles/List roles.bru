@@ -1,0 +1,15 @@
+meta {
+  name: List roles
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/workspaces/:workspace_id/roles
+  body: none
+  auth: inherit
+}
+
+params:path {
+  workspace_id: badcde1e-7dbc-4f83-961c-8ab522964df8
+}

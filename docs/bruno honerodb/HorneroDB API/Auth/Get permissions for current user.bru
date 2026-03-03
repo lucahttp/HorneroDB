@@ -1,0 +1,11 @@
+meta {
+  name: Get permissions for current user
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/auth/permissions
+  body: none
+  auth: inherit
+}

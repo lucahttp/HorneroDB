@@ -1,0 +1,21 @@
+meta {
+  name: Create a column
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/workspaces/:workspace_id/tables/:table_id/columns
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "name": "",
+    "slug": "",
+    "field_type": "",
+    "meta": "",
+    "order_index": 0
+  }
+}

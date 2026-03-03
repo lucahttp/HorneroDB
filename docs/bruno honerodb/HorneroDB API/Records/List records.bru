@@ -1,0 +1,16 @@
+meta {
+  name: List records
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/workspaces/:workspace_id/data/:table_slug
+  body: none
+  auth: inherit
+}
+
+params:query {
+  ~limit: 
+  ~offset: 
+}

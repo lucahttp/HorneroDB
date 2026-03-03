@@ -1,0 +1,11 @@
+meta {
+  name: Remove role from user
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{baseUrl}}/workspaces/:workspace_id/users/:user_id/role
+  body: none
+  auth: inherit
+}

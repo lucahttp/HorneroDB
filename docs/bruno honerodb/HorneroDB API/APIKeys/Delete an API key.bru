@@ -1,0 +1,11 @@
+meta {
+  name: Delete an API key
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{baseUrl}}/workspaces/:workspace_id/keys/:key_id
+  body: none
+  auth: inherit
+}

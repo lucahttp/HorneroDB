@@ -1,0 +1,11 @@
+meta {
+  name: List permissions
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/workspaces/:workspace_id/permissions
+  body: none
+  auth: inherit
+}

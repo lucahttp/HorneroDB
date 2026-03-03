@@ -184,10 +184,6 @@ which rows can see from the tables
 which actions can do from the tables
 
 
-
-
-
-
 ## V 0.8.1
 
 ### Tables office compatible shortcuts [Feature]
@@ -196,14 +192,12 @@ copy from excel/google sheets
 paste to excel/google sheets
 import from excel/csv to generate table wizzard, inferring column types 
 
-
 ### Tables relationships [Feature]
 add relationships between tables, like in nocodb
 
 ### Encrypt sensitive data [Feature]
 allow column level encryption, only end user can see his data
 use cases, credit cards, PII, medical info, etc
-
 
 ### Export/Import [Feature]
 allow export/import of tables
@@ -214,8 +208,6 @@ allow export/import of workspaces schemas
     users
     roles
     
-
-
 ## V 1.0.0
 
 ### Automation steps
@@ -227,15 +219,11 @@ use cases:
 appointment confirmation and booking system
 delivery tracking system updates
 
-
 ### Automated Backups [Feature]
 allow automated backups of the database, with retention policies
 
 ### Logs [Feature]
 allow automated logs of the database, with retention policies
-
-
-
 
 # FIXES
 
@@ -243,4 +231,22 @@ allow automated logs of the database, with retention policies
 
 doesnt even show the button to open the dropdown
 
-## 
+# Webhooks
+
+quiero poder configurar webhooks para que se disparen cuando se crea, actualiza o elimina un registro en una tabla
+y que se maneje como lo hace https://learn.microsoft.com/en-us/graph/api/resources/subscription?view=graph-rest-1.0
+
+# PowerAutomate Connector
+usando esto https://learn.microsoft.com/es-es/connectors/custom-connectors/paconn-cli
+quiero que crees el connector
+para la authenticacion quiero tanto el oauth de pocketid como la apikey
+
+# n8n Connector
+quiero poder usar n8n para poder usarlo con agentes de IA
+https://docs.n8n.io/integrations/creating-nodes/build/
+
+# Typebot connector
+https://docs.typebot.io/contribute/the-forge/overview
+
+# MCP Server
+quiero tener un mcp para poder usarlo con agentes de IA

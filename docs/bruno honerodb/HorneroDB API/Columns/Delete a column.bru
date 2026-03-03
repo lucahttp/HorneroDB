@@ -1,0 +1,11 @@
+meta {
+  name: Delete a column
+  type: http
+  seq: 4
+}
+
+delete {
+  url: {{baseUrl}}/workspaces/:workspace_id/tables/:table_id/columns/:column_id
+  body: none
+  auth: inherit
+}

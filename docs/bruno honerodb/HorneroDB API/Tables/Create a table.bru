@@ -1,0 +1,23 @@
+meta {
+  name: Create a table
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/workspaces/:workspace_id/tables
+  body: json
+  auth: inherit
+}
+
+params:path {
+  workspace_id: badcde1e-7dbc-4f83-961c-8ab522964df8
+}
+
+body:json {
+  {
+    "name": "ijijiji",
+    "slug": "ijijijj",
+    "metadata": ""
+  }
+}

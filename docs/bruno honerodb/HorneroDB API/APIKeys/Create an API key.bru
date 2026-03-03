@@ -1,0 +1,20 @@
+meta {
+  name: Create an API key
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/workspaces/:workspace_id/keys
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "name": "",
+    "prefix": "",
+    "role_id": "",
+    "expires_in_days": 0
+  }
+}

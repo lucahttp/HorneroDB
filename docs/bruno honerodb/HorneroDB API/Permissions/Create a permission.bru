@@ -1,0 +1,28 @@
+meta {
+  name: Create a permission
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/workspaces/:workspace_id/permissions
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "id": "",
+    "workspace_id": "",
+    "table_id": "",
+    "column_id": "",
+    "role": "",
+    "scope": "",
+    "row_filter": {},
+    "allow_read": false,
+    "allow_create": false,
+    "allow_update": false,
+    "allow_delete": false,
+    "created_at": ""
+  }
+}

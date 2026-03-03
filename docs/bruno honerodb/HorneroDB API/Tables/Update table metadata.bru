@@ -1,0 +1,17 @@
+meta {
+  name: Update table metadata
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{baseUrl}}/workspaces/:workspace_id/tables/:table_id
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "name": ""
+  }
+}

@@ -1,0 +1,20 @@
+meta {
+  name: Update a permission
+  type: http
+  seq: 3
+}
+
+put {
+  url: {{baseUrl}}/workspaces/:workspace_id/permissions/:permission_id
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "allow_read": false,
+    "allow_create": false,
+    "allow_update": false,
+    "allow_delete": false
+  }
+}
