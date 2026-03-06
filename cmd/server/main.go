@@ -111,6 +111,7 @@ func main() {
 		userRoutes.Use(middleware.RequireUserSession())
 		userRoutes.GET("/workspaces", api.ListWorkspaces)
 		userRoutes.POST("/workspaces", api.CreateWorkspace)
+		userRoutes.POST("/workspaces/import", api.ImportWorkspace)
 
 		// Routes that REQUIRE workspace authorization (checking ownership/roles internally)
 		workspaceGroup := protected.Group("/workspaces/:workspace_id")
@@ -144,6 +145,9 @@ func main() {
 				adminWorkspaceGroup.PUT("", api.UpdateWorkspace)
 				adminWorkspaceGroup.DELETE("", api.DeleteWorkspace)
 
+				// === EXPORT SCHEMA (Admin operations) ===
+				adminWorkspaceGroup.GET("/export", api.ExportWorkspace)
+
 				// === TABLES (Admin operations) ===
 				adminWorkspaceGroup.POST("/tables", api.CreateTable)
 				adminWorkspaceGroup.PUT("/tables/:table_id", api.UpdateTable)
@@ -176,6 +180,7 @@ func main() {
 				adminWorkspaceGroup.GET("/keys", api.ListAPIKeys)
 				adminWorkspaceGroup.POST("/keys", api.CreateAPIKey)
 				adminWorkspaceGroup.PUT("/keys/:key_id", api.UpdateAPIKey)
+				adminWorkspaceGroup.POST("/keys/:key_id/rotate", api.RotateAPIKey)
 				adminWorkspaceGroup.DELETE("/keys/:key_id", api.DeleteAPIKey)
 
 				// === WEBHOOKS (Admin operations) ===

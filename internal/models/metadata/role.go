@@ -89,6 +89,7 @@ type APIKey struct {
 	AllowedOrigins   JSON       `gorm:"type:jsonb" json:"allowed_origins,omitempty"`  // Allowed origins for CORS
 	AllowedReferers  JSON       `gorm:"type:jsonb" json:"allowed_referers,omitempty"` // Allowed referer domains
 	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
 func (a *APIKey) TableName() string {

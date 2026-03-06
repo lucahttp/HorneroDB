@@ -10,7 +10,7 @@ export class HorneroDBTrigger implements INodeType {
     description: INodeTypeDescription = {
         displayName: 'HorneroDB Trigger',
         name: 'horneroDbTrigger',
-        icon: 'file:hornerodb.svg',
+        icon: 'fa:database',
         group: ['trigger'],
         version: 1,
         description: 'Starts the workflow when HorneroDB data changes',
@@ -134,7 +134,7 @@ export class HorneroDBTrigger implements INodeType {
                         if (response.id === webhookData.webhookId) {
                             return true;
                         }
-                    } catch (error) {
+                    } catch (error: any) {
                         if (error.statusCode === 404) {
                             return false;
                         }

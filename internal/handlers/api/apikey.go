@@ -307,6 +307,50 @@ func UpdateAPIKey(c *gin.Context) {
 	response.Success(c, apiKey)
 }
 
+func RotateAPIKey(c *gin.Context) {
+	keyID := c.Param("key_id")
+	userID, err := middleware.GetUserIDSafe(c)
+	if err != nil {
+		response.UnauthorizedError(c)
+		return
+	}
+
+	// Find existing key
+	var apiKey metadata.APIKey
+	err = database.DB.Table("_hornero_api_keys").Where("id = ?", keyID).First(&apiKey).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			response.NotFoundError(c, "API key")
+			return
+		}
+		slog.Error("failed to fetch API key for rotation", "error", err, "key_id", keyID)
+		response.DatabaseError(c, err, "fetching API key")
+		return
+	}
+
+	// Generate new key
+	newKeyString, newKeyHash := generateAPIKey(apiKey.Prefix)
+	apiKey.KeyHash = newKeyHash
+
+	result := database.DB.Table("_hornero_api_keys").Save(&apiKey)
+	if result.Error != nil {
+		slog.Error("failed to rotate API key",
+			"error", result.Error,
+			"key_id", keyID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, result.Error, "rotating API key")
+		return
+	}
+
+	slog.Info("API key rotated", "key_id", keyID, "user_id", userID)
+	response.Success(c, gin.H{
+		"message": "API key successfully rotated",
+		"id":      apiKey.ID,
+		"new_key": newKeyString,
+	})
+}
+
 func VerifyAPIKey(key string) (*metadata.APIKey, error) {
 	hash := sha256.Sum256([]byte(key))
 	keyHash := hex.EncodeToString(hash[:])

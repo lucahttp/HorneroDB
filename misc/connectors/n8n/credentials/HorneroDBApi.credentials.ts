@@ -9,7 +9,7 @@ export class HorneroDBApi implements ICredentialType {
     name = 'horneroDbApi';
     displayName = 'HorneroDB API Key';
     documentationUrl = 'https://github.com/hornerodb/hornerodb';
-    Properties: INodeProperties[] = [
+    properties: INodeProperties[] = [
         {
             displayName: 'Host URL',
             name: 'host',

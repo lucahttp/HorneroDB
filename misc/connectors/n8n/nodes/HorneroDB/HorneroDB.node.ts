@@ -10,7 +10,7 @@ export class HorneroDB implements INodeType {
     description: INodeTypeDescription = {
         displayName: 'HorneroDB',
         name: 'horneroDb',
-        icon: 'file:hornerodb.svg',
+        icon: 'fa:database',
         group: ['transform'],
         version: 1,
         subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
@@ -280,10 +280,10 @@ export class HorneroDB implements INodeType {
                 }
             } catch (error) {
                 if (this.continueOnFail()) {
-                    returnData.push({ json: this.getInputData(i)[0].json, error: error.message });
+                    returnData.push({ json: this.getInputData()[i].json, error: new NodeOperationError(this.getNode(), error as Error, { itemIndex: i }) });
                     continue;
                 }
-                throw new NodeOperationError(this.getNode(), error, { itemIndex: i });
+                throw new NodeOperationError(this.getNode(), error as Error, { itemIndex: i });
             }
         }
 

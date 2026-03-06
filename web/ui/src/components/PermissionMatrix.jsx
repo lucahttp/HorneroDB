@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button, Badge } from './index.jsx'
 import { Lock, Globe } from 'iconoir-react'
 import { useTranslation } from 'react-i18next'
@@ -15,13 +15,17 @@ export function PermissionMatrix({
   workspaceId,
   tables = [],
   roles = [],
+  selectedRoleId,
   onSave,
 }) {
   const { t } = useTranslation()
-  const [selectedRole, setSelectedRole] = useState(roles[0]?.id || '')
   const [permissions, setPermissions] = useState({})
   const [saving, setSaving] = useState(false)
   const [openColumns, setOpenColumns] = useState(null)
+
+  useEffect(() => {
+    setPermissions({})
+  }, [selectedRoleId])
 
   const toggleColumns = (tableSlug, operation) => {
     if (openColumns?.tableSlug === tableSlug && openColumns?.operation === operation) {
@@ -31,7 +35,7 @@ export function PermissionMatrix({
     }
   }
 
-  const currentRole = roles.find(r => r.id === selectedRole)
+  const currentRole = roles.find(r => r.id === selectedRoleId)
   const rolePermissions = currentRole?.permissions || {}
 
   const getPermission = (tableSlug, action) => {
@@ -80,7 +84,7 @@ export function PermissionMatrix({
       }
 
       await onSave({
-        roleId: selectedRole,
+        roleId: selectedRoleId,
         permissions: finalPermissions
       })
       setPermissions({})
@@ -106,21 +110,6 @@ export function PermissionMatrix({
       <h2 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
         <Lock width="1.25rem" height="1.25rem" /> {t('table_permissions')}
       </h2>
-
-      <div className="form-group" style={{ maxWidth: '320px', marginBottom: '1rem' }}>
-        <label className="form-label">Rol</label>
-        <select
-          className="form-select"
-          value={selectedRole}
-          onChange={e => { setSelectedRole(e.target.value); setPermissions({}) }}
-        >
-          {roles.map(role => (
-            <option key={role.id} value={role.id}>
-              {role.name} {role.is_default && `(${t('default')})`}
-            </option>
-          ))}
-        </select>
-      </div>
 
       {currentRole && (
         <>

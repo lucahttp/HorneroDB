@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { BrowserRouter, Routes, Route, Link, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
@@ -239,6 +239,7 @@ function Dashboard({ user, onLogout }) {
   const [showCreate, setShowCreate] = useState(false)
   const [newName, setNewName] = useState('')
   const [creating, setCreating] = useState(false)
+  const importInputRef = useRef(null)
 
   useEffect(() => {
     axios.get(`${API_URL}/workspaces`)
@@ -272,6 +273,37 @@ function Dashboard({ user, onLogout }) {
     } finally {
       setCreating(false)
     }
+  }
+
+  const handleImportWorkspace = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const ownerId = user?.id || user?.user_id
+    if (!ownerId) {
+      notify(t('error_import_workspace') || 'User ID missing', 'error')
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = async (event) => {
+      try {
+        const jsonDump = JSON.parse(event.target.result)
+        setLoading(true)
+        await axios.post(`${API_URL}/workspaces/import`, jsonDump)
+        
+        notify(t('workspace_imported') || 'Workspace imported successfully', 'success')
+        const res = await axios.get(`${API_URL}/workspaces`)
+        setWorkspaces(Array.isArray(res.data.data) ? res.data.data : [])
+      } catch (err) {
+        console.error('Import Workspace Error:', err)
+        notify(t('error_import_workspace') || 'Error importing workspace', 'error')
+      } finally {
+        if (importInputRef.current) importInputRef.current.value = ''
+        setLoading(false)
+      }
+    }
+    reader.readAsText(file)
   }
 
   const renameWorkspace = async (id, currentName, e) => {
@@ -329,9 +361,22 @@ function Dashboard({ user, onLogout }) {
                 {t('select_workspace_subtitle')}
               </p>
             </div>
-            <Button onClick={() => setShowCreate(true)}>
-              {t('new_workspace_button')}
-            </Button>
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+              <input 
+                type="file" 
+                ref={importInputRef} 
+                style={{ display: 'none' }} 
+                accept=".json" 
+                onChange={handleImportWorkspace} 
+              />
+              <Button variant="secondary" onClick={() => importInputRef.current?.click()} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <svg width="1.25rem" height="1.25rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                {t('import_workspace') || 'Import'}
+              </Button>
+              <Button onClick={() => setShowCreate(true)}>
+                {t('new_workspace_button')}
+              </Button>
+            </div>
           </div>
 
           {(workspaces.length === 0) ? (
@@ -751,9 +796,6 @@ function TableView({ user, onLogout }) {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('data')
 
-  const [showConfig, setShowConfig] = useState(false)
-  const [configRole, setConfigRole] = useState('')
-  const [rolePermissions, setRolePermissions] = useState(null)
 
   useEffect(() => {
     loadData()
@@ -778,59 +820,19 @@ function TableView({ user, onLogout }) {
     setLoading(false)
   }
 
-  const openConfigContext = () => {
-    setConfigRole('')
-    setRolePermissions(null)
-    setShowConfig(true)
-  }
-
-  const handleRoleSelect = (roleId) => {
-    setConfigRole(roleId)
-    const role = roles.find(r => r.id === roleId)
-    if (role && role.permissions && role.permissions[table.slug]) {
-      setRolePermissions(role.permissions[table.slug])
-    } else {
-      setRolePermissions({ create: 'none', read: 'none', update: 'none', delete: 'none', columns: [] })
-    }
-  }
-
-  const handleToggleColumnConfig = (colSlug) => {
-    setRolePermissions(prev => {
-      const currentCols = prev?.columns || []
-      const isSelected = currentCols.includes(colSlug) || currentCols.includes('*')
-
-      let nextCols
-      if (currentCols.includes('*')) {
-        nextCols = columns.map(c => c.slug).filter(s => s !== colSlug)
-      } else if (isSelected) {
-        nextCols = currentCols.filter(c => c !== colSlug)
-      } else {
-        nextCols = [...currentCols, colSlug]
-      }
-      return { ...prev, columns: nextCols }
-    })
-  }
-
-  const handleSaveConfig = async () => {
-    if (!configRole) return
-    const role = roles.find(r => r.id === configRole)
-    if (!role) return
-
+  const handleExportSchema = async () => {
     try {
-      const updatedPermissions = {
-        ...(role.permissions || {}),
-        [table.slug]: rolePermissions
-      }
-
-      await axios.put(`${API_URL}/workspaces/${workspaceId}/roles/${role.id}`, {
-        permissions: updatedPermissions
-      })
-      notify(t('permissions_saved') || 'Config saved', 'success')
-      setShowConfig(false)
-      loadData()
+      const res = await axios.get(`${API_URL}/workspaces/${workspaceId}/export`, { responseType: 'blob' })
+      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `hornerodb_workspace_${workspaceId}.json`)
+      document.body.appendChild(link)
+      link.click()
+      link.parentNode.removeChild(link)
     } catch (err) {
       console.error(err)
-      notify(t('error_save_permissions') || 'Error', 'error')
+      notify(t('error_export_schema') || 'Error exporting schema', 'error')
     }
   }
 
@@ -936,9 +938,9 @@ function TableView({ user, onLogout }) {
           {/* Table header */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
             <h1 style={{ fontSize: '1.75rem', fontWeight: 800, letterSpacing: '-0.02em' }}>{table?.name}</h1>
-            <Button size="sm" variant="secondary" onClick={openConfigContext} style={{ gap: '0.5rem', display: 'flex', alignItems: 'center' }}>
-              <svg width="1.25rem" height="1.25rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /></svg>
-              {t('settings') || 'Config'}
+            <Button size="sm" variant="secondary" onClick={handleExportSchema} style={{ gap: '0.5rem', display: 'flex', alignItems: 'center' }}>
+              <svg width="1.25rem" height="1.25rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+              {t('export_schema') || 'Export Schema'}
             </Button>
           </div>
 
@@ -990,53 +992,6 @@ function TableView({ user, onLogout }) {
         </div>
       </div>
 
-      {showConfig && (
-        <div className="modal-overlay" onClick={() => setShowConfig(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3 className="modal-title">{t('table')} {t('settings') || 'Settings'}</h3>
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowConfig(false)}>
-                <svg width="1.25rem" height="1.25rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
-            </div>
-            <div className="modal-body">
-              <div className="form-group">
-                <label className="form-label">{t('role_label') || 'Role'}</label>
-                <select className="form-select" value={configRole} onChange={e => handleRoleSelect(e.target.value)}>
-                  <option value="">{t('select_role') || 'Select...'}</option>
-                  {roles.map(r => <option key={r.id} value={r.id}>{r.name} {r.is_default ? `(${t('default') || 'Default'})` : ''}</option>)}
-                </select>
-              </div>
-
-              {configRole && rolePermissions && (
-                <div className="form-group" style={{ marginTop: '1rem' }}>
-                  <label className="form-label">{t('visible_columns') || 'Visible Columns'}</label>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', background: 'var(--bg-surface)', padding: '1rem', borderRadius: '8px', maxHeight: '200px', overflowY: 'auto' }}>
-                    {columns.map(col => {
-                      const isChecked = rolePermissions.columns?.includes('*') || rolePermissions.columns?.includes(col.slug)
-                      return (
-                        <label key={col.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.875rem' }}>
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => handleToggleColumnConfig(col.slug)}
-                          />
-                          {col.name} <code style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{col.slug}</code>
-                        </label>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="modal-footer">
-              <Button variant="secondary" onClick={() => setShowConfig(false)}>{t('cancel') || 'Cancel'}</Button>
-              <Button onClick={handleSaveConfig} disabled={!configRole}>{t('save_changes') || 'Save'}</Button>
-            </div>
-          </div>
-        </div>
-      )}
-
     </div>
   )
 }
@@ -1061,9 +1016,11 @@ function Settings({ user, onLogout }) {
   const [showCreateRole, setShowCreateRole] = useState(false)
   const [showCreateKey, setShowCreateKey] = useState(false)
   const [selectedKey, setSelectedKey] = useState(null)
+  const [selectedRoleId, setSelectedRoleId] = useState(null)
   const [newRoleName, setNewRoleName] = useState('')
   const [newKeyName, setNewKeyName] = useState('')
   const [newKeyRole, setNewKeyRole] = useState('')
+  const [rotatedKeyData, setRotatedKeyData] = useState(null)
   const [newKeyExpiresIn, setNewKeyExpiresIn] = useState(0)
   const [newKeyRateLimit, setNewKeyRateLimit] = useState(0)
   const [newKeyRateLimitPerHour, setNewKeyRateLimitPerHour] = useState(0)
@@ -1105,6 +1062,9 @@ function Settings({ user, onLogout }) {
         }))
         setRoles(rolesRes.data.data)
         setTables(tablesWithCols)
+        if (rolesRes.data.data.length > 0 && !selectedRoleId) {
+          setSelectedRoleId(rolesRes.data.data[0].id)
+        }
       } else if (activeSection === 'keys') {
         const keysRes = await axios.get(`${API_URL}/workspaces/${workspaceId}/keys`)
         setAPIKeys(keysRes.data.data)
@@ -1144,13 +1104,14 @@ function Settings({ user, onLogout }) {
   const handleCreateRole = async () => {
     if (!newRoleName.trim()) return
     try {
-      await axios.post(`${API_URL}/workspaces/${workspaceId}/roles`, {
+      const resp = await axios.post(`${API_URL}/workspaces/${workspaceId}/roles`, {
         name: newRoleName,
         description: 'Nuevo rol',
         permissions: {}
       })
       setShowCreateRole(false)
       setNewRoleName('')
+      setSelectedRoleId(resp.data.data?.id)
       loadData()
     } catch (err) {
       console.error(err)
@@ -1232,6 +1193,19 @@ function Settings({ user, onLogout }) {
       notify(t('error_update_api_key') || 'Error updating API key', 'error')
     }
     setSavingKey(false)
+  }
+
+  const handleRotateKey = async (keyId, keyName) => {
+    if (!confirm(t('confirm_rotate_key', { name: keyName }) || `¿Seguro que quieres regenerar la API key "${keyName}"? La clave anterior dejará de funcionar.`)) return;
+    try {
+      const res = await axios.post(`${API_URL}/workspaces/${workspaceId}/keys/${keyId}/rotate`)
+      setRotatedKeyData(res.data.data)
+      loadData()
+      notify(t('api_key_rotated') || 'API key regenerated', 'success')
+    } catch (err) {
+      console.error(err)
+      notify(t('error_rotate_api_key') || 'Error regenerating API key', 'error')
+    }
   }
 
   const savePermissions = async ({ roleId, permissions }) => {
@@ -1342,14 +1316,34 @@ function Settings({ user, onLogout }) {
                   </div>
                 ) : (
                   roles.map((role) => (
-                    <div key={role.id} className="card">
-                      <div style={{ fontWeight: 700, marginBottom: '0.25rem' }}>{role.name}</div>
-                      <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                        {role.description || t('no_description')}
+                    <div 
+                      key={role.id} 
+                      className="card" 
+                      onClick={() => setSelectedRoleId(role.id)}
+                      style={{ 
+                        cursor: 'pointer', 
+                        border: selectedRoleId === role.id ? '2px solid var(--primary)' : undefined,
+                        padding: selectedRoleId === role.id ? 'calc(1.5rem - 1px)' : undefined 
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <div style={{ fontWeight: 700, marginBottom: '0.25rem' }}>{role.name}</div>
+                          <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                            {role.description || t('no_description')}
+                          </div>
+                          {role.is_default && (
+                            <Badge variant="primary" className="" style={{ marginTop: '0.75rem' }}>{t('default')}</Badge>
+                          )}
+                        </div>
+                        <Button 
+                          size="sm" 
+                          variant={selectedRoleId === role.id ? 'primary' : 'secondary'}
+                          onClick={(e) => { e.stopPropagation(); setSelectedRoleId(role.id); }}
+                        >
+                          {selectedRoleId === role.id ? t('selected') || 'Seleccionado' : t('select') || 'Seleccionar'}
+                        </Button>
                       </div>
-                      {role.is_default && (
-                        <Badge variant="primary" className="" style={{ marginTop: '0.75rem' }}>{t('default')}</Badge>
-                      )}
                     </div>
                   ))
                 )}
@@ -1404,6 +1398,7 @@ function Settings({ user, onLogout }) {
                 workspaceId={workspaceId}
                 tables={tables}
                 roles={roles}
+                selectedRoleId={selectedRoleId || (roles.length > 0 ? roles[0].id : '')}
                 onSave={savePermissions}
               />
             </div>
@@ -1433,6 +1428,13 @@ function Settings({ user, onLogout }) {
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button
+                          onClick={() => handleRotateKey(key.id, key.name)}
+                          className="btn btn-ghost btn-sm"
+                          title={t('rotate_key') || 'Regenerate API Key'}
+                        >
+                          <svg width="1rem" height="1rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                        </button>
                         <button
                           onClick={() => openKeySettings(key)}
                           className="btn btn-ghost btn-sm"
@@ -1568,7 +1570,7 @@ function Settings({ user, onLogout }) {
                       <div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{t('last_used')}</div>
                         <div style={{ fontSize: '0.875rem' }}>
-                          {selectedKey.last_used_at ? new Date(selectedKey.last_used_at).toLocaleString() : t('never_used') || 'Never'}
+                          {selectedKey.last_used_at ? new Date(selectedKey.last_used_at).toLocaleString() : '-'}
                         </div>
                       </div>
                     </div>
@@ -1588,6 +1590,41 @@ function Settings({ user, onLogout }) {
           )}
         </div>
       </div>
+      
+      {rotatedKeyData && (
+        <div className="modal-overlay" onClick={() => setRotatedKeyData(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+            <div className="modal-header">
+              <h3 className="modal-title">{t('api_key_rotated') || 'New API Key'}</h3>
+              <button className="btn btn-ghost btn-sm" onClick={() => setRotatedKeyData(null)}>
+                <Xmark width="1rem" height="1rem" />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label className="form-label">{t('copy_key_warning') || 'Please copy your new API key now. You will not be able to see it again.'}</label>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={rotatedKeyData.new_key}
+                    readOnly
+                  />
+                  <Button variant="secondary" onClick={() => {
+                    navigator.clipboard.writeText(rotatedKeyData.new_key)
+                    notify(t('copied') || 'Copied to clipboard', 'success')
+                  }}>
+                    <ClipboardCheck width="1rem" height="1rem" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <Button onClick={() => setRotatedKeyData(null)}>{t('close') || 'Close'}</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create API Key Modal */}
       {showCreateKey && (

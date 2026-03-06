@@ -59,7 +59,7 @@ type S3Config struct {
 
 func Load() (*Config, error) {
 	// Check for production mode
-	isProduction := os.Getenv("NODE_ENV") == "production" || os.Getenv("ENV") == "production"
+	isProduction := os.Getenv("NODE_ENV") == "production" || os.Getenv("ENV") == "production" || os.Getenv("HORNERO_ENV") == "production"
 
 	// Get JWT secret
 	jwtSecret := os.Getenv("JWT_SECRET")
