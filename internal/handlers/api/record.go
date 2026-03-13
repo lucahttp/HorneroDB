@@ -417,7 +417,7 @@ func DeleteRecord(c *gin.Context) {
 		go workers.DispatchWebhookAsync(wsID, table.ID, tableSlug, "deleted", recordToDelete)
 	}
 
-	result := dbQuery.Delete(nil)
+	result := database.DB.Exec("DELETE FROM \""+tableName+"\" WHERE id = ?", recordID)
 	if result.Error != nil {
 		slog.Error("failed to delete record",
 			"error", result.Error,

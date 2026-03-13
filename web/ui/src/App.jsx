@@ -796,6 +796,10 @@ function TableView({ user, onLogout }) {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('data')
 
+  // CSV Import Wizard state
+  const [csvWizard, setCsvWizard] = useState(null) // null | { step: 1|2|3, raw, headers, rows, mapping, importing, results }
+  const csvFileRef = useRef(null)
+
 
   useEffect(() => {
     loadData()
@@ -910,8 +914,112 @@ function TableView({ user, onLogout }) {
   }
 
 
+  // ── CSV Helpers ────────────────────────────────────────────────────────
+  const splitCSVLine = (line) => {
+    const result = []
+    let cur = ''
+    let inQ = false
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i]
+      if (ch === '"') { inQ = !inQ }
+      else if (ch === ',' && !inQ) { result.push(cur.trim()); cur = '' }
+      else { cur += ch }
+    }
+    result.push(cur.trim())
+    return result
+  }
+
+  const parseCSV = (text) => {
+    const lines = text.split(/\r?\n/).filter(l => l.trim())
+    if (!lines.length) return { headers: [], rows: [] }
+    const headers = splitCSVLine(lines[0])
+    const rows = lines.slice(1).map(l => {
+      const vals = splitCSVLine(l)
+      const row = {}
+      headers.forEach((h, i) => { row[h] = vals[i] ?? '' })
+      return row
+    })
+    return { headers, rows }
+  }
+
+  const handleOpenCSVImport = () => { csvFileRef.current?.click() }
+
+  const handleCSVFileChange = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const { headers, rows } = parseCSV(ev.target.result)
+      const defaultMapping = {}
+      headers.forEach(h => {
+        const normalized = h.toLowerCase().replace(/\s+/g, '_')
+        const match = columns.find(c => c.slug === normalized || c.slug === h.toLowerCase())
+        defaultMapping[h] = match ? match.slug : '__ignore__'
+      })
+      setCsvWizard({ step: 2, headers, rows, mapping: defaultMapping, importing: false, results: null })
+    }
+    reader.readAsText(file, 'UTF-8')
+    e.target.value = ''
+  }
+
+  const handleCSVImport = async () => {
+    if (!csvWizard) return
+    setCsvWizard(prev => ({ ...prev, step: 3, importing: true, results: [] }))
+    const results = []
+    for (let i = 0; i < csvWizard.rows.length; i++) {
+      const row = csvWizard.rows[i]
+      const payload = {}
+      csvWizard.headers.forEach(h => {
+        const target = csvWizard.mapping[h]
+        if (target && target !== '__ignore__') {
+          const col = columns.find(c => c.slug === target)
+          let val = row[h]
+          if (col?.field_type === 'number') {
+            if (val === '' || val === undefined || val === null) {
+              val = null
+            } else {
+              const num = Number(val.replace(',', '.'))
+              val = isNaN(num) ? null : num
+            }
+          }
+          if (col?.field_type === 'boolean') {
+            const v = String(val).toLowerCase().trim()
+            val = v === 'true' || v === '1' || v === 'yes' || v === 'si' || v === 'sí'
+          }
+          payload[target] = val
+        }
+      })
+      try {
+        await axios.post(`${API_URL}/workspaces/${workspaceId}/data/${table.slug}`, payload)
+        results.push({ row: i + 1, ok: true })
+      } catch (err) {
+        results.push({ row: i + 1, ok: false, error: err?.response?.data?.error?.message || err.message })
+      }
+    }
+    setCsvWizard(prev => ({ ...prev, importing: false, results }))
+    loadData()
+  }
+
+  const handleExportCSV = () => {
+    if (!records.length || !columns.length) return
+    const headers = columns.map(c => c.slug)
+    const rows = records.map(r => headers.map(h => {
+      const v = r[h] ?? ''
+      const s = String(v)
+      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
+    }).join(','))
+    const csv = [headers.join(','), ...rows].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${table?.slug || 'export'}_${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   if (loading) {
+
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
         <div className="loading-spinner" />
@@ -936,12 +1044,26 @@ function TableView({ user, onLogout }) {
           </button>
 
           {/* Table header */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', gap: '0.75rem' }}>
             <h1 style={{ fontSize: '1.75rem', fontWeight: 800, letterSpacing: '-0.02em' }}>{table?.name}</h1>
-            <Button size="sm" variant="secondary" onClick={handleExportSchema} style={{ gap: '0.5rem', display: 'flex', alignItems: 'center' }}>
-              <svg width="1.25rem" height="1.25rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-              {t('export_schema') || 'Export Schema'}
-            </Button>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              {/* Export Schema */}
+              <Button size="sm" variant="secondary" onClick={handleExportSchema} style={{ gap: '0.5rem', display: 'flex', alignItems: 'center' }}>
+                <svg width="1.25rem" height="1.25rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                {t('export_schema') || 'Export Schema'}
+              </Button>
+              {/* Import CSV */}
+              <input ref={csvFileRef} type="file" accept=".csv,text/csv" style={{ display: 'none' }} onChange={handleCSVFileChange} />
+              <Button size="sm" variant="secondary" onClick={handleOpenCSVImport} style={{ gap: '0.5rem', display: 'flex', alignItems: 'center' }}>
+                <svg width="1.25rem" height="1.25rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l4-4m0 0l4 4m-4-4v12" /></svg>
+                Import CSV
+              </Button>
+              {/* Export CSV */}
+              <Button size="sm" variant="secondary" onClick={handleExportCSV} style={{ gap: '0.5rem', display: 'flex', alignItems: 'center' }}>
+                <svg width="1.25rem" height="1.25rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                Export CSV
+              </Button>
+            </div>
           </div>
 
           {/* Tabs */}
@@ -992,6 +1114,94 @@ function TableView({ user, onLogout }) {
         </div>
       </div>
 
+      {/* ── CSV Import Wizard Modal ─────────────────────────────────────── */}
+      {csvWizard && (
+        <div className="modal-overlay" onClick={() => !csvWizard.importing && setCsvWizard(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '680px', maxHeight: '85vh', overflowY: 'auto' }}>
+            <div className="modal-header">
+              <h3 className="modal-title">
+                {csvWizard.step === 2 ? 'Mapear Columnas CSV' : csvWizard.step === 3 ? 'Importar Datos' : 'Importar CSV'}
+              </h3>
+              {!csvWizard.importing && (
+                <button className="btn btn-ghost btn-sm" onClick={() => setCsvWizard(null)}>
+                  <Xmark width="1rem" height="1rem" />
+                </button>
+              )}
+            </div>
+
+            {/* Step 2 – Column Mapping */}
+            {csvWizard.step === 2 && (
+              <div className="modal-body">
+                <p style={{ marginBottom: '1rem', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+                  Asigná cada columna del CSV a una columna de la tabla, o ignorala.
+                </p>
+                <div style={{ display: 'grid', gap: '0.75rem' }}>
+                  {csvWizard.headers.map(h => (
+                    <div key={h} style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', alignItems: 'center', gap: '0.75rem' }}>
+                      <div style={{ padding: '0.5rem 0.75rem', background: 'var(--bg-subtle)', borderRadius: '6px', fontFamily: 'var(--font-mono)', fontSize: '0.8125rem', border: '1px solid var(--border)' }}>
+                        {h}
+                      </div>
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>→</span>
+                      <select
+                        className="form-select"
+                        value={csvWizard.mapping[h]}
+                        onChange={e => setCsvWizard(prev => ({ ...prev, mapping: { ...prev.mapping, [h]: e.target.value } }))}
+                      >
+                        <option value="__ignore__">— Ignorar —</option>
+                        {columns.map(c => (
+                          <option key={c.slug} value={c.slug}>{c.name} ({c.slug})</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+                <p style={{ marginTop: '1rem', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+                  {csvWizard.rows.length} filas detectadas
+                </p>
+              </div>
+            )}
+
+            {/* Step 3 – Results */}
+            {csvWizard.step === 3 && (
+              <div className="modal-body">
+                {csvWizard.importing ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', padding: '2rem 0' }}>
+                    <div className="loading-spinner" />
+                    <p>Importando {csvWizard.rows.length} registros...</p>
+                  </div>
+                ) : (
+                  <div>
+                    <p style={{ marginBottom: '1rem' }}>
+                      ✅ {csvWizard.results?.filter(r => r.ok).length} importados &nbsp;·&nbsp;
+                      ❌ {csvWizard.results?.filter(r => !r.ok).length} errores
+                    </p>
+                    {csvWizard.results?.filter(r => !r.ok).map(r => (
+                      <div key={r.row} style={{ padding: '0.5rem 0.75rem', background: 'var(--danger-bg, #fee2e2)', borderRadius: '6px', fontSize: '0.8125rem', marginBottom: '0.5rem', color: 'var(--danger, #dc2626)' }}>
+                        Fila {r.row}: {r.error}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="modal-footer">
+              {csvWizard.step === 2 && (
+                <>
+                  <Button variant="secondary" onClick={() => setCsvWizard(null)}>Cancelar</Button>
+                  <Button onClick={handleCSVImport} disabled={!csvWizard.rows.length}>
+                    Importar {csvWizard.rows.length} registros
+                  </Button>
+                </>
+              )}
+              {csvWizard.step === 3 && !csvWizard.importing && (
+                <Button onClick={() => setCsvWizard(null)}>Cerrar</Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
@@ -1021,6 +1231,7 @@ function Settings({ user, onLogout }) {
   const [newKeyName, setNewKeyName] = useState('')
   const [newKeyRole, setNewKeyRole] = useState('')
   const [rotatedKeyData, setRotatedKeyData] = useState(null)
+  const [createdKeyModal, setCreatedKeyModal] = useState(null) // { name, key } shown after create
   const [newKeyExpiresIn, setNewKeyExpiresIn] = useState(0)
   const [newKeyRateLimit, setNewKeyRateLimit] = useState(0)
   const [newKeyRateLimitPerHour, setNewKeyRateLimitPerHour] = useState(0)
@@ -1049,23 +1260,24 @@ function Settings({ user, onLogout }) {
         setAllowedOrigins((st.allowed_origins || []).join(', '))
       }
 
-      if (activeSection === 'roles') {
-        const [rolesRes, tablesRes] = await Promise.all([
-          axios.get(`${API_URL}/workspaces/${workspaceId}/roles`),
-          axios.get(`${API_URL}/workspaces/${workspaceId}/tables`)
-        ])
-        const tablesWithCols = await Promise.all(tablesRes.data.data.map(async (t) => {
-          try {
-            const cr = await axios.get(`${API_URL}/workspaces/${workspaceId}/tables/${t.id}/columns`)
-            return { ...t, columns: cr.data.data }
-          } catch (e) { return t }
-        }))
-        setRoles(rolesRes.data.data)
-        setTables(tablesWithCols)
-        if (rolesRes.data.data.length > 0 && !selectedRoleId) {
-          setSelectedRoleId(rolesRes.data.data[0].id)
-        }
-      } else if (activeSection === 'keys') {
+      // Always load roles & tables so they are available even on the keys tab
+      const [rolesRes, tablesRes] = await Promise.all([
+        axios.get(`${API_URL}/workspaces/${workspaceId}/roles`),
+        axios.get(`${API_URL}/workspaces/${workspaceId}/tables`)
+      ])
+      const tablesWithCols = await Promise.all(tablesRes.data.data.map(async (t) => {
+        try {
+          const cr = await axios.get(`${API_URL}/workspaces/${workspaceId}/tables/${t.id}/columns`)
+          return { ...t, columns: cr.data.data }
+        } catch (e) { return t }
+      }))
+      setRoles(rolesRes.data.data)
+      setTables(tablesWithCols)
+      if (rolesRes.data.data.length > 0 && !selectedRoleId) {
+        setSelectedRoleId(rolesRes.data.data[0].id)
+      }
+
+      if (activeSection === 'keys') {
         const keysRes = await axios.get(`${API_URL}/workspaces/${workspaceId}/keys`)
         setAPIKeys(keysRes.data.data)
       }
@@ -1129,7 +1341,8 @@ function Settings({ user, onLogout }) {
         rate_limit_per_minute: parseInt(newKeyRateLimit) || 0,
         rate_limit_per_hour: parseInt(newKeyRateLimitPerHour) || 0
       })
-      notify(t('api_key_created', { key: res.data.key }), 'success')
+      // Show key in a persistent modal since it won't be visible again
+      setCreatedKeyModal({ name: newKeyName, key: res.data.data?.key || res.data.key })
       setShowCreateKey(false)
       setNewKeyName('')
       setNewKeyRole('')
@@ -1621,6 +1834,49 @@ function Settings({ user, onLogout }) {
             </div>
             <div className="modal-footer">
               <Button onClick={() => setRotatedKeyData(null)}>{t('close') || 'Close'}</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New API Key Created Modal — show raw key once since it won't be visible again */}
+      {createdKeyModal && (
+        <div className="modal-overlay" onClick={() => setCreatedKeyModal(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+            <div className="modal-header">
+              <h3 className="modal-title">{t('api_key_created_title') || '🔑 API Key creada'}</h3>
+              <button className="btn btn-ghost btn-sm" onClick={() => setCreatedKeyModal(null)}>
+                <Xmark width="1rem" height="1rem" />
+              </button>
+            </div>
+            <div className="modal-body">
+              <p style={{ marginBottom: '1rem', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+                {t('copy_key_warning') || 'Copiá la clave ahora. No vas a poder verla de nuevo.'}
+              </p>
+              <div className="form-group">
+                <label className="form-label">{createdKeyModal.name}</label>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={createdKeyModal.key}
+                    readOnly
+                    style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8125rem' }}
+                  />
+                  <Button variant="secondary" onClick={() => {
+                    navigator.clipboard.writeText(createdKeyModal.key)
+                    notify(t('copied') || 'Copiado al portapapeles', 'success')
+                  }}>
+                    <ClipboardCheck width="1rem" height="1rem" />
+                  </Button>
+                </div>
+              </div>
+              <div style={{ marginTop: '1rem', padding: '0.75rem', background: 'var(--warning-bg, #fef3c7)', borderRadius: '8px', border: '1px solid var(--warning-border, #fbbf24)', fontSize: '0.8125rem', color: 'var(--warning-text, #92400e)' }}>
+                ⚠️ {t('key_warning_once') || 'Esta clave solo se muestra una vez. Si la perdés, usá el botón Regenerar en la lista de keys.'}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <Button onClick={() => setCreatedKeyModal(null)}>{t('close') || 'Cerrar'}</Button>
             </div>
           </div>
         </div>
