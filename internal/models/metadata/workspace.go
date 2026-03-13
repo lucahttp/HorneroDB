@@ -31,6 +31,12 @@ func (j *JSON) Scan(value interface{}) error {
 	return nil
 }
 
+func (j *JSON) UnmarshalJSON(b []byte) error {
+	result := json.RawMessage(b)
+	*j = JSON(result)
+	return nil
+}
+
 func (j JSON) MarshalJSON() ([]byte, error) {
 	if j == nil {
 		return []byte("{}"), nil
@@ -64,4 +70,8 @@ func (w *Workspace) BeforeCreate(tx *gorm.DB) (err error) {
 		w.ID = uuid.New()
 	}
 	return
+}
+
+func (w *Workspace) TableName() string {
+	return "_hornero_workspaces"
 }

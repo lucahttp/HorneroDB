@@ -17,3 +17,7 @@ type Webhook struct {
 	CreatedBy       string     `gorm:"type:varchar(255)" json:"created_by"`
 	CreatedAt       time.Time  `json:"created_at"`
 }
+
+func (w *Webhook) TableName() string {
+	return "_hornero_webhooks"
+}

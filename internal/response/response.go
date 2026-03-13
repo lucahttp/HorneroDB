@@ -2,6 +2,7 @@ package response
 
 import (
 	"log/slog"
+	"regexp"
 
 	"github.com/gin-gonic/gin"
 )
@@ -90,6 +91,19 @@ func DatabaseError(c *gin.Context, err error, operation string) {
 		"path", c.Request.URL.Path,
 		"user_id", c.GetString("user_id"),
 	)
+
+	errString := err.Error()
+	// Catch "column X of relation Y does not exist"
+	if matched, _ := regexp.MatchString(`column ".*" of relation ".*" does not exist`, errString); matched {
+		Error(c, 400, ErrValidation, "Invalid field submitted: "+errString)
+		return
+	}
+
+	// Catch "relation X does not exist"
+	if matched, _ := regexp.MatchString(`relation ".*" does not exist`, errString); matched {
+		Error(c, 400, ErrValidation, "Invalid table requested: "+errString)
+		return
+	}
 
 	Error(c, 500, ErrDatabase, "Failed to "+operation+". Please try again later.")
 }

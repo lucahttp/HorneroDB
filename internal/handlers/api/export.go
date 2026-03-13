@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
+	"time"
 
 	"hornerodb/internal/database"
 	"hornerodb/internal/middleware"
@@ -96,9 +98,8 @@ func ImportWorkspace(c *gin.Context) {
 		newWs := dump.Workspace
 		newWs.ID = newWorkspaceID
 		newWs.OwnerID = newWorkspaceOwner
-		// Append suffix to avoid unique slug collision
-		newWs.Slug = newWs.Slug + "-imported"
-		newWs.Name = newWs.Name + " (Imported)"
+		// No suffix appended to slug for imported namespaces
+		// as per user request (assumes user deleted original if collision exists)
 
 		if err := tx.Create(&newWs).Error; err != nil {
 			return err
@@ -118,8 +119,8 @@ func ImportWorkspace(c *gin.Context) {
 			}
 
 			// Generate the physical SQL table
-			physicalTableName := newTableID.String()
-			createSQL := "CREATE TABLE \"" + physicalTableName + "\" (id UUID PRIMARY KEY, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by VARCHAR(255), updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP)"
+			physicalTableName := "data_" + newWorkspaceID.String() + "_" + newTable.Slug
+			createSQL := "CREATE TABLE \"" + physicalTableName + "\" (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by VARCHAR(255), updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP)"
 			if err := tx.Exec(createSQL).Error; err != nil {
 				return err
 			}
@@ -140,8 +141,17 @@ func ImportWorkspace(c *gin.Context) {
 				return err
 			}
 
+			// Find matching table slug for the physical table name
+			var tableSlug string
+			for _, t := range dump.Tables {
+				if t.ID == col.TableID {
+					tableSlug = t.Slug
+					break
+				}
+			}
+
 			// Physical Alter Table
-			physicalTableName := newTableID.String()
+			physicalTableName := "data_" + newWorkspaceID.String() + "_" + tableSlug
 			dataTypeMapping := map[string]string{
 				"text":       "TEXT",
 				"uuid":       "UUID",
@@ -171,16 +181,14 @@ func ImportWorkspace(c *gin.Context) {
 			}
 		}
 
+		var adminRoleID uuid.UUID
+		var hasAdminRole bool
+
 		// 4. Mapear e Insertar Roles (Re-writing the permission JSON ids)
 		for _, role := range dump.Roles {
 			newRole := role
 			newRole.ID = uuid.New()
 			newRole.WorkspaceID = newWorkspaceID
-
-			// Si el JSON de permisos utiliza los viejos slugs/IDs de tabla, idealmente deberíamos remapearlos.
-			// Como usamos Table Slugs en los permisos (según implementación genérica Dataverse),
-			// no debería haber problema porque los Slugs se mantuvieron intactos!
-			// Si el engine usa UUIDs en vez de Slugs, aquí iría un re-writer iterando sobre la estructura JSON.
 
 			// Extract and reconstruct the permission json mapping just in case
 			var perm map[string]interface{}
@@ -192,7 +200,35 @@ func ImportWorkspace(c *gin.Context) {
 			if err := tx.Create(&newRole).Error; err != nil {
 				return err
 			}
+
+			if role.Name == "admin" || role.Name == "Admin" {
+				adminRoleID = newRole.ID
+				hasAdminRole = true
+			}
 		}
+
+		// 5. Generate Default API Key for Import
+		prefix := "key_" + newWorkspaceID.String()[:8]
+		keyString, keyHash := generateAPIKey(prefix)
+
+		apiKey := metadata.APIKey{
+			ID:          uuid.New(),
+			WorkspaceID: newWorkspaceID,
+			Name:        fmt.Sprintf("Import Key - %s", time.Now().Format("2006-01-02")),
+			KeyHash:     keyHash,
+			Prefix:      prefix,
+		}
+
+		if hasAdminRole {
+			apiKey.RoleID = adminRoleID
+		}
+
+		if err := tx.Table("_hornero_api_keys").Create(&apiKey).Error; err != nil {
+			return err
+		}
+
+		// Store raw key in a temporary context variable so we can return it
+		c.Set("generated_import_key", keyString)
 
 		return nil
 	})
@@ -203,9 +239,12 @@ func ImportWorkspace(c *gin.Context) {
 		return
 	}
 
+	generatedKey, _ := c.Get("generated_import_key")
+
 	slog.Info("Workspace schema imported", "new_workspace_id", newWorkspaceID, "user_id", userID, "original_id", oldWorkspaceID)
 	response.Success(c, gin.H{
 		"message":      "Workspace imported successfully",
 		"workspace_id": newWorkspaceID,
+		"api_key":      generatedKey,
 	})
 }
