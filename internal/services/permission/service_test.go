@@ -65,7 +65,8 @@ func TestGetColumns(t *testing.T) {
 		{"nil", nil, nil},
 		{"empty array", []interface{}{}, []string{}},
 		{"string array", []interface{}{"name", "email"}, []string{"name", "email"}},
-		{"mixed array", []interface{}{"name", 123}, []string{"name", ""}},
+		// Non-string elements are skipped, not converted to empty strings
+		{"mixed array", []interface{}{"name", 123}, []string{"name"}},
 		{"not an array", "string", nil},
 	}
 

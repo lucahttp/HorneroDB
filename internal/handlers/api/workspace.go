@@ -36,11 +36,7 @@ func ListWorkspaces(c *gin.Context) {
 		return
 	}
 
-	meta := map[string]interface{}{
-		"count": len(workspaces),
-	}
-
-	response.SuccessWithMeta(c, workspaces, meta)
+	response.SuccessWithMeta(c, workspaces, map[string]interface{}{"count": len(workspaces)})
 }
 
 func CreateWorkspace(c *gin.Context) {
@@ -61,87 +57,86 @@ func CreateWorkspace(c *gin.Context) {
 		return
 	}
 
-	if input.Name == "" {
-		response.ValidationError(c, "workspace name is required")
-		return
-	}
-
 	ownerID, err := uuid.Parse(input.OwnerID)
 	if err != nil {
 		response.ValidationError(c, "invalid owner_id format")
 		return
 	}
 
-	workspace := metadata.Workspace{
-		Name:     input.Name,
-		Slug:     input.Slug,
-		OwnerID:  ownerID,
-		Settings: metadata.JSON("{}"),
-	}
+	// Fix #7: wrap all 3 operations in a single DB transaction.
+	// If any step fails, the entire workspace creation is rolled back,
+	// preventing a workspace from existing in a partially initialized state.
+	var workspace metadata.Workspace
+	txErr := database.DB.Transaction(func(tx *gorm.DB) error {
+		workspace = metadata.Workspace{
+			Name:     input.Name,
+			Slug:     input.Slug,
+			OwnerID:  ownerID,
+			Settings: metadata.JSON("{}"),
+		}
 
-	result := database.DB.Table("_hornero_workspaces").Create(&workspace)
-	if result.Error != nil {
-		slog.Error("failed to create workspace", "error", result.Error, "user_id", userID)
-		response.DatabaseError(c, result.Error, "creating workspace")
-		return
-	}
+		if err := tx.Table("_hornero_workspaces").Create(&workspace).Error; err != nil {
+			return err
+		}
 
-	// Create default admin role with full access to all tables
-	adminPermissions := map[string]interface{}{
-		"*": map[string]interface{}{
-			"create": "all",
-			"read":   "all",
-			"update": "all",
-			"delete": "all",
-		},
-	}
-	adminPermissionsJSON, _ := json.Marshal(adminPermissions)
+		// Create default admin role with full access to all tables
+		adminPermissionsJSON, _ := json.Marshal(map[string]interface{}{
+			"*": map[string]interface{}{
+				"create": "all",
+				"read":   "all",
+				"update": "all",
+				"delete": "all",
+			},
+		})
 
-	adminRole := metadata.Role{
-		WorkspaceID: workspace.ID,
-		Name:        "admin",
-		Description: "Administrator with full access",
-		Permissions: metadata.JSON(adminPermissionsJSON),
-		IsDefault:   true,
-	}
-	if err := database.DB.Table("_hornero_roles").Create(&adminRole).Error; err != nil {
-		slog.Warn("failed to create admin role", "error", err, "workspace_id", workspace.ID)
-	}
+		adminRole := metadata.Role{
+			WorkspaceID: workspace.ID,
+			Name:        "admin",
+			Description: "Administrator with full access",
+			Permissions: metadata.JSON(adminPermissionsJSON),
+			IsDefault:   true,
+		}
+		if err := tx.Table("_hornero_roles").Create(&adminRole).Error; err != nil {
+			return err
+		}
 
-	// Create default user role with limited access
-	userPermissions := map[string]interface{}{
-		"*": map[string]interface{}{
-			"create": "own",
-			"read":   "own",
-			"update": "own",
-			"delete": "none",
-		},
-	}
-	userPermissionsJSON, _ := json.Marshal(userPermissions)
+		// Create default user role with limited access
+		userPermissionsJSON, _ := json.Marshal(map[string]interface{}{
+			"*": map[string]interface{}{
+				"create": "own",
+				"read":   "own",
+				"update": "own",
+				"delete": "none",
+			},
+		})
 
-	userRole := metadata.Role{
-		WorkspaceID: workspace.ID,
-		Name:        "user",
-		Description: "Standard user",
-		Permissions: metadata.JSON(userPermissionsJSON),
-	}
-	if err := database.DB.Table("_hornero_roles").Create(&userRole).Error; err != nil {
-		slog.Warn("failed to create user role", "error", err, "workspace_id", workspace.ID)
-	}
+		userRole := metadata.Role{
+			WorkspaceID: workspace.ID,
+			Name:        "user",
+			Description: "Standard user",
+			Permissions: metadata.JSON(userPermissionsJSON),
+		}
+		if err := tx.Table("_hornero_roles").Create(&userRole).Error; err != nil {
+			return err
+		}
 
-	// Assign admin role to owner - get the admin role first to ensure we have the ID, Using .First is safer than dependent on creation order
-	var savedAdminRole metadata.Role
-	if err := database.DB.Table("_hornero_roles").
-		Where("workspace_id = ? AND name = ?", workspace.ID, "admin").
-		First(&savedAdminRole).Error; err == nil {
+		// Assign admin role to owner
 		userRoleAssignment := metadata.UserRole{
 			WorkspaceID: workspace.ID,
 			UserID:      input.OwnerID,
-			RoleID:      savedAdminRole.ID,
+			RoleID:      adminRole.ID,
 		}
-		if err := database.DB.Table("_hornero_user_roles").Create(&userRoleAssignment).Error; err != nil {
-			slog.Warn("failed to assign role to owner", "error", err, "workspace_id", workspace.ID)
+		if err := tx.Table("_hornero_user_roles").Create(&userRoleAssignment).Error; err != nil {
+			return err
 		}
+
+		return nil
+	})
+
+	if txErr != nil {
+		slog.Error("failed to create workspace", "error", txErr, "user_id", userID)
+		response.DatabaseError(c, txErr, "creating workspace")
+		return
 	}
 
 	slog.Info("workspace created", "workspace_id", workspace.ID, "name", workspace.Name, "user_id", userID)
@@ -157,7 +152,6 @@ func GetWorkspace(c *gin.Context) {
 	}
 
 	var workspace metadata.Workspace
-
 	result := database.DB.Table("_hornero_workspaces").First(&workspace, "id = ?", workspaceID)
 	if result.Error != nil {
 		if result.Error == gorm.ErrRecordNotFound {
@@ -184,23 +178,37 @@ func UpdateWorkspace(c *gin.Context) {
 		return
 	}
 
-	var input map[string]interface{}
+	// Fix #2: explicit allow-list instead of raw map to prevent mass-assignment.
+	// Only `name` and `settings` can be changed — internal fields like owner_id are ignored.
+	var input struct {
+		Name     string      `json:"name"`
+		Settings interface{} `json:"settings"`
+	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
 		response.ValidationError(c, "Invalid workspace data")
 		return
 	}
 
-	if settings, ok := input["settings"]; ok {
-		settingsJSON, err := json.Marshal(settings)
+	updates := map[string]interface{}{}
+	if input.Name != "" {
+		updates["name"] = input.Name
+	}
+	if input.Settings != nil {
+		settingsJSON, err := json.Marshal(input.Settings)
 		if err != nil {
 			response.ValidationError(c, "invalid settings format")
 			return
 		}
-		input["settings"] = metadata.JSON(settingsJSON)
+		updates["settings"] = metadata.JSON(settingsJSON)
 	}
 
-	result := database.DB.Table("_hornero_workspaces").Where("id = ?", workspaceID).Updates(input)
+	if len(updates) == 0 {
+		response.ValidationError(c, "no valid fields provided for update")
+		return
+	}
+
+	result := database.DB.Table("_hornero_workspaces").Where("id = ?", workspaceID).Updates(updates)
 	if result.Error != nil {
 		slog.Error("failed to update workspace",
 			"error", result.Error,

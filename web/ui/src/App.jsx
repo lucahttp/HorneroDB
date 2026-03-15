@@ -795,6 +795,7 @@ function TableView({ user, onLogout }) {
   const [roles, setRoles] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('data')
+  const [tables, setTables] = useState([])
 
   // CSV Import Wizard state
   const [csvWizard, setCsvWizard] = useState(null) // null | { step: 1|2|3, raw, headers, rows, mapping, importing, results }
@@ -807,16 +808,27 @@ function TableView({ user, onLogout }) {
 
   const loadData = async () => {
     try {
-      const [tableRes, columnsRes, rolesRes] = await Promise.all([
+      const [tableRes, columnsRes, rolesRes, allTablesRes] = await Promise.all([
         axios.get(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}`),
         axios.get(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}/columns`),
-        axios.get(`${API_URL}/workspaces/${workspaceId}/roles`)
+        axios.get(`${API_URL}/workspaces/${workspaceId}/roles`),
+        axios.get(`${API_URL}/workspaces/${workspaceId}/tables`)
       ])
-      setTable(tableRes.data.data)
-      setColumns(columnsRes.data.data)
+      const tableData = tableRes.data.data
+      const colData = columnsRes.data.data
+      setTable(tableData)
+      setColumns(colData)
       setRoles(rolesRes.data.data)
+      setTables(allTablesRes.data.data || [])
 
-      const recordsRes = await axios.get(`${API_URL}/workspaces/${workspaceId}/data/${tableRes.data.data.slug}`)
+      // Auto-detect relations to expand
+      const relationsToExpand = colData
+        .filter(c => c.field_type === 'relation')
+        .map(c => c.slug)
+        .join(',')
+
+      const expandParam = relationsToExpand ? `?expand=${relationsToExpand}` : ''
+      const recordsRes = await axios.get(`${API_URL}/workspaces/${workspaceId}/data/${tableData.slug}${expandParam}`)
       setRecords(recordsRes.data.data || [])
     } catch (err) {
       console.error(err)
@@ -880,13 +892,20 @@ function TableView({ user, onLogout }) {
     }
   }
 
-  const handleCreateColumn = async (name, type) => {
-    await axios.post(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}/columns`, {
-      name,
-      slug: name.toLowerCase().replace(/\s+/g, '_'),
-      field_type: type
-    })
-    loadData()
+  const handleCreateColumn = async (name, type, meta = {}) => {
+    try {
+      await axios.post(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}/columns`, {
+        name,
+        slug: name.toLowerCase().replace(/\s+/g, '_'),
+        field_type: type,
+        meta: meta
+      })
+      loadData()
+      notify(t('column_created'), 'success')
+    } catch (err) {
+      console.error(err)
+      notify(t('error_create_column'), 'error')
+    }
   }
 
   const handleDeleteColumn = async (columnId) => {
@@ -1094,6 +1113,8 @@ function TableView({ user, onLogout }) {
               onCreateColumn={handleCreateColumn}
               onDeleteColumn={handleDeleteColumn}
               onRenameColumn={handleRenameColumn}
+              workspaceId={workspaceId}
+              tables={tables}
             />
           )}
 

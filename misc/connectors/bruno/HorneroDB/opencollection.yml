@@ -1,0 +1,26 @@
+opencollection: 1.0.0
+
+info:
+  name: HorneroDB
+config:
+  proxy:
+    inherit: true
+    config:
+      protocol: http
+      hostname: ""
+      port: ""
+      auth:
+        username: ""
+        password: ""
+      bypassProxy: ""
+
+request:
+  auth:
+    type: bearer
+    token: key_ca5536fd6U6miZ8JbpYGK0uHdh8NV4FQHNeQfMvO
+bundled: false
+extensions:
+  bruno:
+    ignore:
+      - node_modules
+      - .git

@@ -52,15 +52,15 @@ func CreateColumn(c *gin.Context) {
 	}
 
 	var input struct {
-		Name       string `json:"name" binding:"required"`
-		Slug       string `json:"slug"`
-		FieldType  string `json:"field_type" binding:"required"`
-		Meta       string `json:"meta"`
-		OrderIndex int    `json:"order_index"`
+		Name       string        `json:"name" binding:"required"`
+		Slug       string        `json:"slug"`
+		FieldType  string        `json:"field_type" binding:"required"`
+		Meta       metadata.JSON `json:"meta"`
+		OrderIndex int           `json:"order_index"`
 	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
-		response.ValidationError(c, "Invalid column data")
+		response.ValidationError(c, "Invalid column data: "+err.Error())
 		return
 	}
 
@@ -104,6 +104,7 @@ func CreateColumn(c *gin.Context) {
 		Name:      input.Name,
 		Slug:      slug,
 		FieldType: input.FieldType,
+		Meta:      input.Meta,
 	}
 
 	result := database.DB.Table("_hornero_columns").Create(&column)
@@ -249,27 +250,30 @@ func DeleteColumn(c *gin.Context) {
 		return
 	}
 
-	// Delete from metadata
+	// Fix #1: drop physical column FIRST.
+	// If this fails, metadata remains intact and the schema stays consistent.
+	// Only delete metadata after confirming the physical drop succeeded.
+	safeTableName := "data_" + table.WorkspaceID.String() + "_" + table.Slug
+	if err := database.DB.Exec(`ALTER TABLE "` + safeTableName + `" DROP COLUMN IF EXISTS "` + column.Slug + `"`).Error; err != nil {
+		slog.Error("failed to drop physical column",
+			"error", err,
+			"column_id", columnID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, err, "dropping physical column")
+		return
+	}
+
+	// Physical drop succeeded — now remove the metadata row
 	result := database.DB.Table("_hornero_columns").Delete(&metadata.Column{}, "id = ?", columnID)
 	if result.Error != nil {
-		slog.Error("failed to delete column",
+		slog.Error("failed to delete column metadata",
 			"error", result.Error,
 			"column_id", columnID,
 			"user_id", userID,
 		)
 		response.DatabaseError(c, result.Error, "deleting column")
 		return
-	}
-
-	// Drop column from physical table - safe because we got it from DB
-	safeTableName := "data_" + table.WorkspaceID.String() + "_" + table.Slug
-	dropResult := database.DB.Exec(`ALTER TABLE "` + safeTableName + `" DROP COLUMN IF EXISTS "` + column.Slug + `"`)
-	if dropResult.Error != nil {
-		slog.Warn("failed to drop physical column",
-			"error", dropResult.Error,
-			"column_id", columnID,
-			"user_id", userID,
-		)
 	}
 
 	slog.Info("column deleted", "column_id", columnID, "name", column.Name, "user_id", userID)

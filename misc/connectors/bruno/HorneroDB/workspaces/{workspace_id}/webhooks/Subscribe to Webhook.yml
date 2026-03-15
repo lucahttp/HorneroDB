@@ -1,0 +1,44 @@
+info:
+  name: Subscribe to Webhook
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: "{{baseUrl}}/workspaces/:workspace_id/webhooks"
+  params:
+    - name: workspace_id
+      value: ca5536fd-94e9-4635-a5cc-c5a9114a956f
+      type: path
+  body:
+    type: json
+    data: |-
+      {
+        "resource": "4348d5e3-98c1-48aa-a5e8-d9ba7e1c8b89",
+        "change_type": "created,updated,deleted",
+        "notification_url": "https://fd40e2626fcu2p.gohook.io"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 201 Response
+    description: Created
+    request:
+      url: "{{baseUrl}}/workspaces/:workspace_id/webhooks"
+      method: POST
+      params:
+        - name: workspace_id
+          value: ""
+          type: path
+    response:
+      status: 201
+      statusText: Created
+      body:
+        type: text
+        data: ""

@@ -109,14 +109,14 @@ func parseColumnPermissions(value interface{}) ColumnPermissions {
 	}
 
 	return ColumnPermissions{
-		Read:   getStringArray(obj["read"]),
-		Create: getStringArray(obj["create"]),
-		Update: getStringArray(obj["update"]),
-		Delete: getStringArray(obj["delete"]),
+		Read:   getColumns(obj["read"]),
+		Create: getColumns(obj["create"]),
+		Update: getColumns(obj["update"]),
+		Delete: getColumns(obj["delete"]),
 	}
 }
 
-func getStringArray(value interface{}) []string {
+func getColumns(value interface{}) []string {
 	if value == nil {
 		return nil
 	}

@@ -74,7 +74,7 @@ export function ColumnHeaderMenu({ column, icon, onRename, onDelete }) {
       </button>
 
       {open && (
-        <div className="column-menu">
+        <div className="column-menu" style={{ textTransform: 'none', fontWeight: 400, letterSpacing: 'normal' }}>
           {editing ? (
             <div className="column-menu-edit">
               <input

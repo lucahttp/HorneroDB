@@ -1,0 +1,24 @@
+info:
+  name: test pipedream
+  type: http
+  seq: 2
+
+http:
+  method: post
+  url: https://eotctzwxbvtr7m1.m.pipedream.net
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "test": "event"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: false
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

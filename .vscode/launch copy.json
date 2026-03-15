@@ -2,6 +2,13 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Rebuild contianer and start compose",
+            "command": "docker compose up -d hornerodb-server",
+            "type": "node-terminal",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+        },
+        {
             "name": "Backend (Go)",
             "type": "go",
             "request": "launch",

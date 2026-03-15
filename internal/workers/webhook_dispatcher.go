@@ -37,6 +37,7 @@ var permService = permission.NewService()
 // DispatchWebhookAsync finds matching webhooks in the database for the given table/action
 // and asynchronously fires the POST requests, applying the read permissions of the webhook creator.
 func DispatchWebhookAsync(workspaceID, tableID uuid.UUID, tableSlug, changeType string, originalData map[string]interface{}) {
+	slog.Info("starting webhook dispatcher async", "table_slug", tableSlug, "change_type", changeType)
 	go func() {
 		var webhooks []metadata.Webhook
 		result := database.DB.Table("_hornero_webhooks").
@@ -45,13 +46,22 @@ func DispatchWebhookAsync(workspaceID, tableID uuid.UUID, tableSlug, changeType 
 			Where("expires_at IS NULL OR expires_at > ?", time.Now()).
 			Find(&webhooks)
 
-		if result.Error != nil || len(webhooks) == 0 {
+		if result.Error != nil {
+			slog.Error("failed to query webhooks", "error", result.Error, "table_id", tableID)
 			return
 		}
+
+		if len(webhooks) == 0 {
+			slog.Debug("no webhooks found for table", "table_slug", tableSlug, "workspace_id", workspaceID)
+			return
+		}
+
+		slog.Info("dispatching webhooks", "count", len(webhooks), "table_slug", tableSlug, "change_type", changeType)
 
 		// Fetch workspace to determine ownership
 		var workspace metadata.Workspace
 		if err := database.DB.Table("_hornero_workspaces").First(&workspace, "id = ?", workspaceID).Error; err != nil {
+			slog.Error("failed to fetch workspace for webhook dispatch", "workspace_id", workspaceID, "error", err)
 			return
 		}
 
@@ -61,18 +71,24 @@ func DispatchWebhookAsync(workspaceID, tableID uuid.UUID, tableSlug, changeType 
 			}
 
 			roleName, isOwner := resolveCreatorRole(wh.CreatedBy, workspaceID, workspace.OwnerID.String())
+			if roleName == "" {
+				slog.Warn("could not resolve role for webhook creator", "webhook_id", wh.ID, "creator_id", wh.CreatedBy)
+				continue
+			}
 
 			// Check table read access
 			accessLevel, err := permService.CheckTableAccess(workspaceID, roleName, tableSlug, "read")
 			if err != nil || accessLevel == permission.AccessNone {
-				continue // Creator cannot read this table
+				slog.Debug("webhook skipped: creator lacks read access", "webhook_id", wh.ID, "role", roleName, "table", tableSlug)
+				continue
 			}
 
 			// If AccessOwn, check if the creator owns the record
 			if accessLevel == permission.AccessOwn && !isOwner {
 				createdBy, ok := originalData["created_by"].(string)
 				if !ok || createdBy != wh.CreatedBy {
-					continue // Creator didn't make this record, so don't notify them
+					slog.Debug("webhook skipped: creator only has AccessOwn and is not owner", "webhook_id", wh.ID, "role", roleName)
+					continue
 				}
 			}
 
@@ -95,9 +111,11 @@ func DispatchWebhookAsync(workspaceID, tableID uuid.UUID, tableSlug, changeType 
 			payload := WebhookPayload{Value: []WebhookEvent{event}}
 			jsonPayload, err := json.Marshal(payload)
 			if err != nil {
+				slog.Error("failed to marshal webhook payload", "webhook_id", wh.ID, "error", err)
 				continue
 			}
 
+			slog.Info("firing webhook payload", "webhook_id", wh.ID, "url", wh.NotificationURL)
 			go sendPayload(wh.ID, wh.NotificationURL, jsonPayload)
 		}
 	}()
@@ -133,6 +151,7 @@ func filterRecordColumns(record map[string]interface{}, allowedColumns []string)
 }
 
 func resolveCreatorRole(creatorID string, workspaceID uuid.UUID, ownerID string) (roleName string, isOwner bool) {
+	slog.Debug("resolving creator role", "creator_id", creatorID, "workspace_id", workspaceID, "owner_id", ownerID)
 	if creatorID == ownerID {
 		return "admin", true
 	}
@@ -163,6 +182,7 @@ func resolveCreatorRole(creatorID string, workspaceID uuid.UUID, ownerID string)
 		}
 	}
 
+	slog.Warn("could not resolve role for creator", "creator_id", creatorID)
 	return "", false
 }
 

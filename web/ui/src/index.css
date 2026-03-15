@@ -238,7 +238,9 @@ body {
   background: var(--bg-elevated);
   border: var(--border-thick) solid var(--border-color);
   border-radius: var(--radius-md);
+  /*
   overflow: hidden;
+  */
 }
 
 .table {
@@ -802,19 +804,44 @@ th:hover .column-menu-trigger,
   color: var(--text);
 }
 
-/* Dropdown menu */
+/* Relation chips */
+.relation-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.5rem;
+  background: var(--primary-light);
+  color: #0369a1;
+  /* Darker blue for visibility */
+  border: 1.5px solid var(--primary);
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dark .relation-chip {
+  background: rgba(54, 201, 255, 0.1);
+  color: var(--primary);
+}
+
+/* Dropdown menu — floating pane style */
 .column-menu {
   position: absolute;
   top: calc(100% + 4px);
-  left: 0;
-  z-index: 30;
-  min-width: 160px;
+  right: 0;
+  z-index: 100;
+  min-width: 180px;
   background: var(--bg-elevated);
   border: var(--border-thick) solid var(--border-color);
   border-radius: var(--radius-sm);
   box-shadow: 4px 4px 0px var(--border-color);
   animation: scaleIn 0.15s ease-out;
-  overflow: hidden;
+  overflow: scroll;
+  /* overflow: visible; */
+  /* Allow sub-menus if needed */
 }
 
 .column-menu-item {
@@ -875,26 +902,32 @@ th:hover .column-menu-trigger,
   background: var(--primary-light);
 }
 
-/* Inline column creation form in header */
-.column-add-form {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.25rem 0.375rem;
-}
-
-.column-add-input {
-  border: 1.5px solid var(--border-light);
-  border-radius: 4px;
-  font-size: 0.75rem;
-  padding: 0.25rem 0.375rem;
-  width: 70px;
-  font-family: var(--font-sans);
-  color: var(--text);
+/* Popover form for adding columns */
+.column-add-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 100;
+  width: 240px;
   background: var(--bg-elevated);
+  border: var(--border-thick) solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: 8px 8px 0px var(--border-color);
+  padding: 1rem;
+  animation: scaleIn 0.2s ease-out;
   text-transform: none;
   font-weight: 400;
   letter-spacing: normal;
+}
+
+.column-add-input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-surface);
+  border: 1.5px solid var(--border-light);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  margin-bottom: 0.75rem;
 }
 
 .column-add-input:focus {

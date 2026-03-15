@@ -47,7 +47,7 @@ func ListTables(c *gin.Context) {
 	}
 
 	var tables []metadata.Table
-	q := database.DB.Table("_hornero_tables").Where("workspace_id = ?", workspaceID)
+	q := database.DB.Table("_hornero_tables").Where("workspace_id = ?", workspaceID).Preload("Columns")
 	q = query.ApplyPagination(q, c)
 
 	result := q.Find(&tables)

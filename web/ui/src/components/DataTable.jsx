@@ -3,6 +3,7 @@ import { ColumnHeaderMenu } from './ColumnHeaderMenu.jsx'
 import { getFieldConfig, FIELD_TYPE_OPTIONS } from '../fieldTypeConfig.jsx'
 import { Trash } from 'iconoir-react'
 import { useTranslation } from 'react-i18next'
+import { RelationPicker } from './RelationPicker.jsx'
 
 /**
  * Spreadsheet-style data table with:
@@ -24,6 +25,8 @@ export function DataTable({
   onCreateColumn,
   onDeleteColumn,
   onRenameColumn,
+  workspaceId,
+  tables = [],
 }) {
   const { t } = useTranslation()
   const [newRow, setNewRow] = useState({})
@@ -31,15 +34,33 @@ export function DataTable({
   const [showAddColumn, setShowAddColumn] = useState(false)
   const [newColName, setNewColName] = useState('')
   const [newColType, setNewColType] = useState('text')
+  const [newColTargetTable, setNewColTargetTable] = useState('')
+  const [newColDisplayColumn, setNewColDisplayColumn] = useState('')
   const newColInputRef = useRef(null)
+  const addColumnRef = useRef(null)
 
   // Selection state
+  // Close "Add Column" popover on click outside
+  useEffect(() => {
+    if (!showAddColumn) return
+    const handler = (e) => {
+      if (addColumnRef.current && !addColumnRef.current.contains(e.target)) {
+        setShowAddColumn(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showAddColumn])
+
   const [selectedRows, setSelectedRows] = useState(new Set())
 
   // Inline editing state
   const [editingCell, setEditingCell] = useState(null)
   const [editValue, setEditValue] = useState('')
   const editInputRef = useRef(null)
+
+  // Relation Picker state
+  const [pickerState, setPickerState] = useState(null) // { rowId, colSlug, meta, initialValue }
 
   useEffect(() => {
     if (editingCell && editInputRef.current) {
@@ -89,6 +110,19 @@ export function DataTable({
       onUpdateRecord(rowId, { [colSlug]: newVal })
       return
     }
+
+    if (fieldType === 'relation') {
+      const col = columns.find(c => c.slug === colSlug)
+      let meta = {}
+      try {
+        meta = typeof col.meta === 'string' ? JSON.parse(col.meta) : col.meta
+      } catch (e) {
+        console.error("Failed to parse column meta", e)
+      }
+      setPickerState({ rowId, colSlug, meta, initialValue: currentValue })
+      return
+    }
+
     setEditingCell({ rowId, colSlug, fieldType })
     setEditValue(currentValue == null || currentValue === '-' ? '' : String(currentValue))
   }
@@ -138,13 +172,29 @@ export function DataTable({
     }
   }
 
-  // ── Column creation ─────────────────────────────────
+  // Close "Add Column" popover on click outside
+  useEffect(() => {
+    if (!showAddColumn) return
+    const handler = (e) => {
+      if (addColumnRef.current && !addColumnRef.current.contains(e.target)) {
+        setShowAddColumn(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showAddColumn])
 
   const handleCreateColumn = async () => {
     if (!newColName.trim()) return
     try {
-      await onCreateColumn(newColName.trim(), newColType)
+      const meta = {}
+      if (newColType === 'relation') {
+        meta.target_table = newColTargetTable
+        meta.display_column = newColDisplayColumn
+      }
+      await onCreateColumn(newColName.trim(), newColType, meta)
       setNewColName(''); setNewColType('text'); setShowAddColumn(false)
+      setNewColTargetTable(''); setNewColDisplayColumn('')
     } catch (err) { /* parent */ }
   }
 
@@ -208,6 +258,28 @@ export function DataTable({
       )
     }
 
+    if (col.field_type === 'relation') {
+      const val = newRow[col.slug]
+      return (
+        <button
+          className="inline-cell-input text-left"
+          onClick={() => {
+            let meta = {}
+            try {
+              meta = typeof col.meta === 'string' ? JSON.parse(col.meta) : col.meta
+            } catch (e) { }
+            setPickerState({ isNew: true, colSlug: col.slug, meta, initialValue: val })
+          }}
+          disabled={creatingRow}
+          style={{ cursor: 'pointer', color: val ? 'inherit' : 'var(--text-muted)' }}
+        >
+          {val ? (
+            <span className="relation-chip">{String(val).slice(0, 8)}</span>
+          ) : `+ Seleccionar ${col.name}`}
+        </button>
+      )
+    }
+
     return (
       <input
         type={cfg.inputType === 'textarea' ? 'text' : cfg.inputType}
@@ -245,6 +317,15 @@ export function DataTable({
 
     if (col.field_type === 'json' && val) {
       return <code className="cell-json">{typeof val === 'object' ? JSON.stringify(val) : String(val)}</code>
+    }
+
+    if (col.field_type === 'relation') {
+      const expandedValue = record.expand?.[col.slug]
+      return (
+        <span className="relation-chip" title={String(val)}>
+          {expandedValue || (val ? String(val).slice(0, 8) : '-')}
+        </span>
+      )
     }
 
     return String(val == null ? '-' : val)
@@ -302,42 +383,87 @@ export function DataTable({
               )
             })}
             {/* "+" column header */}
-            <th style={{ width: '50px', padding: 0 }}>
+            <th style={{ width: '50px', padding: 0, position: 'relative' }} ref={addColumnRef}>
               {showAddColumn ? (
-                <div className="column-add-form" style={{ right: 0, left: 'auto' }}>
-                  <input
-                    ref={newColInputRef}
-                    type="text"
-                    className="column-add-input"
-                    placeholder={t('name')}
-                    value={newColName}
-                    onChange={(e) => setNewColName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleCreateColumn()
-                      if (e.key === 'Escape') setShowAddColumn(false)
-                    }}
-                    autoFocus
-                  />
-                  <select
-                    className="column-add-select"
-                    value={newColType}
-                    onChange={(e) => setNewColType(e.target.value)}
-                  >
-                    {FIELD_TYPE_OPTIONS.map(ft => (
-                      <option key={ft.value} value={ft.value}>{ft.icon} {ft.label}</option>
-                    ))}
-                  </select>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={handleCreateColumn}
-                    disabled={!newColName.trim()}
-                    style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
-                  >✓</button>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => setShowAddColumn(false)}
-                    style={{ padding: '0.25rem 0.375rem', fontSize: '0.75rem' }}
-                  >✕</button>
+                <div className="column-add-popover">
+                  <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+                    <label className="form-label" style={{ fontSize: '0.65rem' }}>{t('name')}</label>
+                    <input
+                      ref={newColInputRef}
+                      type="text"
+                      className="form-input"
+                      placeholder={t('name')}
+                      value={newColName}
+                      onChange={(e) => setNewColName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleCreateColumn()
+                        if (e.key === 'Escape') setShowAddColumn(false)
+                      }}
+                      autoFocus
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+                    <label className="form-label" style={{ fontSize: '0.65rem' }}>{t('type')}</label>
+                    <select
+                      className="form-select"
+                      value={newColType}
+                      onChange={(e) => setNewColType(e.target.value)}
+                    >
+                      {FIELD_TYPE_OPTIONS.map(ft => (
+                        <option key={ft.value} value={ft.value}>{ft.icon} {ft.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {newColType === 'relation' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem', padding: '0.75rem', background: 'var(--bg-surface)', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+                      <label style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Tabla Destino</label>
+                      <select
+                        className="form-select"
+                        style={{ height: 'auto', padding: '0.375rem 0.5rem' }}
+                        value={newColTargetTable}
+                        onChange={(e) => {
+                          setNewColTargetTable(e.target.value)
+                          const target = tables.find(t => t.slug === e.target.value)
+                          if (target?.columns?.length) {
+                             setNewColDisplayColumn(target.columns.find(c => c.slug !== 'id')?.slug || 'id')
+                          }
+                        }}
+                      >
+                        <option value="">Seleccionar tabla...</option>
+                        {tables.map(t => (
+                          <option key={t.id} value={t.slug}>{t.name}</option>
+                        ))}
+                      </select>
+
+                      <label style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginTop: '0.25rem' }}>Columna a Mostrar</label>
+                      <select
+                        className="form-select"
+                        style={{ height: 'auto', padding: '0.375rem 0.5rem' }}
+                        value={newColDisplayColumn}
+                        onChange={(e) => setNewColDisplayColumn(e.target.value)}
+                        disabled={!newColTargetTable}
+                      >
+                        <option value="">Seleccionar columna...</option>
+                        {tables.find(t => t.slug === newColTargetTable)?.columns?.map(c => (
+                          <option key={c.id} value={c.slug}>{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={handleCreateColumn}
+                      disabled={!newColName.trim() || (newColType === 'relation' && (!newColTargetTable || !newColDisplayColumn))}
+                    >{t('create')}</button>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => setShowAddColumn(false)}
+                    >{t('cancel')}</button>
+                  </div>
                 </div>
               ) : (
                 <button
@@ -427,6 +553,24 @@ export function DataTable({
           </tr>
         </tbody>
       </table>
+
+      {pickerState && (
+        <RelationPicker
+          workspaceId={workspaceId}
+          targetTableSlug={pickerState.meta?.target_table}
+          displayColumn={pickerState.meta?.display_column}
+          initialValue={pickerState.initialValue}
+          onClose={() => setPickerState(null)}
+          onSelect={(id, label) => {
+            if (pickerState.isNew) {
+              setNewRow({ ...newRow, [pickerState.colSlug]: id })
+            } else {
+              onUpdateRecord(pickerState.rowId, { [pickerState.colSlug]: id })
+            }
+            setPickerState(null)
+          }}
+        />
+      )}
     </div >
   )
 }

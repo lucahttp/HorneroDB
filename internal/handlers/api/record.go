@@ -1,10 +1,11 @@
 package api
 
 import (
+	"encoding/json"
 	"log/slog"
+	"strings"
 
 	"hornerodb/internal/database"
-	"hornerodb/internal/middleware"
 	"hornerodb/internal/models/metadata"
 	"hornerodb/internal/query"
 	"hornerodb/internal/response"
@@ -19,136 +20,50 @@ import (
 var permService = permission.NewService()
 
 func ListRecords(c *gin.Context) {
-	workspaceID := c.Param("workspace_id")
-	tableSlug := c.Param("table_slug")
-	userID, err := middleware.GetUserIDSafe(c)
-	if err != nil {
-		response.UnauthorizedError(c)
-		return
-	}
-	roleName, _ := middleware.GetUserRoleSafe(c)
-
-	wsID, err := uuid.Parse(workspaceID)
-	if err != nil {
-		response.ValidationError(c, "invalid workspace_id format")
+	ctx, ok := resolveTableContext(c, "read")
+	if !ok {
 		return
 	}
 
-	var table metadata.Table
-	if err := database.DB.Table("_hornero_tables").
-		First(&table, "workspace_id = ? AND slug = ?", workspaceID, tableSlug).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			response.NotFoundError(c, "table")
-			return
-		}
-		slog.Error("failed to fetch table",
-			"error", err,
-			"table_slug", tableSlug,
-			"user_id", userID,
-		)
-		response.DatabaseError(c, err, "fetching table")
-		return
+	dbQuery := database.DB.Table(ctx.TableName)
+
+	if ctx.AccessLevel == permission.AccessOwn {
+		dbQuery = dbQuery.Where("created_by = ?", ctx.UserID)
 	}
 
-	accessLevel, err := permService.CheckTableAccess(wsID, roleName, tableSlug, "read")
-	if err != nil {
-		slog.Error("error checking permissions",
-			"error", err,
-			"table_slug", tableSlug,
-			"user_id", userID,
-		)
-		response.DatabaseError(c, err, "checking permissions")
-		return
-	}
-	if accessLevel == permission.AccessNone {
-		response.PermissionError(c)
-		return
-	}
-
-	tableName := "data_" + workspaceID + "_" + tableSlug
-
-	dbQuery := database.DB.Table(tableName)
-
-	if accessLevel == permission.AccessOwn {
-		dbQuery = dbQuery.Where("created_by = ?", userID)
-	}
-
-	// Apply pagination
 	dbQuery = query.ApplyPagination(dbQuery, c)
 
 	var records []map[string]interface{}
-	result := dbQuery.Find(&records)
-	if result.Error != nil {
+	if err := dbQuery.Find(&records).Error; err != nil {
 		slog.Error("failed to fetch records",
-			"error", result.Error,
-			"table_slug", tableSlug,
-			"user_id", userID,
+			"error", err,
+			"table_slug", c.Param("table_slug"),
+			"user_id", ctx.UserID,
 		)
-		response.DatabaseError(c, result.Error, "fetching records")
+		response.DatabaseError(c, err, "fetching records")
 		return
 	}
 
-	allowedColumns, _ := permService.GetColumnsForOperation(wsID, roleName, tableSlug, "read")
+	// Expand relation columns if requested
+	if expandParam := c.Query("expand"); expandParam != "" && len(records) > 0 {
+		expandRecords(ctx.WsID, ctx.Table.ID, records, expandParam)
+	}
+
+	allowedColumns, _ := permService.GetColumnsForOperation(ctx.WsID, ctx.RoleName, c.Param("table_slug"), "read")
 	if allowedColumns != nil {
 		for _, record := range records {
 			filterRecordColumns(record, allowedColumns)
 		}
 	}
 
-	meta := map[string]interface{}{
-		"count": len(records),
-	}
-	response.SuccessWithMeta(c, records, meta)
+	response.SuccessWithMeta(c, records, map[string]interface{}{"count": len(records)})
 }
 
 func CreateRecord(c *gin.Context) {
-	workspaceID := c.Param("workspace_id")
-	tableSlug := c.Param("table_slug")
-	userID, err := middleware.GetUserIDSafe(c)
-	if err != nil {
-		response.UnauthorizedError(c)
+	ctx, ok := resolveTableContext(c, "create")
+	if !ok {
 		return
 	}
-	roleName, _ := middleware.GetUserRoleSafe(c)
-
-	wsID, err := uuid.Parse(workspaceID)
-	if err != nil {
-		response.ValidationError(c, "invalid workspace_id format")
-		return
-	}
-
-	var table metadata.Table
-	if err := database.DB.Table("_hornero_tables").
-		First(&table, "workspace_id = ? AND slug = ?", workspaceID, tableSlug).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			response.NotFoundError(c, "table")
-			return
-		}
-		slog.Error("failed to fetch table",
-			"error", err,
-			"table_slug", tableSlug,
-			"user_id", userID,
-		)
-		response.DatabaseError(c, err, "fetching table")
-		return
-	}
-
-	accessLevel, err := permService.CheckTableAccess(wsID, roleName, tableSlug, "create")
-	if err != nil {
-		slog.Error("error checking permissions",
-			"error", err,
-			"table_slug", tableSlug,
-			"user_id", userID,
-		)
-		response.DatabaseError(c, err, "checking permissions")
-		return
-	}
-	if accessLevel == permission.AccessNone {
-		response.PermissionError(c)
-		return
-	}
-
-	tableName := "data_" + workspaceID + "_" + tableSlug
 
 	var input map[string]interface{}
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -156,107 +71,70 @@ func CreateRecord(c *gin.Context) {
 		return
 	}
 
-	writableColumns, _ := permService.GetColumnsForOperation(wsID, roleName, tableSlug, "create")
+	writableColumns, _ := permService.GetColumnsForOperation(ctx.WsID, ctx.RoleName, c.Param("table_slug"), "create")
 	if writableColumns != nil {
 		input = filterInputColumns(input, writableColumns)
 	}
 
-	input["created_by"] = userID
+	// Ensure ID is set so we can fetch it back for the webhook trigger
+	if _, ok := input["id"]; !ok {
+		input["id"] = uuid.New()
+	}
+	input["created_by"] = ctx.UserID
 
-	result := database.DB.Table(tableName).Create(input)
-	if result.Error != nil {
+	if err := database.DB.Table(ctx.TableName).Create(input).Error; err != nil {
 		slog.Error("failed to create record",
-			"error", result.Error,
-			"table_slug", tableSlug,
-			"user_id", userID,
+			"error", err,
+			"table_slug", c.Param("table_slug"),
+			"user_id", ctx.UserID,
 		)
-		response.DatabaseError(c, result.Error, "creating record")
+		response.DatabaseError(c, err, "creating record")
 		return
 	}
 
-	// Fetch full state for the webhook (including DB-generated UUID and dates)
-	var createdRecord map[string]interface{}
-	if err := database.DB.Table(tableName).Where("id = ?", input["id"]).First(&createdRecord).Error; err == nil {
-		go workers.DispatchWebhookAsync(wsID, table.ID, tableSlug, "created", createdRecord)
+	// Fetch full state for webhook (includes DB-generated UUID and timestamps)
+	var created map[string]interface{}
+	recordID := input["id"].(uuid.UUID).String()
+	if err := database.DB.Table(ctx.TableName).Where("id = ?", recordID).Take(&created).Error; err == nil {
+		slog.Info("triggering webhook dispatcher", "table_slug", c.Param("table_slug"), "record_id", recordID)
+		go workers.DispatchWebhookAsync(ctx.WsID, ctx.Table.ID, c.Param("table_slug"), "created", created)
+	} else {
+		slog.Error("failed to fetch created record for webhook", "error", err, "table_slug", c.Param("table_slug"), "record_id", recordID)
 	}
 
-	slog.Info("record created", "table_slug", tableSlug, "user_id", userID)
+	slog.Info("record created", "table_slug", c.Param("table_slug"), "user_id", ctx.UserID)
 	response.Created(c, input)
 }
 
 func GetRecord(c *gin.Context) {
-	workspaceID := c.Param("workspace_id")
-	tableSlug := c.Param("table_slug")
+	ctx, ok := resolveTableContext(c, "read")
+	if !ok {
+		return
+	}
+
 	recordID := c.Param("id")
-	userID, err := middleware.GetUserIDSafe(c)
-	if err != nil {
-		response.UnauthorizedError(c)
-		return
-	}
-	roleName, _ := middleware.GetUserRoleSafe(c)
+	dbQuery := database.DB.Table(ctx.TableName).Where("id = ?", recordID)
 
-	wsID, err := uuid.Parse(workspaceID)
-	if err != nil {
-		response.ValidationError(c, "invalid workspace_id format")
-		return
-	}
-
-	var table metadata.Table
-	if err := database.DB.Table("_hornero_tables").
-		First(&table, "workspace_id = ? AND slug = ?", workspaceID, tableSlug).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			response.NotFoundError(c, "table")
-			return
-		}
-		slog.Error("failed to fetch table",
-			"error", err,
-			"table_slug", tableSlug,
-			"user_id", userID,
-		)
-		response.DatabaseError(c, err, "fetching table")
-		return
-	}
-
-	accessLevel, err := permService.CheckTableAccess(wsID, roleName, tableSlug, "read")
-	if err != nil {
-		slog.Error("error checking permissions",
-			"error", err,
-			"table_slug", tableSlug,
-			"user_id", userID,
-		)
-		response.DatabaseError(c, err, "checking permissions")
-		return
-	}
-	if accessLevel == permission.AccessNone {
-		response.PermissionError(c)
-		return
-	}
-
-	tableName := "data_" + workspaceID + "_" + tableSlug
-
-	dbQuery := database.DB.Table(tableName).Where("id = ?", recordID)
-
-	if accessLevel == permission.AccessOwn {
-		dbQuery = dbQuery.Where("created_by = ?", userID)
+	if ctx.AccessLevel == permission.AccessOwn {
+		dbQuery = dbQuery.Where("created_by = ?", ctx.UserID)
 	}
 
 	var record map[string]interface{}
-	result := dbQuery.First(&record)
-	if result.Error != nil {
-		if result.Error == gorm.ErrRecordNotFound {
+	if err := dbQuery.Take(&record).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
 			response.NotFoundError(c, "record")
 			return
 		}
 		slog.Error("failed to fetch record",
-			"error", result.Error,
-			"table_slug", tableSlug,
-			"user_id", userID,
+			"error", err,
+			"table_slug", c.Param("table_slug"),
+			"user_id", ctx.UserID,
 		)
-		response.DatabaseError(c, result.Error, "fetching record")
+		response.DatabaseError(c, err, "fetching record")
 		return
 	}
 
-	allowedColumns, _ := permService.GetColumnsForOperation(wsID, roleName, tableSlug, "read")
+	allowedColumns, _ := permService.GetColumnsForOperation(ctx.WsID, ctx.RoleName, c.Param("table_slug"), "read")
 	if allowedColumns != nil {
 		filterRecordColumns(record, allowedColumns)
 	}
@@ -265,60 +143,12 @@ func GetRecord(c *gin.Context) {
 }
 
 func UpdateRecord(c *gin.Context) {
-	workspaceID := c.Param("workspace_id")
-	tableSlug := c.Param("table_slug")
+	ctx, ok := resolveTableContext(c, "update")
+	if !ok {
+		return
+	}
+
 	recordID := c.Param("id")
-	userID, err := middleware.GetUserIDSafe(c)
-	if err != nil {
-		response.UnauthorizedError(c)
-		return
-	}
-	roleName, _ := middleware.GetUserRoleSafe(c)
-
-	wsID, err := uuid.Parse(workspaceID)
-	if err != nil {
-		response.ValidationError(c, "invalid workspace_id format")
-		return
-	}
-
-	var table metadata.Table
-	if err := database.DB.Table("_hornero_tables").
-		First(&table, "workspace_id = ? AND slug = ?", workspaceID, tableSlug).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			response.NotFoundError(c, "table")
-			return
-		}
-		slog.Error("failed to fetch table",
-			"error", err,
-			"table_slug", tableSlug,
-			"user_id", userID,
-		)
-		response.DatabaseError(c, err, "fetching table")
-		return
-	}
-
-	accessLevel, err := permService.CheckTableAccess(wsID, roleName, tableSlug, "update")
-	if err != nil {
-		slog.Error("error checking permissions",
-			"error", err,
-			"table_slug", tableSlug,
-			"user_id", userID,
-		)
-		response.DatabaseError(c, err, "checking permissions")
-		return
-	}
-	if accessLevel == permission.AccessNone {
-		response.PermissionError(c)
-		return
-	}
-
-	tableName := "data_" + workspaceID + "_" + tableSlug
-
-	dbQuery := database.DB.Table(tableName).Where("id = ?", recordID)
-
-	if accessLevel == permission.AccessOwn {
-		dbQuery = dbQuery.Where("created_by = ?", userID)
-	}
 
 	var input map[string]interface{}
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -326,17 +156,22 @@ func UpdateRecord(c *gin.Context) {
 		return
 	}
 
-	writableColumns, _ := permService.GetColumnsForOperation(wsID, roleName, tableSlug, "update")
+	writableColumns, _ := permService.GetColumnsForOperation(ctx.WsID, ctx.RoleName, c.Param("table_slug"), "update")
 	if writableColumns != nil {
 		input = filterInputColumns(input, writableColumns)
+	}
+
+	dbQuery := database.DB.Table(ctx.TableName).Where("id = ?", recordID)
+	if ctx.AccessLevel == permission.AccessOwn {
+		dbQuery = dbQuery.Where("created_by = ?", ctx.UserID)
 	}
 
 	result := dbQuery.Updates(input)
 	if result.Error != nil {
 		slog.Error("failed to update record",
 			"error", result.Error,
-			"table_slug", tableSlug,
-			"user_id", userID,
+			"table_slug", c.Param("table_slug"),
+			"user_id", ctx.UserID,
 		)
 		response.DatabaseError(c, result.Error, "updating record")
 		return
@@ -347,82 +182,40 @@ func UpdateRecord(c *gin.Context) {
 		return
 	}
 
-	var updatedRecord map[string]interface{}
-	if err := database.DB.Table(tableName).Where("id = ?", recordID).First(&updatedRecord).Error; err == nil {
-		go workers.DispatchWebhookAsync(wsID, table.ID, tableSlug, "updated", updatedRecord)
+	var updated map[string]interface{}
+	if err := database.DB.Table(ctx.TableName).Where("id = ?", recordID).Take(&updated).Error; err == nil {
+		go workers.DispatchWebhookAsync(ctx.WsID, ctx.Table.ID, c.Param("table_slug"), "updated", updated)
 	}
 
-	slog.Info("record updated", "table_slug", tableSlug, "user_id", userID)
+	slog.Info("record updated", "table_slug", c.Param("table_slug"), "user_id", ctx.UserID)
 	response.Success(c, map[string]interface{}{"message": "record updated"})
 }
 
 func DeleteRecord(c *gin.Context) {
-	workspaceID := c.Param("workspace_id")
-	tableSlug := c.Param("table_slug")
+	ctx, ok := resolveTableContext(c, "delete")
+	if !ok {
+		return
+	}
+
 	recordID := c.Param("id")
-	userID, err := middleware.GetUserIDSafe(c)
-	if err != nil {
-		response.UnauthorizedError(c)
-		return
-	}
-	roleName, _ := middleware.GetUserRoleSafe(c)
+	dbQuery := database.DB.Table(ctx.TableName).Where("id = ?", recordID)
 
-	wsID, err := uuid.Parse(workspaceID)
-	if err != nil {
-		response.ValidationError(c, "invalid workspace_id format")
-		return
+	if ctx.AccessLevel == permission.AccessOwn {
+		dbQuery = dbQuery.Where("created_by = ?", ctx.UserID)
 	}
 
-	var table metadata.Table
-	if err := database.DB.Table("_hornero_tables").
-		First(&table, "workspace_id = ? AND slug = ?", workspaceID, tableSlug).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			response.NotFoundError(c, "table")
-			return
-		}
-		slog.Error("failed to fetch table",
-			"error", err,
-			"table_slug", tableSlug,
-			"user_id", userID,
-		)
-		response.DatabaseError(c, err, "fetching table")
-		return
-	}
-
-	accessLevel, err := permService.CheckTableAccess(wsID, roleName, tableSlug, "delete")
-	if err != nil {
-		slog.Error("error checking permissions",
-			"error", err,
-			"table_slug", tableSlug,
-			"user_id", userID,
-		)
-		response.DatabaseError(c, err, "checking permissions")
-		return
-	}
-	if accessLevel == permission.AccessNone {
-		response.PermissionError(c)
-		return
-	}
-
-	tableName := "data_" + workspaceID + "_" + tableSlug
-
-	dbQuery := database.DB.Table(tableName).Where("id = ?", recordID)
-
-	if accessLevel == permission.AccessOwn {
-		dbQuery = dbQuery.Where("created_by = ?", userID)
-	}
-
+	// Fetch record before deletion so webhook has full data
 	var recordToDelete map[string]interface{}
-	if err := dbQuery.First(&recordToDelete).Error; err == nil {
-		go workers.DispatchWebhookAsync(wsID, table.ID, tableSlug, "deleted", recordToDelete)
+	if err := dbQuery.Take(&recordToDelete).Error; err == nil {
+		go workers.DispatchWebhookAsync(ctx.WsID, ctx.Table.ID, c.Param("table_slug"), "deleted", recordToDelete)
 	}
 
-	result := database.DB.Exec("DELETE FROM \""+tableName+"\" WHERE id = ?", recordID)
+	result := database.DB.Exec(`DELETE FROM "`+ctx.TableName+`" WHERE id = ?`, recordID)
 	if result.Error != nil {
 		slog.Error("failed to delete record",
 			"error", result.Error,
-			"table_slug", tableSlug,
-			"user_id", userID,
+			"table_slug", c.Param("table_slug"),
+			"user_id", ctx.UserID,
 		)
 		response.DatabaseError(c, result.Error, "deleting record")
 		return
@@ -433,8 +226,87 @@ func DeleteRecord(c *gin.Context) {
 		return
 	}
 
-	slog.Info("record deleted", "table_slug", tableSlug, "user_id", userID)
+	slog.Info("record deleted", "table_slug", c.Param("table_slug"), "user_id", ctx.UserID)
 	response.Success(c, map[string]interface{}{"message": "record deleted"})
+}
+
+// expandRecords augments records with human-readable labels for relation columns.
+func expandRecords(workspaceID uuid.UUID, tableID uuid.UUID, records []map[string]interface{}, expandParam string) {
+	var columns []metadata.Column
+	database.DB.Table("_hornero_columns").Where("table_id = ?", tableID).Find(&columns)
+
+	// Fix #5: use standard strings.Split instead of the previous hand-rolled stringSplit
+	expandFields := make(map[string]bool)
+	for _, f := range strings.Split(expandParam, ",") {
+		if f = strings.TrimSpace(f); f != "" {
+			expandFields[f] = true
+		}
+	}
+
+	for _, col := range columns {
+		if col.FieldType != "relation" || !expandFields[col.Slug] {
+			continue
+		}
+
+		var meta map[string]interface{}
+		json.Unmarshal(col.Meta, &meta) //nolint:errcheck — safe: meta is always valid JSON from DB
+
+		targetTableSlug, _ := meta["target_table"].(string)
+		displayCol, _ := meta["display_column"].(string)
+
+		if targetTableSlug == "" || displayCol == "" {
+			continue
+		}
+
+		// Collect unique referenced IDs
+		ids := make(map[string]bool)
+		for _, rec := range records {
+			if val, ok := rec[col.Slug]; ok && val != nil {
+				if idStr, ok := val.(string); ok && idStr != "" {
+					ids[idStr] = true
+				}
+			}
+		}
+		if len(ids) == 0 {
+			continue
+		}
+
+		idList := make([]string, 0, len(ids))
+		for id := range ids {
+			idList = append(idList, id)
+		}
+
+		// Fetch labels from target table
+		targetTableName := "data_" + workspaceID.String() + "_" + targetTableSlug
+		var targetRecords []map[string]interface{}
+		database.DB.Table(targetTableName).
+			Select("id", displayCol).
+			Where("id IN ?", idList).
+			Find(&targetRecords)
+
+		// Build id→label lookup (handles both string and UUID representations)
+		lookup := make(map[string]interface{})
+		for _, tr := range targetRecords {
+			switch id := tr["id"].(type) {
+			case string:
+				lookup[id] = tr[displayCol]
+			case uuid.UUID:
+				lookup[id.String()] = tr[displayCol]
+			}
+		}
+
+		// Augment records with expanded labels
+		for _, rec := range records {
+			if rec["expand"] == nil {
+				rec["expand"] = make(map[string]interface{})
+			}
+			if expand, ok := rec["expand"].(map[string]interface{}); ok {
+				if val, ok := rec[col.Slug].(string); ok {
+					expand[col.Slug] = lookup[val]
+				}
+			}
+		}
+	}
 }
 
 func filterRecordColumns(record map[string]interface{}, allowedColumns []string) {
@@ -445,12 +317,10 @@ func filterRecordColumns(record map[string]interface{}, allowedColumns []string)
 		}
 		allowedMap[col] = true
 	}
-
-	allowedMap["id"] = true
-	allowedMap["created_at"] = true
-	allowedMap["updated_at"] = true
-	allowedMap["created_by"] = true
-
+	// System columns are always visible
+	for _, col := range []string{"id", "created_at", "updated_at", "created_by"} {
+		allowedMap[col] = true
+	}
 	for key := range record {
 		if !allowedMap[key] {
 			delete(record, key)
@@ -462,7 +332,6 @@ func filterInputColumns(input map[string]interface{}, allowedColumns []string) m
 	if len(allowedColumns) == 0 {
 		return input
 	}
-
 	allowedMap := make(map[string]bool)
 	for _, col := range allowedColumns {
 		if col == "*" {
@@ -470,13 +339,11 @@ func filterInputColumns(input map[string]interface{}, allowedColumns []string) m
 		}
 		allowedMap[col] = true
 	}
-
 	filtered := make(map[string]interface{})
 	for key, value := range input {
 		if allowedMap[key] {
 			filtered[key] = value
 		}
 	}
-
 	return filtered
 }

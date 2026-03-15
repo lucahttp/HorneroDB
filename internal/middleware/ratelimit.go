@@ -26,6 +26,12 @@ type visitor struct {
 	count    int
 }
 
+// NOTE (Fix #6): This rate limiter stores counters in process memory.
+// Counters reset on every server restart, and do NOT share state across
+// multiple server instances (horizontal scaling). This is acceptable for
+// single-container deployments, but provides no protection when running
+// multiple replicas. For a scaled environment, replace with a Redis-backed
+// sliding-window limiter (e.g. go-redis + Lua scripting).
 var limiter = &RateLimiter{
 	visitors: make(map[string]*visitor),
 }

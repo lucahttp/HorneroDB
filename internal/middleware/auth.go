@@ -40,14 +40,14 @@ func AuthRequired(secret string) gin.HandlerFunc {
 
 		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 		if tokenString == authHeader {
-			apiKey, err := verifyAPIKey(tokenString)
+			apiKey, roleName, err := verifyAPIKey(tokenString)
 			if err != nil {
 				c.JSON(401, gin.H{"error": "invalid authorization format"})
 				c.Abort()
 				return
 			}
 
-			setAPIKeyContext(c, apiKey)
+			setAPIKeyContext(c, apiKey, roleName)
 			c.Next()
 			return
 		}
@@ -60,14 +60,14 @@ func AuthRequired(secret string) gin.HandlerFunc {
 		})
 
 		if err != nil || !token.Valid {
-			apiKey, err := verifyAPIKey(tokenString)
+			apiKey, roleName, err := verifyAPIKey(tokenString)
 			if err != nil {
 				c.JSON(401, gin.H{"error": "invalid token or API key"})
 				c.Abort()
 				return
 			}
 
-			setAPIKeyContext(c, apiKey)
+			setAPIKeyContext(c, apiKey, roleName)
 			c.Next()
 			return
 		}
@@ -79,12 +79,16 @@ func AuthRequired(secret string) gin.HandlerFunc {
 			return
 		}
 
-		// Resolve database ID from email
-		var user metadata.User
-		if err := database.DB.Table("_hornero_users").Where("email = ?", claims.Email).First(&user).Error; err == nil {
-			c.Set("user_id", user.ID)
+		// Resolve database ID from email (only when DB is available — guarded for unit tests)
+		if database.DB != nil {
+			var user metadata.User
+			if err := database.DB.Table("_hornero_users").Where("email = ?", claims.Email).First(&user).Error; err == nil {
+				c.Set("user_id", user.ID)
+			} else {
+				// Fallback to sub if not in DB yet
+				c.Set("user_id", claims.UserID)
+			}
 		} else {
-			// Fallback to sub if not in DB yet
 			c.Set("user_id", claims.UserID)
 		}
 		c.Set("email", claims.Email)
@@ -143,66 +147,58 @@ func RequireAdminRole() gin.HandlerFunc {
 	}
 }
 
-func verifyAPIKey(key string) (*metadata.APIKey, error) {
+// apiKeyWithRole is used to fetch the key and its role name in a single JOIN query.
+// Fix #4: eliminates the separate getRoleFromAPIKey DB query on every API key request.
+type apiKeyWithRole struct {
+	metadata.APIKey
+	RoleName string `gorm:"column:role_name"`
+}
+
+func verifyAPIKey(key string) (*metadata.APIKey, string, error) {
 	if len(key) < 10 {
-		return nil, fmt.Errorf("key too short")
+		return nil, "", fmt.Errorf("key too short")
 	}
 
-	prefix := key[:4]
-	if prefix != "key_" {
-		return nil, fmt.Errorf("invalid key prefix")
+	if key[:4] != "key_" {
+		return nil, "", fmt.Errorf("invalid key prefix")
 	}
 
 	hash := sha256.Sum256([]byte(key))
 	keyHash := hex.EncodeToString(hash[:])
 
-	var apiKey metadata.APIKey
-	err := database.DB.Table("_hornero_api_keys").
-		Where("key_hash = ?", keyHash).
-		First(&apiKey).Error
+	var result apiKeyWithRole
+	err := database.DB.
+		Table("_hornero_api_keys k").
+		Select("k.*, r.name as role_name").
+		Joins("LEFT JOIN _hornero_roles r ON r.id = k.role_id").
+		Where("k.key_hash = ?", keyHash).
+		First(&result).Error
 
 	if err != nil {
-		return nil, fmt.Errorf("invalid API key")
+		return nil, "", fmt.Errorf("invalid API key")
 	}
 
-	if apiKey.ExpiresAt != nil && apiKey.ExpiresAt.Before(time.Now()) {
-		return nil, fmt.Errorf("API key expired")
+	if result.ExpiresAt != nil && result.ExpiresAt.Before(time.Now()) {
+		return nil, "", fmt.Errorf("API key expired")
 	}
 
-	database.DB.Table("_hornero_api_keys").
-		Where("id = ?", apiKey.ID).
+	// Update last_used_at without blocking
+	go database.DB.Table("_hornero_api_keys").
+		Where("id = ?", result.ID).
 		Update("last_used_at", time.Now())
 
-	return &apiKey, nil
+	return &result.APIKey, result.RoleName, nil
 }
 
-func setAPIKeyContext(c *gin.Context, apiKey *metadata.APIKey) {
+func setAPIKeyContext(c *gin.Context, apiKey *metadata.APIKey, roleName string) {
 	c.Set("user_id", apiKey.ID.String())
 	c.Set("workspace_id", apiKey.WorkspaceID.String())
-	c.Set("role", getRoleFromAPIKey(apiKey.RoleID))
+	c.Set("role", roleName)
 	c.Set("auth_source", "apikey")
 	c.Set("api_key_id", apiKey.ID.String())
-	// Store API key rate limit and origins in context for later use
 	c.Set("api_key_rate_limit", apiKey.RateLimitPerMin)
 	c.Set("api_key_allowed_origins", apiKey.AllowedOrigins)
 	c.Set("api_key_allowed_referers", apiKey.AllowedReferers)
-}
-
-func getRoleFromAPIKey(roleID uuid.UUID) string {
-	if roleID == uuid.Nil {
-		return ""
-	}
-
-	var role metadata.Role
-	err := database.DB.Table("_hornero_roles").
-		Where("id = ?", roleID).
-		First(&role).Error
-
-	if err != nil {
-		return ""
-	}
-
-	return role.Name
 }
 
 func OptionalAuth(secret string) gin.HandlerFunc {
