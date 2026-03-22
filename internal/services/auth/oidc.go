@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -63,8 +64,12 @@ func NewPocketIDAuth(cfg *config.OIDCProvider) (*OIDCAuth, error) {
 	jwksURL := cfg.IssuerURL + "/.well-known/jwks.json"
 	keySet := oidc.NewRemoteKeySet(ctx, jwksURL)
 
+	// Bypassing expiry checks is only safe and necessary in DEV to avoid Docker clock-drift errors.
+	isDev := os.Getenv("NODE_ENV") != "production" && os.Getenv("ENV") != "production" && os.Getenv("HORNERO_ENV") != "production"
+
 	verifier := oidc.NewVerifier(cfg.PublicURL, keySet, &oidc.Config{
-		ClientID: cfg.ClientID,
+		ClientID:        cfg.ClientID,
+		SkipExpiryCheck: isDev,
 	})
 
 	return &OIDCAuth{
@@ -252,11 +257,11 @@ func handleUserWithClaims(c *gin.Context, jwtSecret string, claims UserClaims, t
 
 	// FIRST: Check if user is owner of any workspace
 	var ws metadata.Workspace
-	err := database.DB.Table("_hornero_workspaces").
+	res := database.DB.Table("_hornero_workspaces").
 		Where("owner_id = ?", claims.Sub).
-		First(&ws).Error
+		Limit(1).Find(&ws)
 
-	if err == nil {
+	if res.Error == nil && res.RowsAffected > 0 {
 		// User is owner of a workspace - give admin role
 		workspaceID = ws.ID.String()
 		roleName = "admin"
@@ -264,16 +269,16 @@ func handleUserWithClaims(c *gin.Context, jwtSecret string, claims UserClaims, t
 	} else {
 		// SECOND: Check if user has a role assigned in any workspace
 		var userRole metadata.UserRole
-		err = database.DB.Table("_hornero_user_roles").
+		resRole := database.DB.Table("_hornero_user_roles").
 			Where("user_id = ?", claims.Sub).
-			First(&userRole).Error
+			Limit(1).Find(&userRole)
 
-		if err == nil && userRole.RoleID != uuid.Nil {
+		if resRole.Error == nil && resRole.RowsAffected > 0 && userRole.RoleID != uuid.Nil {
 			var role metadata.Role
-			err = database.DB.Table("_hornero_roles").
+			resRoleName := database.DB.Table("_hornero_roles").
 				Where("id = ?", userRole.RoleID).
-				First(&role).Error
-			if err == nil {
+				Limit(1).Find(&role)
+			if resRoleName.Error == nil && resRoleName.RowsAffected > 0 {
 				roleName = role.Name
 			}
 			workspaceID = userRole.WorkspaceID.String()
@@ -406,23 +411,23 @@ func (o *OIDCAuth) ExchangeCodeForAppJWT(ctx context.Context, code, codeVerifier
 	workspaceID := ""
 
 	var ws metadata.Workspace
-	err = database.DB.Table("_hornero_workspaces").
+	res := database.DB.Table("_hornero_workspaces").
 		Where("owner_id = ?", claims.Sub).
-		First(&ws).Error
-	if err == nil {
+		Limit(1).Find(&ws)
+	if res.Error == nil && res.RowsAffected > 0 {
 		workspaceID = ws.ID.String()
 		roleName = "admin"
 	} else {
 		var userRole metadata.UserRole
-		err = database.DB.Table("_hornero_user_roles").
+		resRole := database.DB.Table("_hornero_user_roles").
 			Where("user_id = ?", claims.Sub).
-			First(&userRole).Error
-		if err == nil && userRole.RoleID != uuid.Nil {
+			Limit(1).Find(&userRole)
+		if resRole.Error == nil && resRole.RowsAffected > 0 && userRole.RoleID != uuid.Nil {
 			var role metadata.Role
-			err = database.DB.Table("_hornero_roles").
+			resRoleName := database.DB.Table("_hornero_roles").
 				Where("id = ?", userRole.RoleID).
-				First(&role).Error
-			if err == nil {
+				Limit(1).Find(&role)
+			if resRoleName.Error == nil && resRoleName.RowsAffected > 0 {
 				roleName = role.Name
 			}
 			workspaceID = userRole.WorkspaceID.String()

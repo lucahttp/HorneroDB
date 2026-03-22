@@ -113,31 +113,28 @@ func CreateTable(c *gin.Context) {
 		Slug:        slug,
 	}
 
-	result := database.DB.Table("_hornero_tables").Create(&table)
-	if result.Error != nil {
-		slog.Error("failed to create table",
-			"error", result.Error,
-			"workspace_id", workspaceID,
-			"user_id", userID,
-		)
-		response.DatabaseError(c, result.Error, "creating table")
-		return
-	}
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Table("_hornero_tables").Create(&table).Error; err != nil {
+			return err
+		}
 
-	// Create the physical table in PostgreSQL with parameterized table name
-	// Table name is safe because we validated the slug
-	safeTableName := "data_" + workspaceID + "_" + slug
-	createSQL := `CREATE TABLE IF NOT EXISTS "` + safeTableName + `" (
-		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-		created_by VARCHAR(255),
-		created_at TIMESTAMPTZ DEFAULT NOW(),
-		updated_at TIMESTAMPTZ DEFAULT NOW()
-	)`
+		safeTableName := "data_" + workspaceID + "_" + slug
+		createSQL := `CREATE TABLE IF NOT EXISTS "` + safeTableName + `" (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			created_by VARCHAR(255),
+			created_at TIMESTAMPTZ DEFAULT NOW(),
+			updated_at TIMESTAMPTZ DEFAULT NOW()
+		)`
 
-	if err := database.DB.Exec(createSQL).Error; err != nil {
-		// Rollback: delete the metadata record if table creation fails
-		database.DB.Table("_hornero_tables").Delete(&table)
-		slog.Error("failed to create physical table",
+		if err := tx.Exec(createSQL).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		slog.Error("failed to create table (transaction rolled back)",
 			"error", err,
 			"workspace_id", workspaceID,
 			"user_id", userID,
@@ -220,44 +217,40 @@ func DeleteTable(c *gin.Context) {
 		return
 	}
 
-	// Get table info first
 	var table metadata.Table
-	if err := database.DB.Table("_hornero_tables").First(&table, "id = ?", tableID).Error; err != nil {
+
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		// Get table info first to know its slug
+		if err := tx.Table("_hornero_tables").First(&table, "id = ?", tableID).Error; err != nil {
+			return err
+		}
+
+		// Delete from metadata
+		if err := tx.Table("_hornero_tables").Delete(&metadata.Table{}, "id = ?", tableID).Error; err != nil {
+			return err
+		}
+
+		// Drop the physical table - safe because we got it from DB
+		safeTableName := "data_" + table.WorkspaceID.String() + "_" + table.Slug
+		if err := tx.Exec(`DROP TABLE IF EXISTS "` + safeTableName + `"`).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			response.NotFoundError(c, "table")
 			return
 		}
-		slog.Error("failed to fetch table for deletion",
+		slog.Error("failed to delete table (transaction rolled back)",
 			"error", err,
 			"table_id", tableID,
 			"user_id", userID,
 		)
-		response.DatabaseError(c, err, "fetching table")
+		response.DatabaseError(c, err, "deleting table")
 		return
-	}
-
-	// Delete from metadata
-	result := database.DB.Table("_hornero_tables").Delete(&metadata.Table{}, "id = ?", tableID)
-	if result.Error != nil {
-		slog.Error("failed to delete table",
-			"error", result.Error,
-			"table_id", tableID,
-			"user_id", userID,
-		)
-		response.DatabaseError(c, result.Error, "deleting table")
-		return
-	}
-
-	// Drop the physical table - safe because we got it from DB
-	safeTableName := "data_" + table.WorkspaceID.String() + "_" + table.Slug
-	dropResult := database.DB.Exec(`DROP TABLE IF EXISTS "` + safeTableName + `"`)
-	if dropResult.Error != nil {
-		// Log but don't fail - table metadata is already deleted
-		slog.Warn("failed to drop physical table",
-			"error", dropResult.Error,
-			"table_name", safeTableName,
-			"user_id", userID,
-		)
 	}
 
 	slog.Info("table deleted", "table_id", tableID, "name", table.Name, "user_id", userID)

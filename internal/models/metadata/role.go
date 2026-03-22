@@ -30,7 +30,16 @@ type TablePermissions struct {
 	Columns ColumnPermissions `json:"columns,omitempty"`
 }
 
-type RolePermissions map[string]TablePermissions
+type SystemPermissions struct {
+	Webhooks string `json:"webhooks,omitempty"` // "none", "view", "manage" (or PermissionLevel)
+	Roles    string `json:"roles,omitempty"`
+	APIKeys  string `json:"api_keys,omitempty"`
+	Tables   string `json:"tables,omitempty"`
+	Settings string `json:"settings,omitempty"`
+	MCP      string `json:"mcp,omitempty"`
+}
+
+type RolePermissions map[string]interface{} // Change to interface{} to allow __system__ key
 
 type Role struct {
 	ID          uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`

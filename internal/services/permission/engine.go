@@ -81,7 +81,7 @@ func (e *PermissionEngine) CheckPermission(check PermissionCheck) (bool, string,
 		}
 
 		// Check row filter
-		if perm.RowFilter != nil && len(perm.RowFilter) > 0 {
+		if len(perm.RowFilter) > 0 {
 			// Row filter exists, need to apply it when querying
 			return true, string(perm.RowFilter), nil
 		}

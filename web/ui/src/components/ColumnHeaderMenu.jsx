@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { EditPencil, Trash, Check } from 'iconoir-react'
 import { useTranslation } from 'react-i18next'
 
@@ -12,20 +13,31 @@ export function ColumnHeaderMenu({ column, icon, onRename, onDelete }) {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const [newName, setNewName] = useState(column.name)
+  const [menuCoords, setMenuCoords] = useState(null)
   const menuRef = useRef(null)
   const inputRef = useRef(null)
 
   // Close on click outside
   useEffect(() => {
     if (!open) return
-    const handler = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
+    const clickHandler = (e) => {
+      if (e.target.closest('.column-menu')) return;
+      if (menuRef.current && menuRef.current.contains(e.target)) return;
+      setOpen(false)
+      setEditing(false)
+    }
+    const scrollHandler = (e) => {
+      if (!e.target.closest('.column-menu')) {
         setOpen(false)
         setEditing(false)
       }
     }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
+    document.addEventListener('mousedown', clickHandler, true)
+    window.addEventListener('scroll', scrollHandler, true)
+    return () => {
+      document.removeEventListener('mousedown', clickHandler, true)
+      window.removeEventListener('scroll', scrollHandler, true)
+    }
   }, [open])
 
   // Close on Escape
@@ -67,14 +79,23 @@ export function ColumnHeaderMenu({ column, icon, onRename, onDelete }) {
       <span className="column-header-label">{icon} {column.name}</span>
       <button
         className="column-menu-trigger"
-        onClick={(e) => { e.stopPropagation(); setOpen(!open) }}
+        onClick={(e) => { 
+          e.stopPropagation(); 
+          if (!open) {
+            const rect = menuRef.current.getBoundingClientRect()
+            setMenuCoords({ top: rect.bottom + 4, left: rect.left })
+            setOpen(true)
+          } else {
+            setOpen(false)
+          }
+        }}
         aria-label={t('options_for', { name: column.name })}
       >
         ⋮
       </button>
 
-      {open && (
-        <div className="column-menu" style={{ textTransform: 'none', fontWeight: 400, letterSpacing: 'normal' }}>
+      {open && window.document && window.document.body && createPortal(
+        <div className="column-menu" style={{ position: 'fixed', top: menuCoords?.top, left: menuCoords?.left, zIndex: 9999, textTransform: 'none', fontWeight: 400, letterSpacing: 'normal' }}>
           {editing ? (
             <div className="column-menu-edit">
               <input
@@ -109,7 +130,8 @@ export function ColumnHeaderMenu({ column, icon, onRename, onDelete }) {
               </button>
             </>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

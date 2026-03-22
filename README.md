@@ -119,6 +119,24 @@ Define which columns are visible/editable for each operation (e.g., the public A
 }
 ```
 
+### Granular System Permissions (Admin & API)
+
+Beyond data, you can control who manages the system itself using the reserved `__system__` namespace. Ideal for limiting "employee" access or creating specialized API Keys for automations (e.g. n8n):
+
+```json
+{
+  "__system__": {
+    "webhooks": "manage",
+    "api_keys": "none",
+    "roles": "view",
+    "mcp": "all"
+  }
+}
+```
+
+Available actions: `webhooks`, `api_keys`, `roles`, `tables`, `settings`, `mcp`.
+Levels: `none`, `view`, `manage`, `all`.
+
 ### API Key Security
 
 Each API Key can have specific restrictions. Ideal for your public e-commerce:

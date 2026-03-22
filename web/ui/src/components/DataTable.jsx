@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { ColumnHeaderMenu } from './ColumnHeaderMenu.jsx'
 import { getFieldConfig, FIELD_TYPE_OPTIONS } from '../fieldTypeConfig.jsx'
 import { Trash } from 'iconoir-react'
@@ -36,22 +37,11 @@ export function DataTable({
   const [newColType, setNewColType] = useState('text')
   const [newColTargetTable, setNewColTargetTable] = useState('')
   const [newColDisplayColumn, setNewColDisplayColumn] = useState('')
+  const [addColumnCoords, setAddColumnCoords] = useState(null)
   const newColInputRef = useRef(null)
   const addColumnRef = useRef(null)
 
   // Selection state
-  // Close "Add Column" popover on click outside
-  useEffect(() => {
-    if (!showAddColumn) return
-    const handler = (e) => {
-      if (addColumnRef.current && !addColumnRef.current.contains(e.target)) {
-        setShowAddColumn(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [showAddColumn])
-
   const [selectedRows, setSelectedRows] = useState(new Set())
 
   // Inline editing state
@@ -172,16 +162,34 @@ export function DataTable({
     }
   }
 
-  // Close "Add Column" popover on click outside
+  // Close "Add Column" popover on click outside or scroll
   useEffect(() => {
     if (!showAddColumn) return
-    const handler = (e) => {
-      if (addColumnRef.current && !addColumnRef.current.contains(e.target)) {
+    
+    // Use capture phase to handle events before React's synthetic event system
+    const clickHandler = (e) => {
+      // If click is inside the popover portal, do nothing
+      if (e.target.closest('.column-add-popover')) return;
+      // If click is inside the add button, do nothing (handled by onClick)
+      if (addColumnRef.current && addColumnRef.current.contains(e.target)) return;
+      
+      setShowAddColumn(false)
+    }
+    
+    const scrollHandler = (e) => {
+      // Only close if scrolling something outside the popover itself (like the table container or page)
+      if (!e.target.closest('.column-add-popover')) {
         setShowAddColumn(false)
       }
     }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
+    
+    document.addEventListener('mousedown', clickHandler, true)
+    window.addEventListener('scroll', scrollHandler, true) // catch all scrolls
+    
+    return () => {
+      document.removeEventListener('mousedown', clickHandler, true)
+      window.removeEventListener('scroll', scrollHandler, true)
+    }
   }, [showAddColumn])
 
   const handleCreateColumn = async () => {
@@ -384,8 +392,22 @@ export function DataTable({
             })}
             {/* "+" column header */}
             <th style={{ width: '50px', padding: 0, position: 'relative' }} ref={addColumnRef}>
-              {showAddColumn ? (
-                <div className="column-add-popover">
+              <button
+                className="column-add-btn"
+                onClick={(e) => {
+                  if (!showAddColumn) {
+                    const rect = addColumnRef.current.getBoundingClientRect()
+                    setAddColumnCoords({ top: rect.bottom + 8, right: window.innerWidth - rect.right })
+                    setShowAddColumn(true)
+                  } else {
+                    setShowAddColumn(false)
+                  }
+                }}
+                title={t('add_column')}
+              >+</button>
+              
+              {showAddColumn && window.document && window.document.body && createPortal(
+                <div className="column-add-popover" style={{ position: 'fixed', top: addColumnCoords?.top, right: addColumnCoords?.right, zIndex: 9999 }}>
                   <div className="form-group" style={{ marginBottom: '0.75rem' }}>
                     <label className="form-label" style={{ fontSize: '0.65rem' }}>{t('name')}</label>
                     <input
@@ -397,6 +419,7 @@ export function DataTable({
                       onChange={(e) => setNewColName(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') handleCreateColumn()
+                        // Escape naturally closes because we have global event listeners, but inline is fine too:
                         if (e.key === 'Escape') setShowAddColumn(false)
                       }}
                       autoFocus
@@ -464,13 +487,8 @@ export function DataTable({
                       onClick={() => setShowAddColumn(false)}
                     >{t('cancel')}</button>
                   </div>
-                </div>
-              ) : (
-                <button
-                  className="column-add-btn"
-                  onClick={() => setShowAddColumn(true)}
-                  title={t('add_column')}
-                >+</button>
+                </div>, 
+                window.document.body
               )}
             </th>
             <th style={{ width: '80px' }}></th>

@@ -75,6 +75,11 @@ func Migrate() error {
 		return err
 	}
 
+	err = DB.Table("_hornero_webhook_events").AutoMigrate(&metadata.WebhookOutboxEvent{})
+	if err != nil {
+		return err
+	}
+
 	log.Println("✅ Metadata tables migrated")
 	return nil
 }
@@ -106,6 +111,7 @@ func createIndexes() error {
 		// Webhook indexes
 		`CREATE INDEX IF NOT EXISTS idx_webhooks_workspace_id ON _hornero_webhooks(workspace_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_webhooks_resource ON _hornero_webhooks(resource)`,
+		`CREATE INDEX IF NOT EXISTS idx_webhook_events_status_next ON _hornero_webhook_events(status, next_attempt_at)`,
 
 		// Permission indexes
 		`CREATE INDEX IF NOT EXISTS idx_permissions_workspace ON _hornero_permissions(workspace_id)`,

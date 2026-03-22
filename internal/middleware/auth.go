@@ -5,14 +5,21 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"hornerodb/internal/database"
 	"hornerodb/internal/models/metadata"
+	"hornerodb/internal/services/permission"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+)
+
+var (
+	// userCache maps email (string) to user_id (string) to prevent DB hits on every request
+	userCache sync.Map
 )
 
 type Claims struct {
@@ -81,12 +88,20 @@ func AuthRequired(secret string) gin.HandlerFunc {
 
 		// Resolve database ID from email (only when DB is available — guarded for unit tests)
 		if database.DB != nil {
-			var user metadata.User
-			if err := database.DB.Table("_hornero_users").Where("email = ?", claims.Email).First(&user).Error; err == nil {
-				c.Set("user_id", user.ID)
+			// Check cache first to avoid DB bottleneck (Fix for Design Hole #7)
+			if cachedID, ok := userCache.Load(claims.Email); ok {
+				c.Set("user_id", cachedID.(string))
 			} else {
-				// Fallback to sub if not in DB yet
-				c.Set("user_id", claims.UserID)
+				var user metadata.User
+				res := database.DB.Table("_hornero_users").Select("id").Where("email = ?", claims.Email).Limit(1).Find(&user)
+				if res.Error == nil && res.RowsAffected > 0 {
+					userIDStr := user.ID
+					userCache.Store(claims.Email, userIDStr)
+					c.Set("user_id", userIDStr)
+				} else {
+					// Fallback to sub if not in DB yet
+					c.Set("user_id", claims.UserID)
+				}
 			}
 		} else {
 			c.Set("user_id", claims.UserID)
@@ -143,6 +158,38 @@ func RequireAdminRole() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		c.Next()
+	}
+}
+
+// RequireSystemPermission ensures the authenticated entity has a specific system-level permission
+func RequireSystemPermission(action string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		workspaceID := GetUserWorkspace(c)
+		role := GetUserRole(c)
+
+		if workspaceID == "" || role == "" {
+			c.JSON(403, gin.H{"error": "Forbidden: missing workspace or role context"})
+			c.Abort()
+			return
+		}
+
+		wsUUID, err := uuid.Parse(workspaceID)
+		if err != nil {
+			c.JSON(403, gin.H{"error": "Forbidden: invalid workspace ID"})
+			c.Abort()
+			return
+		}
+
+		// Instantiate service (cheap local object)
+		permSvc := permission.NewService()
+		hasAccess, err := permSvc.CheckSystemPermission(wsUUID, role, action)
+		if err != nil || !hasAccess {
+			c.JSON(403, gin.H{"error": fmt.Sprintf("Forbidden: missing '%s' permission", action)})
+			c.Abort()
+			return
+		}
+
 		c.Next()
 	}
 }

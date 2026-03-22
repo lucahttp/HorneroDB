@@ -5,11 +5,7 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/workspaces/:workspace_id/tables
+  url: {{baseUrl}}/workspaces/{{workspaceid}}/tables
   body: none
   auth: inherit
-}
-
-params:path {
-  workspace_id: badcde1e-7dbc-4f83-961c-8ab522964df8
 }

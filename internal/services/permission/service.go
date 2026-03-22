@@ -34,6 +34,15 @@ type TableAccess struct {
 	Columns ColumnPermissions
 }
 
+type SystemAccess struct {
+	Webhooks AccessLevel
+	Roles    AccessLevel
+	APIKeys  AccessLevel
+	Tables   AccessLevel
+	Settings AccessLevel
+	MCP      AccessLevel
+}
+
 func NewService() *Service {
 	return &Service{}
 }
@@ -61,7 +70,10 @@ func (s *Service) GetRolePermissions(workspaceID uuid.UUID, roleName string) (ma
 		return result, nil
 	}
 
-	for tableSlug, perms := range permMap {
+	for key, perms := range permMap {
+		if key == "__system__" {
+			continue // Skip system special key for table permissions
+		}
 		permObj, ok := perms.(map[string]interface{})
 		if !ok {
 			continue
@@ -74,10 +86,79 @@ func (s *Service) GetRolePermissions(workspaceID uuid.UUID, roleName string) (ma
 			Delete:  getAccessLevel(permObj["delete"]),
 			Columns: parseColumnPermissions(permObj["columns"]),
 		}
-		result[tableSlug] = access
+		result[key] = access
 	}
 
 	return result, nil
+}
+
+func (s *Service) GetSystemPermissions(workspaceID uuid.UUID, roleName string) (SystemAccess, error) {
+	// Root 'admin' role always has full system access
+	if roleName == "admin" {
+		return SystemAccess{
+			Webhooks: AccessAll,
+			Roles:    AccessAll,
+			APIKeys:  AccessAll,
+			Tables:   AccessAll,
+			Settings: AccessAll,
+			MCP:      AccessAll,
+		}, nil
+	}
+
+	var role metadata.Role
+	err := database.DB.Table("_hornero_roles").
+		Where("workspace_id = ? AND name = ?", workspaceID, roleName).
+		First(&role).Error
+
+	if err != nil {
+		return SystemAccess{}, err
+	}
+
+	var permMap map[string]interface{}
+	if err := json.Unmarshal(role.Permissions, &permMap); err != nil {
+		return SystemAccess{}, nil
+	}
+
+	system, ok := permMap["__system__"].(map[string]interface{})
+	if !ok {
+		return SystemAccess{}, nil
+	}
+
+	return SystemAccess{
+		Webhooks: getAccessLevel(system["webhooks"]),
+		Roles:    getAccessLevel(system["roles"]),
+		APIKeys:  getAccessLevel(system["api_keys"]),
+		Tables:   getAccessLevel(system["tables"]),
+		Settings: getAccessLevel(system["settings"]),
+		MCP:      getAccessLevel(system["mcp"]),
+	}, nil
+}
+
+func (s *Service) CheckSystemPermission(workspaceID uuid.UUID, roleName string, action string) (bool, error) {
+	sys, err := s.GetSystemPermissions(workspaceID, roleName)
+	if err != nil {
+		return false, err
+	}
+
+	var level AccessLevel
+	switch action {
+	case "webhooks":
+		level = sys.Webhooks
+	case "roles":
+		level = sys.Roles
+	case "api_keys":
+		level = sys.APIKeys
+	case "tables":
+		level = sys.Tables
+	case "settings":
+		level = sys.Settings
+	case "mcp":
+		level = sys.MCP
+	default:
+		return false, nil
+	}
+
+	return level == AccessAll, nil
 }
 
 func getAccessLevel(value interface{}) AccessLevel {

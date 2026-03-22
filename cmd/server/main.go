@@ -1,12 +1,13 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/joho/godotenv"
 
 	"hornerodb/internal/config"
@@ -14,6 +15,7 @@ import (
 	"hornerodb/internal/handlers/api"
 	"hornerodb/internal/handlers/mcp"
 	"hornerodb/internal/middleware"
+	"hornerodb/internal/workers"
 	"hornerodb/web"
 
 	"github.com/gin-gonic/gin"
@@ -53,6 +55,9 @@ func main() {
 		log.Printf("Warning: Auth not initialized: %v", err)
 	}
 
+	// Start Background Workers
+	workers.StartWebhookProcessor()
+
 	// Check if running in MCP mode
 	if len(os.Args) > 1 && os.Args[1] == "mcp" {
 		mcp.Start()
@@ -60,38 +65,26 @@ func main() {
 	}
 
 	// Setup Gin
-	r := gin.Default()
+	r := gin.New() // Use gin.New() instead of gin.Default() to have full control over middlewares
+
+	// Register middlewares
+	r.Use(middleware.StructuredLogger()) // Production structured logging
+	r.Use(gin.Recovery())                // Recover from panics
+	r.Use(middleware.SecurityHeaders())  // Production security headers
+
+	// Standard CORS configuration using gin-contrib/cors
+	r.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"*"}, // You can restrict this in production
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Content-Length", "Accept-Encoding", "X-CSRF-Token", "Authorization", "X-Workspace-ID"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
+
 	// Disable automatic redirects to prevent static file trailing slash 301 loops
 	r.RedirectTrailingSlash = false
 	r.RedirectFixedPath = false
-
-	// Robust CORS middleware
-	r.Use(func(c *gin.Context) {
-		origin := c.GetHeader("Origin")
-		if origin == "" {
-			origin = "*"
-		}
-
-		c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With, X-Workspace-ID, x-workspace-id, X-Workspace-Id")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE, PATCH")
-		c.Writer.Header().Set("Access-Control-Max-Age", "86400")
-		c.Writer.Header().Set("Vary", "Origin")
-
-		if c.Request.Method == "OPTIONS" {
-			fmt.Printf("DEBUG: CORS Preflight from %s. Requested Headers: %s\n", origin, c.GetHeader("Access-Control-Request-Headers"))
-			c.AbortWithStatus(204)
-			return
-		}
-
-		c.Next()
-	})
-
-	// Catch-all OPTIONS route to trigger the CORS middleware for any path
-	r.OPTIONS("/*path", func(c *gin.Context) {
-		// Handled by the CORS middleware which aborts with 204
-	})
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
@@ -149,46 +142,61 @@ func main() {
 				adminWorkspaceGroup.GET("/export", api.ExportWorkspace)
 
 				// === TABLES (Admin operations) ===
-				adminWorkspaceGroup.POST("/tables", api.CreateTable)
-				adminWorkspaceGroup.PUT("/tables/:table_id", api.UpdateTable)
-				adminWorkspaceGroup.DELETE("/tables/:table_id", api.DeleteTable)
+				tablesGroup := adminWorkspaceGroup.Group("")
+				tablesGroup.Use(middleware.RequireSystemPermission("tables"))
+				{
+					tablesGroup.POST("/tables", api.CreateTable)
+					tablesGroup.PUT("/tables/:table_id", api.UpdateTable)
+					tablesGroup.DELETE("/tables/:table_id", api.DeleteTable)
 
-				// === COLUMNS (Admin operations) ===
-				adminWorkspaceGroup.POST("/tables/:table_id/columns", api.CreateColumn)
-				adminWorkspaceGroup.PUT("/tables/:table_id/columns/:column_id", api.UpdateColumn)
-				adminWorkspaceGroup.DELETE("/tables/:table_id/columns/:column_id", api.DeleteColumn)
+					// === COLUMNS (Admin operations) ===
+					tablesGroup.POST("/tables/:table_id/columns", api.CreateColumn)
+					tablesGroup.PUT("/tables/:table_id/columns/:column_id", api.UpdateColumn)
+					tablesGroup.DELETE("/tables/:table_id/columns/:column_id", api.DeleteColumn)
+				}
 
-				// === PERMISSIONS (legacy) ===
-				adminWorkspaceGroup.GET("/permissions", api.ListPermissions)
-				adminWorkspaceGroup.POST("/permissions", api.CreatePermission)
-				adminWorkspaceGroup.PUT("/permissions/:permission_id", api.UpdatePermission)
-				adminWorkspaceGroup.DELETE("/permissions/:permission_id", api.DeletePermission)
+				// === ROLES & USERS (Admin operations) ===
+				rolesGroup := adminWorkspaceGroup.Group("")
+				rolesGroup.Use(middleware.RequireSystemPermission("roles"))
+				{
+					// === PERMISSIONS (legacy) ===
+					rolesGroup.GET("/permissions", api.ListPermissions)
+					rolesGroup.POST("/permissions", api.CreatePermission)
+					rolesGroup.PUT("/permissions/:permission_id", api.UpdatePermission)
+					rolesGroup.DELETE("/permissions/:permission_id", api.DeletePermission)
 
-				// === ROLES DE SEGURIDAD (Admin operations) ===
-				adminWorkspaceGroup.POST("/roles", api.CreateRole)
-				adminWorkspaceGroup.PUT("/roles/:role_id", api.UpdateRole)
-				adminWorkspaceGroup.DELETE("/roles/:role_id", api.DeleteRole)
+					rolesGroup.POST("/roles", api.CreateRole)
+					rolesGroup.PUT("/roles/:role_id", api.UpdateRole)
+					rolesGroup.DELETE("/roles/:role_id", api.DeleteRole)
 
-				// === USUARIOS Y ROLES (Admin operations) ===
-				adminWorkspaceGroup.GET("/users", api.ListWorkspaceUsers)
-				adminWorkspaceGroup.POST("/users", api.ImportUser)
-				adminWorkspaceGroup.POST("/users/:user_id/role", api.AssignRoleToUser)
-				adminWorkspaceGroup.DELETE("/users/:user_id/role", api.RemoveRoleFromUser)
-				adminWorkspaceGroup.DELETE("/users/:user_id", api.RemoveRoleFromUser) // Short alias
+					rolesGroup.GET("/users", api.ListWorkspaceUsers)
+					rolesGroup.POST("/users", api.ImportUser)
+					rolesGroup.POST("/users/:user_id/role", api.AssignRoleToUser)
+					rolesGroup.DELETE("/users/:user_id/role", api.RemoveRoleFromUser)
+					rolesGroup.DELETE("/users/:user_id", api.RemoveRoleFromUser) // Short alias
+				}
 
 				// === API KEYS (Admin operations) ===
-				adminWorkspaceGroup.GET("/keys", api.ListAPIKeys)
-				adminWorkspaceGroup.POST("/keys", api.CreateAPIKey)
-				adminWorkspaceGroup.PUT("/keys/:key_id", api.UpdateAPIKey)
-				adminWorkspaceGroup.POST("/keys/:key_id/rotate", api.RotateAPIKey)
-				adminWorkspaceGroup.DELETE("/keys/:key_id", api.DeleteAPIKey)
+				keysGroup := adminWorkspaceGroup.Group("")
+				keysGroup.Use(middleware.RequireSystemPermission("api_keys"))
+				{
+					keysGroup.GET("/keys", api.ListAPIKeys)
+					keysGroup.POST("/keys", api.CreateAPIKey)
+					keysGroup.PUT("/keys/:key_id", api.UpdateAPIKey)
+					keysGroup.POST("/keys/:key_id/rotate", api.RotateAPIKey)
+					keysGroup.DELETE("/keys/:key_id", api.DeleteAPIKey)
+				}
 
 				// === WEBHOOKS (Admin operations) ===
-				adminWorkspaceGroup.GET("/webhooks", api.ListWebhooks)
-				adminWorkspaceGroup.POST("/webhooks", api.CreateWebhook)
-				adminWorkspaceGroup.GET("/webhooks/:webhook_id", api.GetWebhook)
-				adminWorkspaceGroup.PUT("/webhooks/:webhook_id", api.UpdateWebhook)
-				adminWorkspaceGroup.DELETE("/webhooks/:webhook_id", api.DeleteWebhook)
+				webhooksGroup := adminWorkspaceGroup.Group("")
+				webhooksGroup.Use(middleware.RequireSystemPermission("webhooks"))
+				{
+					webhooksGroup.GET("/webhooks", api.ListWebhooks)
+					webhooksGroup.POST("/webhooks", api.CreateWebhook)
+					webhooksGroup.GET("/webhooks/:webhook_id", api.GetWebhook)
+					webhooksGroup.PUT("/webhooks/:webhook_id", api.UpdateWebhook)
+					webhooksGroup.DELETE("/webhooks/:webhook_id", api.DeleteWebhook)
+				}
 			}
 		}
 

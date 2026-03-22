@@ -113,7 +113,7 @@ export function PermissionMatrix({
 
       {currentRole && (
         <>
-          <div className="table-container" style={{ overflow: 'visible' }}>
+          <div className="table-container" style={{ overflow: 'scroll' }}>
             <table className="table" style={{ minWidth: '800px' }}>
               <thead>
                 <tr>

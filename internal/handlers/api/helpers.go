@@ -14,6 +14,8 @@ import (
 	"gorm.io/gorm"
 )
 
+var permService = permission.NewService()
+
 // tableContext holds the resolved state common to every record CRUD handler.
 // Call resolveTableContext to populate it; it handles all error responses itself.
 type tableContext struct {

@@ -115,10 +115,76 @@ func DispatchWebhookAsync(workspaceID, tableID uuid.UUID, tableSlug, changeType 
 				continue
 			}
 
-			slog.Info("firing webhook payload", "webhook_id", wh.ID, "url", wh.NotificationURL)
-			go sendPayload(wh.ID, wh.NotificationURL, jsonPayload)
+			// OUTBOX PATTERN: Queue event instead of firing immediately
+			outboxEvent := metadata.WebhookOutboxEvent{
+				WebhookID:       wh.ID,
+				NotificationURL: wh.NotificationURL,
+				Payload:         jsonPayload,
+				Status:          "pending",
+				NextAttemptAt:   time.Now(),
+			}
+
+			if err := database.DB.Table("_hornero_webhook_events").Create(&outboxEvent).Error; err != nil {
+				slog.Error("failed to create webhook outbox event", "webhook_id", wh.ID, "error", err)
+			}
 		}
 	}()
+}
+
+// StartWebhookProcessor polls the outbox and dispatches webhooks with retries.
+func StartWebhookProcessor() {
+	slog.Info("starting webhook outbox processor")
+	ticker := time.NewTicker(5 * time.Second)
+	go func() {
+		for range ticker.C {
+			processOutboxEvents()
+		}
+	}()
+}
+
+func processOutboxEvents() {
+	var events []metadata.WebhookOutboxEvent
+	
+	// Fetch pending events ready to be processed
+	err := database.DB.Table("_hornero_webhook_events").
+		Where("status = ? AND next_attempt_at <= ?", "pending", time.Now()).
+		Limit(50).
+		Find(&events).Error
+
+	if err != nil || len(events) == 0 {
+		return
+	}
+
+	for _, event := range events {
+		// Mark as processing
+		database.DB.Table("_hornero_webhook_events").Where("id = ?", event.ID).Update("status", "processing")
+		
+		go func(e metadata.WebhookOutboxEvent) {
+			success := sendPayloadInternal(e.WebhookID, e.NotificationURL, e.Payload)
+			
+			if success {
+				database.DB.Table("_hornero_webhook_events").Where("id = ?", e.ID).Updates(map[string]interface{}{
+					"status": "completed",
+				})
+			} else {
+				attempts := e.Attempts + 1
+				if attempts >= 5 {
+					database.DB.Table("_hornero_webhook_events").Where("id = ?", e.ID).Updates(map[string]interface{}{
+						"status":   "failed",
+						"attempts": attempts,
+					})
+				} else {
+					// Exponential backoff
+					nextAttempt := time.Now().Add(time.Duration(attempts*15) * time.Second)
+					database.DB.Table("_hornero_webhook_events").Where("id = ?", e.ID).Updates(map[string]interface{}{
+						"status":          "pending",
+						"attempts":        attempts,
+						"next_attempt_at": nextAttempt,
+					})
+				}
+			}
+		}(event)
+	}
 }
 
 func cloneData(original map[string]interface{}) map[string]interface{} {
@@ -186,11 +252,11 @@ func resolveCreatorRole(creatorID string, workspaceID uuid.UUID, ownerID string)
 	return "", false
 }
 
-func sendPayload(webhookID uuid.UUID, url string, payload []byte) {
+func sendPayloadInternal(webhookID uuid.UUID, url string, payload []byte) bool {
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(payload))
 	if err != nil {
 		slog.Error("Failed to create webhook request", "webhook_id", webhookID, "error", err)
-		return
+		return false
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -198,11 +264,14 @@ func sendPayload(webhookID uuid.UUID, url string, payload []byte) {
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		slog.Error("Failed to dispatch webhook", "webhook_id", webhookID, "url", url, "error", err)
-		return
+		return false
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		slog.Warn("Webhook returned non-success response", "webhook_id", webhookID, "status", resp.StatusCode)
+		return false
 	}
+	
+	return true
 }

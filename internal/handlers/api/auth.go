@@ -17,7 +17,8 @@ func GetCurrentUser(c *gin.Context) {
 	}
 
 	var user metadata.User
-	if err := database.DB.Table("_hornero_users").Where("email = ?", email).First(&user).Error; err != nil {
+	res := database.DB.Table("_hornero_users").Where("email = ?", email).Limit(1).Find(&user)
+	if res.Error != nil || res.RowsAffected == 0 {
 		// Fallback to JWT data if not in DB yet
 		response.Success(c, gin.H{
 			"id":           middleware.GetUserID(c),
