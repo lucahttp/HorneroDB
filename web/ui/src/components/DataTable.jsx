@@ -35,6 +35,7 @@ export function DataTable({
   const [showAddColumn, setShowAddColumn] = useState(false)
   const [newColName, setNewColName] = useState('')
   const [newColType, setNewColType] = useState('text')
+  const [isTypeSelectOpen, setIsTypeSelectOpen] = useState(false)
   const [newColTargetTable, setNewColTargetTable] = useState('')
   const [newColDisplayColumn, setNewColDisplayColumn] = useState('')
   const [addColumnCoords, setAddColumnCoords] = useState(null)
@@ -165,27 +166,27 @@ export function DataTable({
   // Close "Add Column" popover on click outside or scroll
   useEffect(() => {
     if (!showAddColumn) return
-    
+
     // Use capture phase to handle events before React's synthetic event system
     const clickHandler = (e) => {
       // If click is inside the popover portal, do nothing
       if (e.target.closest('.column-add-popover')) return;
       // If click is inside the add button, do nothing (handled by onClick)
       if (addColumnRef.current && addColumnRef.current.contains(e.target)) return;
-      
+
       setShowAddColumn(false)
     }
-    
+
     const scrollHandler = (e) => {
       // Only close if scrolling something outside the popover itself (like the table container or page)
       if (!e.target.closest('.column-add-popover')) {
         setShowAddColumn(false)
       }
     }
-    
+
     document.addEventListener('mousedown', clickHandler, true)
     window.addEventListener('scroll', scrollHandler, true) // catch all scrolls
-    
+
     return () => {
       document.removeEventListener('mousedown', clickHandler, true)
       window.removeEventListener('scroll', scrollHandler, true)
@@ -405,7 +406,7 @@ export function DataTable({
                 }}
                 title={t('add_column')}
               >+</button>
-              
+
               {showAddColumn && window.document && window.document.body && createPortal(
                 <div className="column-add-popover" style={{ position: 'fixed', top: addColumnCoords?.top, right: addColumnCoords?.right, zIndex: 9999 }}>
                   <div className="form-group" style={{ marginBottom: '0.75rem' }}>
@@ -428,15 +429,51 @@ export function DataTable({
 
                   <div className="form-group" style={{ marginBottom: '0.75rem' }}>
                     <label className="form-label" style={{ fontSize: '0.65rem' }}>{t('type')}</label>
-                    <select
-                      className="form-select"
-                      value={newColType}
-                      onChange={(e) => setNewColType(e.target.value)}
-                    >
-                      {FIELD_TYPE_OPTIONS.map(ft => (
-                        <option key={ft.value} value={ft.value}>{ft.icon} {ft.label}</option>
-                      ))}
-                    </select>
+                    <div style={{ position: 'relative' }}>
+                      <div
+                        className="form-select"
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', height: '2.5rem', background: 'var(--bg-elevated)', border: isTypeSelectOpen ? '1px solid var(--primary)' : '1px solid var(--border)' }}
+                        onClick={() => setIsTypeSelectOpen(!isTypeSelectOpen)}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <div style={{ color: getFieldConfig(newColType).color || 'var(--text-muted)', display: 'flex', alignItems: 'center' }}>
+                            {getFieldConfig(newColType).icon}
+                          </div>
+                          {getFieldConfig(newColType).label}
+                        </div>
+                        <span style={{ fontSize: '0.7rem', opacity: 0.5 }}>▼</span>
+                      </div>
+
+                      {isTypeSelectOpen && (
+                        <div style={{
+                          position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '4px',
+                          background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: '6px',
+                          boxShadow: 'var(--shadow-md)', zIndex: 10000, maxHeight: '220px', overflowY: 'auto'
+                        }}>
+                          {FIELD_TYPE_OPTIONS.map(ft => (
+                            <div
+                              key={ft.value}
+                              onClick={() => {
+                                setNewColType(ft.value)
+                                setIsTypeSelectOpen(false)
+                              }}
+                              style={{
+                                padding: '0.5rem 0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem',
+                                cursor: 'pointer', background: newColType === ft.value ? 'var(--bg-subtle)' : 'transparent',
+                                fontSize: '0.875rem'
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-subtle)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = newColType === ft.value ? 'var(--bg-subtle)' : 'transparent'}
+                            >
+                              <div style={{ width: '1.25rem', height: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'center', color: ft.color || 'var(--text-muted)' }}>
+                                {ft.icon}
+                              </div>
+                              {ft.label}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {newColType === 'relation' && (
@@ -450,7 +487,7 @@ export function DataTable({
                           setNewColTargetTable(e.target.value)
                           const target = tables.find(t => t.slug === e.target.value)
                           if (target?.columns?.length) {
-                             setNewColDisplayColumn(target.columns.find(c => c.slug !== 'id')?.slug || 'id')
+                            setNewColDisplayColumn(target.columns.find(c => c.slug !== 'id')?.slug || 'id')
                           }
                         }}
                       >
@@ -487,7 +524,7 @@ export function DataTable({
                       onClick={() => setShowAddColumn(false)}
                     >{t('cancel')}</button>
                   </div>
-                </div>, 
+                </div>,
                 window.document.body
               )}
             </th>

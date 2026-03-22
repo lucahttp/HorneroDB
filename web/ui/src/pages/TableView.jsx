@@ -28,10 +28,6 @@ export default function TableView() {
   // CSV Import Wizard ref
   const csvWizardRef = useRef(null)
 
-  useEffect(() => {
-    loadData()
-  }, [workspaceId, tableId])
-
   const loadData = async () => {
     try {
       const [tableRes, columnsRes, rolesRes, allTablesRes] = await Promise.all([
@@ -60,6 +56,11 @@ export default function TableView() {
     }
     setLoading(false)
   }
+
+  useEffect(() => {
+    loadData()
+  }, [workspaceId, tableId])
+
 
   const handleExportSchema = async () => {
     try {
@@ -266,12 +267,12 @@ export default function TableView() {
         </div>
       </div>
 
-      <CsvImportWizard 
-        ref={csvWizardRef} 
-        workspaceId={workspaceId} 
-        table={table} 
-        columns={columns} 
-        onImportComplete={loadData} 
+      <CsvImportWizard
+        ref={csvWizardRef}
+        workspaceId={workspaceId}
+        table={table}
+        columns={columns}
+        onImportComplete={loadData}
       />
     </div>
   )

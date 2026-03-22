@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import axios from 'axios'
-import { 
+import {
   Settings as SettingsIcon, ShieldCheck, Key, Trash, Xmark,
   Group, ClipboardCheck
 } from 'iconoir-react'
@@ -53,10 +53,6 @@ export default function Settings() {
   const [editingKeyReferers, setEditingKeyReferers] = useState('')
   const [savingKey, setSavingKey] = useState(false)
 
-  useEffect(() => {
-    loadData()
-  }, [workspaceId, activeSection])
-
   const loadData = async () => {
     setLoading(true)
     try {
@@ -93,6 +89,10 @@ export default function Settings() {
     }
     setLoading(false)
   }
+
+  useEffect(() => {
+    loadData()
+  }, [workspaceId, activeSection])
 
   const handleSaveGeneral = async () => {
     setSavingGeneral(true)
@@ -332,14 +332,14 @@ export default function Settings() {
                   </div>
                 ) : (
                   roles.map((role) => (
-                    <div 
-                      key={role.id} 
-                      className="card" 
+                    <div
+                      key={role.id}
+                      className="card"
                       onClick={() => setSelectedRoleId(role.id)}
-                      style={{ 
-                        cursor: 'pointer', 
+                      style={{
+                        cursor: 'pointer',
                         border: selectedRoleId === role.id ? '2px solid var(--primary)' : undefined,
-                        padding: selectedRoleId === role.id ? 'calc(1.5rem - 1px)' : undefined 
+                        padding: selectedRoleId === role.id ? 'calc(1.5rem - 1px)' : undefined
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -352,8 +352,8 @@ export default function Settings() {
                             <Badge variant="primary" style={{ marginTop: '0.75rem' }}>{t('default')}</Badge>
                           )}
                         </div>
-                        <Button 
-                          size="sm" 
+                        <Button
+                          size="sm"
                           variant={selectedRoleId === role.id ? 'primary' : 'secondary'}
                           onClick={(e) => { e.stopPropagation(); setSelectedRoleId(role.id); }}
                         >
@@ -576,7 +576,7 @@ export default function Settings() {
           )}
         </div>
       </div>
-      
+
       {rotatedKeyData && (
         <div className="modal-overlay" onClick={() => setRotatedKeyData(null)}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>

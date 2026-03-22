@@ -5,27 +5,18 @@ import { Button } from './index.jsx'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1'
 
-export function RelationPicker({ 
-  workspaceId, 
-  targetTableSlug, 
-  displayColumn, 
-  onSelect, 
+export function RelationPicker({
+  workspaceId,
+  targetTableSlug,
+  displayColumn,
+  onSelect,
   onClose,
-  initialValue 
+  initialValue
 }) {
   const [records, setRecords] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [error, setError] = useState(null)
-
-  useEffect(() => {
-    if (targetTableSlug) {
-      loadRecords()
-    } else {
-      setLoading(false)
-      setError('Configuración de relación incompleta (falta tabla destino)')
-    }
-  }, [targetTableSlug, search])
 
   const loadRecords = async () => {
     if (!targetTableSlug) return
@@ -46,6 +37,15 @@ export function RelationPicker({
     setLoading(false)
   }
 
+  useEffect(() => {
+    if (targetTableSlug) {
+      loadRecords()
+    } else {
+      setLoading(false)
+      setError('Configuración de relación incompleta (falta tabla destino)')
+    }
+  }, [targetTableSlug, search])
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
@@ -55,13 +55,13 @@ export function RelationPicker({
             <Xmark width="1.25rem" height="1.25rem" />
           </button>
         </div>
-        
+
         <div className="modal-body" style={{ padding: '1rem' }}>
           <div className="form-group" style={{ marginBottom: '1rem', position: 'relative' }}>
-            <Search 
-              width="1rem" 
-              height="1rem" 
-              style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} 
+            <Search
+              width="1rem"
+              height="1rem"
+              style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }}
             />
             <input
               type="text"
@@ -87,8 +87,8 @@ export function RelationPicker({
               <table className="table" style={{ border: 'none' }}>
                 <tbody>
                   {records.map(rec => (
-                    <tr 
-                      key={rec.id} 
+                    <tr
+                      key={rec.id}
                       onClick={() => onSelect(rec.id, rec[displayColumn])}
                       style={{ cursor: 'pointer' }}
                       className={initialValue === rec.id ? 'row-selected' : ''}

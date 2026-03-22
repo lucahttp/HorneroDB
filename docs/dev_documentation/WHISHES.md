@@ -253,3 +253,14 @@ quiero tener un mcp para poder usarlo con agentes de IA
 
 # quiero poder tener columnas calculadas
 nose como si con powerfx o con formulas como en excel, sino python o js tipo n8n o typebot, algo simple que valla rapido tipo wasm o nose, para mi deberia de correr como las columnas calculadas de sharepoint o las columnas del tipo formula de dataverse, todos n8n, dataverse, typebot implementan esto pero hay que ver la mejor manera y mas segura
+
+# manejo de usuarios en el tenant/workspace
+quiero poder gestionar los usuarios de cada workspace, que pueda crear, editar y borrar usuarios.
+ademas poder agregar roles y permisos a los usuarios
+ademas lo mas importante es que el admin o el workspace owner pueda agregar usuarios a su workspace usando pocketid en un principio, que genere el usuario usando la api de pocketid y que lo agregue a el grupo correspondiente.
+
+https://pocket-id.org/docs/setup/user-management
+https://pocket-id.org/docs/api
+
+
+quiero poder agregar usuarios a hornerodb y que se pueda gestionar desde hornerodb. desde entonces solo pueden ver los workspaces que tienen permisos

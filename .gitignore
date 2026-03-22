@@ -199,3 +199,4 @@ test_results.txt
 # tmp
 tmp
 .gitignore
+web/ui/lint-out.txt

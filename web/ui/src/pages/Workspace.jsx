@@ -15,7 +15,7 @@ export default function Workspace() {
   const { workspaceId } = useParams()
   const { t } = useTranslation()
   const navigate = useNavigate()
-  
+
   const [workspace, setWorkspace] = useState(null)
   const [tables, setTables] = useState([])
   const [loading, setLoading] = useState(true)
@@ -38,23 +38,23 @@ export default function Workspace() {
   }, [workspaceId, workspace?.id])
 
   const handleCreateTable = async () => {
-    if (!tableName.trim()) return
-    setCreating(true)
+    if (!newTableName.trim()) return
+    setCreatingTable(true)
     try {
       const wsId = workspaceId || workspace?.id
       await axios.post(`${API_URL}/workspaces/${wsId}/tables`, {
-        name: tableName,
-        slug: tableName.toLowerCase().replace(/\s+/g, '_')
+        name: newTableName,
+        slug: newTableName.toLowerCase().replace(/\s+/g, '_')
       })
       setShowCreateTable(false)
-      setTableName('')
+      setNewTableName('')
       const res = await axios.get(`${API_URL}/workspaces/${wsId}/tables`)
       setTables(res.data.data)
     } catch (err) {
       console.error(err)
       notify(t('error_create_table'), 'error')
     } finally {
-      setCreating(false)
+      setCreatingTable(false)
     }
   }
 
@@ -222,14 +222,14 @@ export default function Workspace() {
                         <input
                           type="text"
                           className="form-input"
-                          value={tableName}
-                          onChange={e => setTableName(e.target.value)}
+                          value={newTableName}
+                          onChange={e => setNewTableName(e.target.value)}
                           onKeyDown={e => {
-                            if (e.key === 'Enter' && tableName.trim()) {
+                            if (e.key === 'Enter' && newTableName.trim()) {
                               handleCreateTable(e);
                             } else if (e.key === 'Escape') {
                               setShowCreateTable(false);
-                              setTableName('');
+                              setNewTableName('');
                             }
                           }}
                           placeholder={t('table_name_placeholder')}
@@ -237,12 +237,12 @@ export default function Workspace() {
                           style={{ marginBottom: '0.25rem' }}
                         />
                         <p className="form-hint" style={{ fontSize: '0.75rem', textAlign: 'left', margin: 0, paddingLeft: '2px' }}>
-                          {t('will_be_created_as')} <code style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>{tableName.toLowerCase().replace(/\s+/g, '_') || '...'}</code>
+                          {t('will_be_created_as')} <code style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>{newTableName.toLowerCase().replace(/\s+/g, '_') || '...'}</code>
                         </p>
                       </div>
                       <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                        <Button variant="secondary" size="sm" onClick={(e) => { e.stopPropagation(); setShowCreateTable(false); setTableName(''); }}>{t('cancel')}</Button>
-                        <Button size="sm" onClick={(e) => { e.stopPropagation(); handleCreateTable(e); }} loading={creating} disabled={!tableName.trim()}>{t('create')}</Button>
+                        <Button variant="secondary" size="sm" onClick={(e) => { e.stopPropagation(); setShowCreateTable(false); setNewTableName(''); }}>{t('cancel')}</Button>
+                        <Button size="sm" onClick={(e) => { e.stopPropagation(); handleCreateTable(e); }} loading={creatingTable} disabled={!newTableName.trim()}>{t('create')}</Button>
                       </div>
                     </div>
                   )}
