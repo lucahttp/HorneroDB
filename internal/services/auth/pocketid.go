@@ -156,17 +156,60 @@ func (c *PocketIDClient) ListUsers(search string) ([]PocketIDUser, error) {
 	return users, nil
 }
 
-// GenerateLoginQR generates a QR code for the PocketID login page
-func (c *PocketIDClient) GenerateLoginQR(size int) ([]byte, error) {
-	if c.BaseURL == "" {
-		return nil, fmt.Errorf("PocketID BaseURL is not configured")
+// GenerateQR generates a QR code for a given URL or text
+func (c *PocketIDClient) GenerateQR(content string, size int) ([]byte, error) {
+	if content == "" {
+		return nil, fmt.Errorf("content cannot be empty")
 	}
 
-	// Generate QR code for the base URL (login page)
-	png, err := qrcode.Encode(c.BaseURL, qrcode.Medium, size)
+	// Generate QR code for the content
+	png, err := qrcode.Encode(content, qrcode.Medium, size)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate QR code: %w", err)
 	}
 
 	return png, nil
+}
+
+// GenerateOneTimeAccessToken requests a one-time access token for a given QuickLogin URL
+func (c *PocketIDClient) GenerateOneTimeAccessToken(userID string) (string, error) {
+	if c.BaseURL == "" {
+		return "", fmt.Errorf("PocketID BaseURL is not configured")
+	}
+
+	body := map[string]interface{}{}
+	jsonBody, _ := json.Marshal(body)
+	url := fmt.Sprintf("%s/api/users/%s/one-time-access-token", c.BaseURL, userID)
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return "", err
+	}
+
+	if c.APIKey != "" {
+		req.Header.Set("x-api-key", c.APIKey)
+	} else {
+		return "", fmt.Errorf("API Key is missing for PocketID")
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 201 && resp.StatusCode != 200 {
+		return "", fmt.Errorf("failed to generate one-time access token, status: %d, body: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var result struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+		return "", err
+	}
+
+	return result.Token, nil
 }

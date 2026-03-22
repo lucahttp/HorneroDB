@@ -28,6 +28,7 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
 
     // QR Code State
     const [qrCodeData, setQrCodeData] = useState(null)
+    const [qrUrl, setQrUrl] = useState('')
     const [showQrModal, setShowQrModal] = useState(false)
 
     useEffect(() => {
@@ -64,6 +65,7 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
             // Check for QR code in response
             if (res.data.data && res.data.data.qr_code) {
                 setQrCodeData(res.data.data.qr_code)
+                setQrUrl(res.data.data.url || '')
                 setShowQrModal(true)
             }
 
@@ -96,6 +98,7 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
             const res = await axios.get(`${API_URL}/auth/qr`)
             if (res.data.data && res.data.data.qr_code) {
                 setQrCodeData(res.data.data.qr_code)
+                setQrUrl(res.data.data.url || '')
                 setShowQrModal(true)
             } else {
                 notify(t('error_qr_code') || 'No se pudo obtener el QR', 'error')
@@ -260,6 +263,23 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
                                     margin: '0 auto'
                                 }}
                             />
+                        )}
+                        {qrUrl && (
+                            <div style={{ marginTop: '1.5rem', display: 'flex', gap: '0.5rem', justifyContent: 'center' }}>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    value={qrUrl}
+                                    readOnly
+                                    style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8125rem', textAlign: 'center' }}
+                                />
+                                <Button variant="secondary" onClick={() => {
+                                    navigator.clipboard.writeText(qrUrl)
+                                    if (notify) notify(t('copied') || 'Copied to clipboard', 'success')
+                                }}>
+                                    {t('copy') || 'Copiar'}
+                                </Button>
+                            </div>
                         )}
                         <p style={{ marginTop: '1rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
                             {t('qr_code_note') || 'El usuario también recibirá las instrucciones por email si es la primera vez que ingresa.'}

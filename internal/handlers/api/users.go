@@ -205,11 +205,24 @@ func ImportUser(c *gin.Context) {
 
 	// Generate QR Code if PocketID is enabled
 	var qrCodeBase64 string
+	var loginUrl string
+
 	cfg, _ := config.Load()
 	if cfg.Auth.PocketIDConfig.Enabled {
 		client := auth.NewPocketIDClient(&cfg.Auth.PocketIDConfig)
-		// Generate 256x256 QR
-		qrBytes, err := client.GenerateLoginQR(256)
+
+		loginUrl = cfg.Auth.PocketIDConfig.PublicURL
+
+		// Attempt to get One-Time Access Token so user doesn't need to enter anything
+		otat, err := client.GenerateOneTimeAccessToken(user.ID)
+		if err == nil && otat != "" {
+			loginUrl = fmt.Sprintf("%s/lc/%s", cfg.Auth.PocketIDConfig.PublicURL, otat)
+		} else {
+			fmt.Printf("Error generating OTAT: %v\n", err)
+		}
+
+		// Generate 256x256 QR embedding the unique loginUrl
+		qrBytes, err := client.GenerateQR(loginUrl, 256)
 		if err == nil {
 			qrCodeBase64 = base64.StdEncoding.EncodeToString(qrBytes)
 		} else {
@@ -227,6 +240,7 @@ func ImportUser(c *gin.Context) {
 		"message":           "User added",
 		"user":              user,
 		"qr_code":           qrCodeBase64, // Base64 PNG
+		"url":               loginUrl,
 		"setup_instruction": "Scan to login. Ensure you have access to your email for first-time setup.",
 	})
 }
@@ -247,8 +261,10 @@ func GetSystemLoginQR(c *gin.Context) {
 	}
 
 	client := auth.NewPocketIDClient(&cfg.Auth.PocketIDConfig)
+
+	loginUrl := cfg.Auth.PocketIDConfig.PublicURL
 	// Generate 256x256 QR
-	qrBytes, err := client.GenerateLoginQR(256)
+	qrBytes, err := client.GenerateQR(loginUrl, 256)
 	if err != nil {
 		slog.Error("failed to generate login QR", "error", err)
 		response.DatabaseError(c, err, "generating login QR")
@@ -258,7 +274,7 @@ func GetSystemLoginQR(c *gin.Context) {
 	qrBase64 := base64.StdEncoding.EncodeToString(qrBytes)
 	response.Success(c, gin.H{
 		"qr_code": qrBase64,
-		"url":     cfg.Auth.PocketIDConfig.IssuerURL,
+		"url":     cfg.Auth.PocketIDConfig.PublicURL,
 		"message": "Scan to access Login Portal",
 	})
 }

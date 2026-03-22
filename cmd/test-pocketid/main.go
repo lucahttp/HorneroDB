@@ -56,7 +56,7 @@ func main() {
 
 	// Test QR Code Generation
 	fmt.Println("\n--- Testing QR Code Generation ---")
-	qrBytes, err := client.GenerateLoginQR(256)
+	qrBytes, err := client.GenerateQR(cfg.Auth.PocketIDConfig.PublicURL, 256)
 	if err != nil {
 		log.Fatalf("Failed to generate QR code: %v", err)
 	}

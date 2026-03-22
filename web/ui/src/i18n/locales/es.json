@@ -147,5 +147,10 @@
     "select_role": "Sin rol (solo lectura)",
     "api_key_updated": "API Key actualizada",
     "error_update_api_key": "Error al actualizar API key",
-    "expires_at": "Expira"
+    "expires_at": "Expira",
+    "qr_code_title": "Login QR Code",
+    "qr_code_desc": "Escaneá este código para acceder rápidamente al portal de login.",
+    "qr_code_note": "El usuario también recibirá las instrucciones por email si es la primera vez que ingresa.",
+    "copy": "Copiar",
+    "copied": "Copiado al portapapeles"
 }

@@ -1,0 +1,82 @@
+services:
+  caddy:
+    image: lucaslorentz/caddy-docker-proxy:ci-alpine
+    container_name: hornerodb-caddy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - CADDY_INGRESS_NETWORKS=hornero_network
+    networks:
+      - hornero_network
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - caddy_data:/data
+
+  postgres:
+    image: postgres:18-alpine
+    container_name: hornerodb-postgres
+    restart: always
+    env_file: .env
+    ports:
+      # Expuesto solo localmente
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hornero_network
+
+  pocket-id:
+    image: ghcr.io/pocket-id/pocket-id:v2
+    container_name: hornerodb-pocket-id
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:1411:1411"
+    volumes:
+      - "./pocketid_data:/app/data"
+    labels:
+      caddy: "pocketid-sso.${DOMAIN_NAME}"
+      caddy.reverse_proxy: "{{upstreams 1411}}"
+    healthcheck:
+      test: [ "CMD", "/app/pocket-id", "healthcheck" ]
+      interval: 1m30s
+      timeout: 5s
+      retries: 2
+      start_period: 10s
+    networks:
+      - hornero_network
+
+  hornerodb-server:
+    build:
+      context: ../
+      dockerfile: Dockerfile
+    container_name: hornerodb-server
+    restart: always
+    env_file: .env
+    ports:
+      - "127.0.0.1:8080:80"
+    labels:
+      caddy: "hornerodb.${DOMAIN_NAME}"
+      caddy.reverse_proxy: "{{upstreams 80}}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pocket-id:
+        condition: service_healthy
+    networks:
+      - hornero_network
+
+networks:
+  hornero_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  caddy_data:

@@ -34,6 +34,7 @@ func WorkspaceAuth() gin.HandlerFunc {
 			return
 		}
 		c.Set("workspace", &workspace)
+		c.Set("workspace_id", workspaceIDStr) // INJECT FIX: Required for RequireSystemPermission mw
 
 		// Get user ID from context (set by AuthRequired)
 		userID := GetUserID(c)
