@@ -17,7 +17,7 @@ RUN npm run build
 # ==========================================
 # STAGE 2: Build the Go Backend
 # ==========================================
-FROM golang:1.24-alpine AS go-builder
+FROM golang:1.25-alpine AS go-builder
 
 WORKDIR /usr/src/app
 
@@ -39,12 +39,12 @@ RUN CGO_ENABLED=0 GOOS=linux go build -v -o /hornerodb ./cmd/server
 # ==========================================
 # STAGE 3: Final lightweight image
 # ==========================================
-FROM alpine:latest
+FROM alpine:3.23
 
 WORKDIR /app
 
-# Install CA certificates for external HTTPS requests if needed
-RUN apk --no-cache add ca-certificates tzdata
+# Install CA certificates and upgrade packages to fix CVEs
+RUN apk --no-cache add ca-certificates tzdata && apk --no-cache upgrade
 
 # Copy the compiled binary from the go builder
 COPY --from=go-builder /hornerodb /app/hornerodb
