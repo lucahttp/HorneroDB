@@ -43,14 +43,8 @@ bin
 
 # docker
 .docker
-data
 
-
-
-
-
-
-
+/data/
 
 # Logs
 logs
@@ -204,3 +198,4 @@ test_results.txt
 
 # tmp
 tmp
+.gitignore

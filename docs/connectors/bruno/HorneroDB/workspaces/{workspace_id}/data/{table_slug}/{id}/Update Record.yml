@@ -1,0 +1,48 @@
+info:
+  name: Update Record
+  type: http
+  seq: 1
+
+http:
+  method: PUT
+  url: "{{baseUrl}}/workspaces/:workspace_id/data/:table_slug/:id"
+  params:
+    - name: workspace_id
+      value: ""
+      type: path
+    - name: table_slug
+      value: ""
+      type: path
+    - name: id
+      value: ""
+      type: path
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 200 Response
+    description: Success
+    request:
+      url: "{{baseUrl}}/workspaces/:workspace_id/data/:table_slug/:id"
+      method: PUT
+      params:
+        - name: workspace_id
+          value: ""
+          type: path
+        - name: table_slug
+          value: ""
+          type: path
+        - name: id
+          value: ""
+          type: path
+    response:
+      status: 200
+      statusText: OK
+      body:
+        type: text
+        data: ""

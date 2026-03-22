@@ -1,0 +1,42 @@
+info:
+  name: Create Record
+  type: http
+  seq: 2
+
+http:
+  method: POST
+  url: "{{baseUrl}}/workspaces/:workspace_id/data/:table_slug"
+  params:
+    - name: workspace_id
+      value: ""
+      type: path
+    - name: table_slug
+      value: ""
+      type: path
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+examples:
+  - name: 201 Response
+    description: Created
+    request:
+      url: "{{baseUrl}}/workspaces/:workspace_id/data/:table_slug"
+      method: POST
+      params:
+        - name: workspace_id
+          value: ""
+          type: path
+        - name: table_slug
+          value: ""
+          type: path
+    response:
+      status: 201
+      statusText: Created
+      body:
+        type: text
+        data: ""
