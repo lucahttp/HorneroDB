@@ -54,9 +54,7 @@ services:
       - hornero_network
 
   hornerodb-server:
-    build:
-      context: ../
-      dockerfile: Dockerfile
+    image: lukaneco/hornerodb:latest
     container_name: hornerodb-server
     restart: always
     env_file: .env
