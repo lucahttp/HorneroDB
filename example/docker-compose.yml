@@ -43,7 +43,7 @@ services:
       - "./pocketid_data:/app/data"
     labels:
       caddy: "pocketid-sso.${DOMAIN_NAME}"
-      caddy.reverse_proxy: "{{upstreams 1411}}"
+      caddy.reverse_proxy: "hornerodb-pocket-id:1411"
     healthcheck:
       test: [ "CMD", "/app/pocket-id", "healthcheck" ]
       interval: 1m30s
@@ -62,7 +62,7 @@ services:
       - "127.0.0.1:8080:80"
     labels:
       caddy: "hornerodb.${DOMAIN_NAME}"
-      caddy.reverse_proxy: "{{upstreams 80}}"
+      caddy.reverse_proxy: "hornerodb-server:80"
     depends_on:
       postgres:
         condition: service_healthy
@@ -73,6 +73,7 @@ services:
 
 networks:
   hornero_network:
+    name: hornero_network
     driver: bridge
 
 volumes:

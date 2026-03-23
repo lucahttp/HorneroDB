@@ -15,7 +15,7 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
     // Let's assume it's passed as prop or we use relative path if proxy set?
     // Playwright config sets baseURL.
     // In App.jsx: const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1'
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1'
+    const API_URL = import.meta.env.SERVER_PUBLIC_URL + '/api/v1' || 'http://localhost:8080/api/v1';
 
     const [users, setUsers] = useState([])
     const [loading, setLoading] = useState(true)
