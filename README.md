@@ -7,7 +7,7 @@ Your *vibecoded* app can have its **data protected just like large enterprises (
 
 **Built with Go + React (Optional).** A CRM / database in the style of Airtable, NocoDB, or PocketBase, but with an absolute focus on security: SSO using OIDC, and table, column, and row-level permissions (Dataverse style).
 
-![Preview](misc/screenshot_dashboard.png)
+![Preview](docs/screenshot_dashboard.png)
 
 ---
 
