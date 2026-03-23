@@ -3,7 +3,11 @@ package middleware
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
+	"log"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +24,19 @@ import (
 var (
 	// userCache maps email (string) to user_id (string) to prevent DB hits on every request
 	userCache sync.Map
+
+	// pocketIDUserInfoURL is set by InitPocketIDAuth to enable OIDC token verification
+	pocketIDUserInfoURL string
 )
+
+// InitPocketIDAuth configures the middleware to accept PocketID access_tokens.
+// Called from main.go after loading config.
+func InitPocketIDAuth(issuerURL string) {
+	if issuerURL != "" {
+		pocketIDUserInfoURL = issuerURL + "/api/oidc/userinfo"
+		log.Printf("✅ Auth middleware: PocketID token verification enabled (userinfo: %s)", pocketIDUserInfoURL)
+	}
+}
 
 type Claims struct {
 	UserID      string `json:"sub"`
@@ -67,6 +83,15 @@ func AuthRequired(secret string) gin.HandlerFunc {
 		})
 
 		if err != nil || !token.Valid {
+			// Fallback 1: Try PocketID access_token via userinfo endpoint
+			if pocketIDUserInfoURL != "" {
+				if handlePocketIDToken(c, tokenString, secret) {
+					c.Next()
+					return
+				}
+			}
+
+			// Fallback 2: Try API key
 			apiKey, roleName, err := verifyAPIKey(tokenString)
 			if err != nil {
 				c.JSON(401, gin.H{"error": "invalid token or API key"})
@@ -247,6 +272,107 @@ func setAPIKeyContext(c *gin.Context, apiKey *metadata.APIKey, roleName string) 
 	c.Set("api_key_allowed_origins", apiKey.AllowedOrigins)
 	c.Set("api_key_allowed_referers", apiKey.AllowedReferers)
 }
+
+// handlePocketIDToken validates a PocketID access_token by calling the userinfo endpoint.
+// Returns true if the token is valid and context was set, false otherwise.
+func handlePocketIDToken(c *gin.Context, accessToken, jwtSecret string) bool {
+	// Call PocketID userinfo endpoint with the access_token
+	req, err := http.NewRequestWithContext(c.Request.Context(), "GET", pocketIDUserInfoURL, nil)
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("DEBUG: PocketID userinfo error: %v", err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("DEBUG: PocketID userinfo returned %d: %s", resp.StatusCode, string(body))
+		return false
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false
+	}
+
+	// Parse userinfo response
+	var userInfo struct {
+		Sub     string `json:"sub"`
+		Email   string `json:"email"`
+		Name    string `json:"name"`
+		Picture string `json:"picture"`
+	}
+	if err := json.Unmarshal(body, &userInfo); err != nil {
+		log.Printf("DEBUG: PocketID userinfo parse error: %v", err)
+		return false
+	}
+
+	if userInfo.Sub == "" || userInfo.Email == "" {
+		log.Printf("DEBUG: PocketID userinfo missing sub or email")
+		return false
+	}
+
+	log.Printf("DEBUG: PocketID token verified for user: %s (%s)", userInfo.Email, userInfo.Sub)
+
+	// Resolve user role and workspace (same logic as OIDC callback)
+	roleName := "user"
+	workspaceID := ""
+
+	if database.DB != nil {
+		// Upsert user in local DB
+		user := metadata.User{
+			ID:          userInfo.Sub,
+			Email:       userInfo.Email,
+			Name:        userInfo.Name,
+			Picture:     userInfo.Picture,
+			LastLoginAt: time.Now(),
+		}
+		database.DB.Table("_hornero_users").Save(&user)
+
+		// Check if user is owner of any workspace
+		var ws metadata.Workspace
+		res := database.DB.Table("_hornero_workspaces").
+			Where("owner_id = ?", userInfo.Sub).
+			Limit(1).Find(&ws)
+		if res.Error == nil && res.RowsAffected > 0 {
+			workspaceID = ws.ID.String()
+			roleName = "admin"
+		} else {
+			// Check if user has a role assigned in any workspace
+			var userRole metadata.UserRole
+			resRole := database.DB.Table("_hornero_user_roles").
+				Where("user_id = ?", userInfo.Sub).
+				Limit(1).Find(&userRole)
+			if resRole.Error == nil && resRole.RowsAffected > 0 && userRole.RoleID != uuid.Nil {
+				var role metadata.Role
+				resRoleName := database.DB.Table("_hornero_roles").
+					Where("id = ?", userRole.RoleID).
+					Limit(1).Find(&role)
+				if resRoleName.Error == nil && resRoleName.RowsAffected > 0 {
+					roleName = role.Name
+				}
+				workspaceID = userRole.WorkspaceID.String()
+			}
+		}
+	}
+
+	// Set context (same fields as HMAC JWT flow)
+	c.Set("user_id", userInfo.Sub)
+	c.Set("email", userInfo.Email)
+	c.Set("workspace_id", workspaceID)
+	c.Set("role", roleName)
+	c.Set("auth_source", "oidc")
+
+	return true
+}
+
 
 func OptionalAuth(secret string) gin.HandlerFunc {
 	return func(c *gin.Context) {

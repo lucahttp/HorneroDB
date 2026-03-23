@@ -55,6 +55,11 @@ func main() {
 		log.Printf("Warning: Auth not initialized: %v", err)
 	}
 
+	// Enable PocketID access_token verification in auth middleware (for Power Automate / external OIDC clients)
+	if cfg.Auth.PocketIDConfig.Enabled {
+		middleware.InitPocketIDAuth(cfg.Auth.PocketIDConfig.PublicURL)
+	}
+
 	// Start Background Workers
 	workers.StartWebhookProcessor()
 
