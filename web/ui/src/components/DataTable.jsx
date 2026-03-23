@@ -169,8 +169,8 @@ export function DataTable({
 
     // Use capture phase to handle events before React's synthetic event system
     const clickHandler = (e) => {
-      // If click is inside the popover portal, do nothing
-      if (e.target.closest('.column-add-popover')) return;
+      // e.target may not be an Element (e.g. document), guard against that
+      if (e.target?.closest && e.target.closest('.column-add-popover')) return;
       // If click is inside the add button, do nothing (handled by onClick)
       if (addColumnRef.current && addColumnRef.current.contains(e.target)) return;
 
@@ -178,8 +178,8 @@ export function DataTable({
     }
 
     const scrollHandler = (e) => {
-      // Only close if scrolling something outside the popover itself (like the table container or page)
-      if (!e.target.closest('.column-add-popover')) {
+      // e.target can be document or non-Element nodes which lack .closest()
+      if (!e.target?.closest || !e.target.closest('.column-add-popover')) {
         setShowAddColumn(false)
       }
     }

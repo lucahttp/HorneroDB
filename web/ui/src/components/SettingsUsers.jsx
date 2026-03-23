@@ -3,19 +3,10 @@ import { useTranslation } from 'react-i18next'
 import { Group, UserPlus, Trash, ShieldCheck, QrCode } from 'iconoir-react'
 import axios from 'axios'
 import { Button, Badge, Modal, EmptyState, LoadingSpinner } from './index.jsx'
-
-// Helper for toast notifications (assuming window.notify exists from App.jsx or we pass it)
-// Ideally we should use a proper context or prop. For now, we'll accept `notify` as prop.
-// Also needs `API_URL`.
+import { API_URL } from '../constants/index.js'
 
 export default function SettingsUsers({ workspaceId, roles, notify }) {
     const { t } = useTranslation()
-    // We assume API_URL is available globally or we should pass it. 
-    // App.jsx defines API_URL constant. We should probably export it or pass it.
-    // Let's assume it's passed as prop or we use relative path if proxy set?
-    // Playwright config sets baseURL.
-    // In App.jsx: const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1'
-    const API_URL = import.meta.env.SERVER_PUBLIC_URL + '/api/v1' || 'http://localhost:8080/api/v1';
 
     const [users, setUsers] = useState([])
     const [loading, setLoading] = useState(true)

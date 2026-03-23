@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { Xmark, NavArrowLeft, NavArrowRight, Search } from 'iconoir-react'
 import { Button } from './index.jsx'
-
-const API_URL = import.meta.env.SERVER_PUBLIC_URL + '/api/v1' || 'http://localhost:8080/api/v1';
+import { API_URL } from '../constants/index.js'
 
 export function RelationPicker({
   workspaceId,

@@ -81,7 +81,7 @@ func Load() (*Config, error) {
 	config := &Config{
 		Server: ServerConfig{
 			Port:         getEnv("SERVER_PORT", "8080"),
-			PublicURL:    getEnv("SERVER_PUBLIC_URL", "http://localhost:5173"),
+			PublicURL:    getEnv("VITE_SERVER_PUBLIC_URL", "http://localhost:5173"),
 			AdminURL:     getEnv("HORNERO_ADMIN_URL", "http://localhost:5173"),
 			ReadTimeout:  30 * time.Second,
 			WriteTimeout: 30 * time.Second,
