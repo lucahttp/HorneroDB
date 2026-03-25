@@ -82,6 +82,7 @@ cd web/ui && npm install && npm run dev
 
 
 docker compose up -d --no-deps --build hornerodb-server
+go run cmd/server/main.go
 ---
 
 ## 🔐 Security in Detail

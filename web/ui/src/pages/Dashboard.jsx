@@ -154,12 +154,13 @@ export default function Dashboard() {
                 accept=".json" 
                 onChange={handleImportWorkspace} 
               />
-              <Button variant="secondary" onClick={() => importInputRef.current?.click()} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Button variant="secondary" onClick={() => importInputRef.current?.click()} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem' }}>
                 <svg width="1.25rem" height="1.25rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                {t('import_workspace') || 'Import'}
+                <span className="hidden sm:inline">{t('import_workspace') || 'Import'}</span>
               </Button>
-              <Button onClick={() => setShowCreate(true)}>
-                {t('new_workspace_button')}
+              <Button onClick={() => setShowCreate(true)} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem' }}>
+                <span style={{ fontSize: '1.25rem', lineHeight: 1 }}>+</span>
+                <span className="hidden sm:inline">{t('new_workspace_button')}</span>
               </Button>
             </div>
           </div>

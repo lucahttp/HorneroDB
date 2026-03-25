@@ -524,6 +524,11 @@ body {
   gap: 0;
   border-bottom: var(--border-thick) solid var(--border-color);
   margin-bottom: 1.5rem;
+  overflow-x: scroll;
+
+  /* Hide vertical scrollbar on buttons */
+  overflow-y: hidden;
+  padding-bottom: 0;
 }
 
 .tab {

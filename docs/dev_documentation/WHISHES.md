@@ -87,7 +87,7 @@ cuando estas una tabla de datos y ves la tabla de datos vas a notar de que no es
 
 ### Login de usuarios [Feature]
 
-quiero poder gestionar nuevos usuarios y que permisos tienen dentro de cada workspace, 
+quiero poder gestionar nuevos usuarios y que permisos tienen dentro de cada workspace,
 
 
 ### Languaje dropdown [Feature]
@@ -134,10 +134,10 @@ quiero saber que opciones de seguridad tienes pocketbase, nocodb (creo que son m
 
 POST http://localhost:8080/api/v1/workspaces/6d1a2f07-ee97-488d-a9f2-1eec6fd4dd70/users 404 (Not Found)
 AxiosInterceptor.jsx:20 Global API Error: AxiosError: Request failed with status code 404
-    at settle (axios.js?v=d4df10c7:1281:12)
-    at XMLHttpRequest.onloadend (axios.js?v=d4df10c7:1638:7)
+   at settle (axios.js?v=d4df10c7:1281:12)
+   at XMLHttpRequest.onloadend (axios.js?v=d4df10c7:1638:7)
 SettingsUsers.jsx:61 AxiosError: Request failed with status code 404
-    at async handleImport (SettingsUsers.jsx:51:13)
+   at async handleImport (SettingsUsers.jsx:51:13)
 
 
 "User not found in PocketID or Local DB"
@@ -154,7 +154,7 @@ $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
 Invoke-WebRequest -UseBasicParsing -Uri "http://localhost:8080/api/v1/workspaces/6d1a2f07-ee97-488d-a9f2-1eec6fd4dd70/data/turnos" `
 -WebSession $session `
 -Headers @{
-  "Authorization"="key_6d1a2f07CiWF8NjD6QAFoLgr82NMmUIpS3F9jEJZ"
+ "Authorization"="key_6d1a2f07CiWF8NjD6QAFoLgr82NMmUIpS3F9jEJZ"
 }
 
 
@@ -190,7 +190,7 @@ which actions can do from the tables
 
 copy from excel/google sheets
 paste to excel/google sheets
-import from excel/csv to generate table wizzard, inferring column types 
+import from excel/csv to generate table wizzard, inferring column types
 
 ### Tables relationships [Feature]
 add relationships between tables, like in nocodb
@@ -202,12 +202,12 @@ use cases, credit cards, PII, medical info, etc
 ### Export/Import [Feature]
 allow export/import of tables
 allow export/import of workspaces schemas
-    table schemas
-    security policies
-    api configurations (not api keys)
-    users
-    roles
-    
+   table schemas
+   security policies
+   api configurations (not api keys)
+   users
+   roles
+  
 ## V 1.0.0
 
 ### Automation steps
@@ -264,3 +264,55 @@ https://pocket-id.org/docs/api
 
 
 quiero poder agregar usuarios a hornerodb y que se pueda gestionar desde hornerodb. desde entonces solo pueden ver los workspaces que tienen permisos
+
+
+# mejora de la UI para la configuracion inicial
+quiero que la configuracion se pueda realizar desde la UI de HorneroDB cuando recien lo intalas si falta alguna de las variables de entorno tipo como cuando instalas wordpress o drupal
+
+
+
+
+
+
+# UI Mobile
+mejorar la interfaz
+es como que hay cosas que se debordan de los limites de la pantalla mobile del telefono
+los navbars se ven mal como aglutinados
+las tablas se ven mal como todo abarrotado
+
+
+
+
+
+# navbar all pages
+
+el dropdown de idiomas y el toggle de theme ocupan mucho espacio en mobile, quiero que se vean solo iconos, se ve tambien el de logout.
+yo pondria el toggle de theme y un boton de sawndwich que muestr el perfil, el logout y el dropdown de idiomas.
+
+
+
+# workspaces page
+en la pantalla https://hornerodb.pelucasistemas.com.ar/dashboard en la que se ven los workspaces
+veo la parte de import workspace y nuevo workspace abarrotados, quiero que en mobile se vean solo iconos
+
+# tables page
+se ve bien
+
+# table page
+
+import, export y export schema quiero que solo sean iconos en mobile
+
+thoughts: 
+creo que el checkbox de seleccionar todos los registros ocupa espacio al pedo en mobile, ademas el id creo que es al pedo, a nadie le importa el id de una fila, solo el contenido de la fila.
+
+
+## edit 1
+cuando se selecciona una fila en la tabla, se resalta la fila y se muestra un boton de editar y eliminar en la barra de herramientas. te muestra un checkbox en la primera columna de la fila (como estaba antes) seleccionada y te permite seleccionar mas filas si las clickeo, tambien se muestra el numero de filas seleccionadas, te muestra un boton para seleccionar todas las filas de la tabla y un boton de eliminar todas las filas seleccionadas.
+
+## configuracion -- permisos de tabla
+
+quiero que cuando la pantalla es reducida (mobile) se muestre solo "Todas" es vez de "Todas las tablas" y que en en la tabla en vez de min-width: 800px; sea min-width: 600px
+
+
+# UI General
+qiero que el sistema de tablas y ver todas las tablas se vea mas como NocoDB

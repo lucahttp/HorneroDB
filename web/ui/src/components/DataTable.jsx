@@ -365,7 +365,7 @@ export function DataTable({
       <table className="table">
         <thead>
           <tr>
-            <th style={{ width: '40px', textAlign: 'center' }}>
+            <th className="hidden sm:table-cell" style={{ width: '40px', textAlign: 'center' }}>
               <input
                 type="checkbox"
                 className="row-checkbox"
@@ -374,7 +374,7 @@ export function DataTable({
                 title={allSelected ? t('deselect_all') : t('select_all')}
               />
             </th>
-            <th style={{ width: '100px' }}>
+            <th className="hidden sm:table-cell" style={{ width: '100px' }}>
               <span className="field-type-icon" style={{ background: '#94a3b8', color: '#fff' }}>⚿</span>
               ID
             </th>
@@ -536,7 +536,7 @@ export function DataTable({
             const isSelected = selectedRows.has(record.id)
             return (
               <tr key={record.id || i} className={isSelected ? 'row-selected' : ''}>
-                <td style={{ textAlign: 'center' }}>
+                <td className="hidden sm:table-cell" style={{ textAlign: 'center' }}>
                   <input
                     type="checkbox"
                     className="row-checkbox"
@@ -544,7 +544,7 @@ export function DataTable({
                     onChange={() => toggleRow(record.id)}
                   />
                 </td>
-                <td>
+                <td className="hidden sm:table-cell">
                   <code style={{
                     fontSize: '0.75rem',
                     fontFamily: 'var(--font-mono)',
@@ -592,8 +592,8 @@ export function DataTable({
 
           {/* Ghost row */}
           <tr className="inline-new-row">
-            <td></td>
-            <td style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+            <td className="hidden sm:table-cell"></td>
+            <td className="hidden sm:table-cell" style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
               {creatingRow ? (
                 <div className="loading-spinner" style={{ width: '16px', height: '16px', borderWidth: '2px' }} />
               ) : t('new')}
