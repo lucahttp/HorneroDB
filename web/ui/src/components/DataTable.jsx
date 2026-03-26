@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { ColumnHeaderMenu } from './ColumnHeaderMenu.jsx'
 import { getFieldConfig, FIELD_TYPE_OPTIONS } from '../fieldTypeConfig.jsx'
-import { Trash } from 'iconoir-react'
+import { Trash, EditPencil, CheckCircle } from 'iconoir-react'
 import { useTranslation } from 'react-i18next'
 import { RelationPicker } from './RelationPicker.jsx'
 
@@ -88,6 +88,18 @@ export function DataTable({
     if (!count) return
     if (confirm(t('confirm_delete_records', { count }))) {
       onBulkDelete([...selectedRows])
+      setSelectedRows(new Set())
+    }
+  }
+
+  const handleEditSelected = () => {
+    if (selectedRows.size !== 1) return
+    const id = [...selectedRows][0]
+    const record = records.find(r => r.id === id)
+    if (record && columns.length > 0) {
+      const firstCol = columns[0]
+      startEditing(id, firstCol.slug, firstCol.field_type, record[firstCol.slug])
+      setSelectedRows(new Set())
     }
   }
 
@@ -349,23 +361,40 @@ export function DataTable({
     <div className="table-container" style={{ position: 'relative', overflowX: 'auto' }}>
       {/* Bulk actions toolbar */}
       {hasSelection && (
-        <div className="bulk-toolbar">
-          <label className="bulk-toolbar-count">
-            {t('selected_count', { count: selectedRows.size })}
-          </label>
-          <button className="btn btn-danger btn-sm" onClick={handleBulkDelete}>
-            <Trash width="1rem" height="1rem" style={{ marginRight: '0.5rem' }} /> {t('delete_selected')}
-          </button>
-          <button className="btn btn-ghost btn-sm" onClick={() => setSelectedRows(new Set())}>
-            {t('deselect')}
-          </button>
+        <div className="bulk-toolbar" style={{ flexWrap: 'nowrap', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1 }}>
+            <label className="bulk-toolbar-count" style={{ whiteSpace: 'nowrap' }}>
+              {selectedRows.size} {selectedRows.size === 1 ? t('selected') : t('selected_plural')}
+            </label>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button className="btn btn-secondary btn-sm" onClick={toggleAll}>
+                {allSelected ? t('deselect_all') : t('select_all')}
+              </button>
+              {selectedRows.size === 1 && (
+                <button className="btn btn-secondary btn-sm" onClick={handleEditSelected}>
+                  <EditPencil width="1rem" height="1rem" style={{ marginRight: '0.35rem' }} />
+                  {t('edit')}
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button className="btn btn-danger btn-sm" onClick={handleBulkDelete}>
+              <Trash width="1rem" height="1rem" style={{ marginRight: '0.35rem' }} />
+              {t('delete_selected')}
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setSelectedRows(new Set())}>
+              {t('cancel')}
+            </button>
+          </div>
         </div>
       )}
 
       <table className="table">
         <thead>
           <tr>
-            <th className="hidden sm:table-cell" style={{ width: '40px', textAlign: 'center' }}>
+            <th className={hasSelection ? "" : "hidden sm:table-cell"} style={{ width: '40px', textAlign: 'center' }}>
               <input
                 type="checkbox"
                 className="row-checkbox"
@@ -535,13 +564,22 @@ export function DataTable({
           {records.map((record, i) => {
             const isSelected = selectedRows.has(record.id)
             return (
-              <tr key={record.id || i} className={isSelected ? 'row-selected' : ''}>
-                <td className="hidden sm:table-cell" style={{ textAlign: 'center' }}>
+              <tr
+                key={record.id || i}
+                className={isSelected ? 'row-selected' : ''}
+                onClick={() => {
+                  if (hasSelection) toggleRow(record.id)
+                }}
+              >
+                <td className={hasSelection ? "" : "hidden sm:table-cell"} style={{ textAlign: 'center' }}>
                   <input
                     type="checkbox"
                     className="row-checkbox"
                     checked={isSelected}
-                    onChange={() => toggleRow(record.id)}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      toggleRow(record.id);
+                    }}
                   />
                 </td>
                 <td className="hidden sm:table-cell">
@@ -562,8 +600,13 @@ export function DataTable({
                     <td
                       key={col.id}
                       className={isEditing ? 'cell-editing' : 'cell-clickable'}
-                      onClick={() => {
-                        if (!isEditing) startEditing(record.id, col.slug, col.field_type, record[col.slug])
+                      onClick={(e) => {
+                        if (hasSelection) {
+                          e.stopPropagation();
+                          toggleRow(record.id);
+                        } else if (!isEditing) {
+                          startEditing(record.id, col.slug, col.field_type, record[col.slug])
+                        }
                       }}
                     >
                       {isEditing
@@ -579,7 +622,21 @@ export function DataTable({
                     <button
                       className="btn btn-ghost btn-sm"
                       style={{ padding: '4px' }}
-                      onClick={() => onDeleteRecord(record.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleRow(record.id);
+                      }}
+                      title={t('select')}
+                    >
+                      <CheckCircle width="1rem" height="1rem" style={{ color: isSelected ? 'var(--primary)' : 'var(--text-muted)' }} />
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      style={{ padding: '4px' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteRecord(record.id);
+                      }}
                       title={t('delete_record')}
                     >
                       <Trash width="1rem" height="1rem" style={{ color: 'var(--danger)' }} />
@@ -592,7 +649,7 @@ export function DataTable({
 
           {/* Ghost row */}
           <tr className="inline-new-row">
-            <td className="hidden sm:table-cell"></td>
+            <td className={hasSelection ? "" : "hidden sm:table-cell"}></td>
             <td className="hidden sm:table-cell" style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
               {creatingRow ? (
                 <div className="loading-spinner" style={{ width: '16px', height: '16px', borderWidth: '2px' }} />

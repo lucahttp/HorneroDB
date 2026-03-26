@@ -114,7 +114,7 @@ export function PermissionMatrix({
       {currentRole && (
         <>
           <div className="table-container" style={{ overflow: 'scroll' }}>
-            <table className="table" style={{ minWidth: '800px' }}>
+            <table className="table table-permissions" style={{ minWidth: '800px' }}>
               <thead>
                 <tr>
                   <th style={{ minWidth: '120px' }}>{t('table')}</th>
@@ -126,7 +126,9 @@ export function PermissionMatrix({
               <tbody>
                 <tr>
                   <td style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <Globe width="1rem" height="1rem" /> {t('all_tables')}
+                    <Globe width="1rem" height="1rem" /> 
+                    <span className="hidden sm:inline">{t('all_tables')}</span>
+                    <span className="sm:hidden">{t('all') || 'Todas'}</span>
                   </td>
                   {OPERATIONS.map(action => (
                     <td key={action}>
