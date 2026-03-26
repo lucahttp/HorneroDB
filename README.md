@@ -78,19 +78,6 @@ go build -o bin/hornerodb ./cmd/server
 cd web/ui && npm install && npm run dev
 ```
 
-
-
-
-docker compose up -d --no-deps --build hornerodb-server
-
-
-
-go run cmd/server/main.go
-
-useful command for development (compiles and runs)
-cd .\web\ui\ && npm run build && cd ../.. && go run cmd/server/main.go
-
-
 ---
 
 ## 🔐 Security in Detail

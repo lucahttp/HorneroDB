@@ -12,7 +12,7 @@ services:
       - hornero_network
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - caddy_data:/data
+      - ./caddy_data:/data
 
   postgres:
     image: postgres:18-alpine
@@ -23,7 +23,8 @@ services:
       # Expuesto solo localmente
       - "127.0.0.1:5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # Ruta corregida para que los datos persistan en tu carpeta local
+      - ./postgres_data:/var/lib/postgresql
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 10s
@@ -40,7 +41,7 @@ services:
     ports:
       - "127.0.0.1:1411:1411"
     volumes:
-      - "./pocketid_data:/app/data"
+      - ./pocketid_data:/app/data
     labels:
       caddy: "pocketid-sso.${DOMAIN_NAME}"
       caddy.reverse_proxy: "hornerodb-pocket-id:1411"
@@ -75,7 +76,3 @@ networks:
   hornero_network:
     name: hornero_network
     driver: bridge
-
-volumes:
-  postgres_data:
-  caddy_data:
