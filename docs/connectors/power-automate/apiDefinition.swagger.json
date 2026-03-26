@@ -1,508 +1,538 @@
 {
-    "swagger": "2.0",
-    "info": {
-        "title": "HorneroDB",
-        "description": "CRM-style database-as-a-service API for Power Automate. Read, Write, and Trigger Workflows on Data changes.",
-        "version": "1.0.0"
-    },
-    "host": "api.hornerodb.com",
-    "basePath": "/api/v1",
-    "schemes": [
-        "https"
-    ],
-    "securityDefinitions": {
-        "oauth2_auth": {
-            "type": "oauth2",
-            "flow": "accessCode",
-            "authorizationUrl": "https://{YOUR_POCKETID_HOST}/authorize",
-            "tokenUrl": "https://{YOUR_POCKETID_HOST}/api/oidc/token",
-            "scopes": {
-                "openid": "OpenID Connect",
-                "profile": "User Profile",
-                "email": "User Email"
-            }
-        },
-        "api_key": {
-            "type": "apiKey",
-            "in": "header",
-            "name": "Authorization"
-        }
-    },
-    "security": [
-        {
-            "oauth2_auth": [
-                "openid",
-                "profile",
-                "email"
-            ]
-        }
-    ],
-    "paths": {
-        "/workspaces": {
-            "get": {
-                "summary": "List Workspaces",
-                "description": "Lists all workspaces the user or API key has access to.",
-                "operationId": "ListWorkspaces",
-                "responses": {
-                    "200": {
-                        "description": "Success",
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "data": {
-                                    "type": "array",
-                                    "items": {
-                                        "$ref": "#/definitions/Workspace"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/workspaces/{workspace_id}/tables": {
-            "get": {
-                "summary": "List Tables",
-                "description": "Lists all tables within a workspace.",
-                "operationId": "ListTables",
-                "parameters": [
-                    {
-                        "name": "workspace_id",
-                        "in": "path",
-                        "required": true,
-                        "type": "string",
-                        "format": "uuid"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Success",
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "data": {
-                                    "type": "array",
-                                    "items": {
-                                        "$ref": "#/definitions/Table"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/workspaces/{workspace_id}/data/{table_slug}": {
-            "get": {
-                "summary": "List Records",
-                "description": "Lists all records in a table.",
-                "operationId": "ListRecords",
-                "parameters": [
-                    {
-                        "name": "workspace_id",
-                        "in": "path",
-                        "required": true,
-                        "type": "string",
-                        "format": "uuid"
-                    },
-                    {
-                        "name": "table_slug",
-                        "in": "path",
-                        "required": true,
-                        "type": "string"
-                    },
-                    {
-                        "name": "page",
-                        "in": "query",
-                        "required": false,
-                        "type": "integer"
-                    },
-                    {
-                        "name": "per_page",
-                        "in": "query",
-                        "required": false,
-                        "type": "integer"
-                    },
-                    {
-                        "name": "expand",
-                        "in": "query",
-                        "required": false,
-                        "type": "string",
-                        "description": "Comma-separated list of relation columns to expand into human-readable labels"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Success",
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "data": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "additionalProperties": {}
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            "post": {
-                "summary": "Create Record",
-                "description": "Creates a new record in the table.",
-                "operationId": "CreateRecord",
-                "parameters": [
-                    {
-                        "name": "workspace_id",
-                        "in": "path",
-                        "required": true,
-                        "type": "string",
-                        "format": "uuid"
-                    },
-                    {
-                        "name": "table_slug",
-                        "in": "path",
-                        "required": true,
-                        "type": "string"
-                    },
-                    {
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {}
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "data": {
-                                    "type": "object",
-                                    "additionalProperties": {}
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/workspaces/{workspace_id}/data/{table_slug}/{id}": {
-            "get": {
-                "summary": "Get Record",
-                "description": "Gets a single record by ID.",
-                "operationId": "GetRecord",
-                "parameters": [
-                    {
-                        "name": "workspace_id",
-                        "in": "path",
-                        "required": true,
-                        "type": "string",
-                        "format": "uuid"
-                    },
-                    {
-                        "name": "table_slug",
-                        "in": "path",
-                        "required": true,
-                        "type": "string"
-                    },
-                    {
-                        "name": "id",
-                        "in": "path",
-                        "required": true,
-                        "type": "string",
-                        "format": "uuid"
-                    },
-                    {
-                        "name": "expand",
-                        "in": "query",
-                        "required": false,
-                        "type": "string",
-                        "description": "Comma-separated list of relation columns to expand into human-readable labels"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Success",
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "data": {
-                                    "type": "object",
-                                    "additionalProperties": {}
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            "put": {
-                "summary": "Update Record",
-                "description": "Updates an existing record.",
-                "operationId": "UpdateRecord",
-                "parameters": [
-                    {
-                        "name": "workspace_id",
-                        "in": "path",
-                        "required": true,
-                        "type": "string",
-                        "format": "uuid"
-                    },
-                    {
-                        "name": "table_slug",
-                        "in": "path",
-                        "required": true,
-                        "type": "string"
-                    },
-                    {
-                        "name": "id",
-                        "in": "path",
-                        "required": true,
-                        "type": "string",
-                        "format": "uuid"
-                    },
-                    {
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {}
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Success"
-                    }
-                }
-            },
-            "delete": {
-                "summary": "Delete Record",
-                "description": "Deletes a record from the table.",
-                "operationId": "DeleteRecord",
-                "parameters": [
-                    {
-                        "name": "workspace_id",
-                        "in": "path",
-                        "required": true,
-                        "type": "string",
-                        "format": "uuid"
-                    },
-                    {
-                        "name": "table_slug",
-                        "in": "path",
-                        "required": true,
-                        "type": "string"
-                    },
-                    {
-                        "name": "id",
-                        "in": "path",
-                        "required": true,
-                        "type": "string",
-                        "format": "uuid"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Success"
-                    }
-                }
-            }
-        },
-        "/workspaces/{workspace_id}/webhooks": {
-            "get": {
-                "summary": "List Webhooks",
-                "description": "Lists all active webhooks for a workspace.",
-                "operationId": "ListWebhooks",
-                "parameters": [
-                    {
-                        "name": "workspace_id",
-                        "in": "path",
-                        "required": true,
-                        "type": "string",
-                        "format": "uuid"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Success",
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "data": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "additionalProperties": {}
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            "post": {
-                "summary": "Subscribe to Webhook",
-                "description": "Creates a new webhook subscription, used by PowerAutomate Triggers.",
-                "operationId": "SubscribeWebhook",
-                "x-ms-notification-content": {
-                    "description": "Triggered when a row changes.",
-                    "schema": {
-                        "$ref": "#/definitions/WebhookEvent"
-                    }
+  "swagger": "2.0",
+  "info": {
+    "title": "HorneroDB",
+    "description": "CRM-style database-as-a-service API for Power Automate. Read, Write, and Trigger Workflows on Data changes.",
+    "version": "1.0.0"
+  },
+  "host": "hornerodb.pelucasistemas.com.ar",
+  "basePath": "/api/v1",
+  "schemes": [
+    "https"
+  ],
+  "consumes": [],
+  "produces": [],
+  "paths": {
+    "/workspaces": {
+      "get": {
+        "summary": "List Workspaces",
+        "description": "Lists all workspaces the user or API key has access to.",
+        "operationId": "ListWorkspaces",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": {
+                  "type": "boolean",
+                  "description": "success"
                 },
-                "parameters": [
-                    {
-                        "name": "workspace_id",
-                        "in": "path",
-                        "required": true,
+                "data": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
                         "type": "string",
-                        "format": "uuid"
-                    },
-                    {
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "resource": {
-                                    "type": "string",
-                                    "format": "uuid",
-                                    "description": "Table ID to listen to"
-                                },
-                                "change_type": {
-                                    "type": "string",
-                                    "description": "Comma separated: created,updated,deleted"
-                                },
-                                "notification_url": {
-                                    "type": "string",
-                                    "format": "uri"
-                                },
-                                "client_state": {
-                                    "type": "string"
-                                }
-                            },
-                            "required": [
-                                "resource",
-                                "change_type",
-                                "notification_url"
-                            ]
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created"
-                    }
-                }
-            }
-        },
-        "/workspaces/{workspace_id}/webhooks/{webhook_id}": {
-            "delete": {
-                "summary": "Unsubscribe Webhook",
-                "description": "Deletes a webhook subscription.",
-                "operationId": "UnsubscribeWebhook",
-                "parameters": [
-                    {
-                        "name": "workspace_id",
-                        "in": "path",
-                        "required": true,
+                        "description": "id"
+                      },
+                      "name": {
                         "type": "string",
-                        "format": "uuid"
-                    },
-                    {
-                        "name": "webhook_id",
-                        "in": "path",
-                        "required": true,
+                        "description": "name"
+                      },
+                      "slug": {
                         "type": "string",
-                        "format": "uuid"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Success"
-                    }
-                }
-            }
-        }
-    },
-    "definitions": {
-        "Workspace": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string",
-                    "format": "uuid"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "slug": {
-                    "type": "string"
-                },
-                "owner_id": {
-                    "type": "string",
-                    "format": "uuid"
-                }
-            }
-        },
-        "Table": {
-            "type": "object",
-            "properties": {
-                "id": {
-                    "type": "string",
-                    "format": "uuid"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "slug": {
-                    "type": "string"
-                }
-            }
-        },
-        "WebhookEvent": {
-            "type": "object",
-            "properties": {
-                "value": {
-                    "type": "array",
-                    "items": {
+                        "description": "slug"
+                      },
+                      "owner_id": {
+                        "type": "string",
+                        "description": "owner_id"
+                      },
+                      "settings": {
                         "type": "object",
-                        "properties": {
-                            "subscriptionId": {
-                                "type": "string",
-                                "format": "uuid"
-                            },
-                            "clientState": {
-                                "type": "string"
-                            },
-                            "changeType": {
-                                "type": "string"
-                            },
-                            "resource": {
-                                "type": "string"
-                            },
-                            "eventDateTime": {
-                                "type": "string",
-                                "format": "date-time"
-                            },
-                            "resourceData": {
-                                "type": "object",
-                                "additionalProperties": {}
-                            }
-                        }
+                        "properties": {},
+                        "description": "settings"
+                      },
+                      "created_at": {
+                        "type": "string",
+                        "description": "created_at"
+                      },
+                      "updated_at": {
+                        "type": "string",
+                        "description": "updated_at"
+                      }
                     }
+                  },
+                  "description": "data"
+                },
+                "meta": {
+                  "type": "object",
+                  "properties": {
+                    "count": {
+                      "type": "integer",
+                      "format": "int32",
+                      "description": "count"
+                    }
+                  },
+                  "description": "meta"
                 }
+              }
             }
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/workspaces/{workspace_id}/tables": {
+      "get": {
+        "summary": "List Tables",
+        "description": "Lists all tables within a workspace.",
+        "operationId": "ListTables",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "data": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Table"
+                  }
+                }
+              }
+            }
+          }
         }
+      }
+    },
+    "/workspaces/{workspace_id}/data/{table_slug}": {
+      "get": {
+        "summary": "List Records",
+        "description": "Lists all records in a table.",
+        "operationId": "ListRecords",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid"
+          },
+          {
+            "name": "table_slug",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "type": "integer"
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "required": false,
+            "type": "integer"
+          },
+          {
+            "name": "expand",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "description": "Comma-separated list of relation columns to expand into human-readable labels"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "data": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create Record",
+        "description": "Creates a new record in the table.",
+        "operationId": "CreateRecord",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid"
+          },
+          {
+            "name": "table_slug",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "additionalProperties": {}
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "data": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/data/{table_slug}/{id}": {
+      "get": {
+        "summary": "Get Record",
+        "description": "Gets a single record by ID.",
+        "operationId": "GetRecord",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid"
+          },
+          {
+            "name": "table_slug",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid"
+          },
+          {
+            "name": "expand",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "description": "Comma-separated list of relation columns to expand into human-readable labels"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "data": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete Record",
+        "description": "Deletes a record from the table.",
+        "operationId": "DeleteRecord",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid"
+          },
+          {
+            "name": "table_slug",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      },
+      "put": {
+        "summary": "Update Record",
+        "description": "Updates an existing record.",
+        "operationId": "UpdateRecord",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid"
+          },
+          {
+            "name": "table_slug",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "additionalProperties": {}
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    },
+    "/workspaces/{workspace_id}/webhooks": {
+      "x-ms-notification-content": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "changeType": {
+                    "type": "string",
+                    "description": "changeType"
+                  },
+                  "eventDateTime": {
+                    "type": "string",
+                    "description": "eventDateTime"
+                  },
+                  "resource": {
+                    "type": "string",
+                    "description": "resource"
+                  },
+                  "resourceData": {
+                    "type": "object",
+                    "properties": {
+                      "created_at": {
+                        "type": "string",
+                        "description": "created_at"
+                      },
+                      "created_by": {
+                        "type": "string",
+                        "description": "created_by"
+                      },
+                      "id": {
+                        "type": "string",
+                        "description": "id"
+                      },
+                      "updated_at": {
+                        "type": "string",
+                        "description": "updated_at"
+                      }
+                    },
+                    "description": "resourceData"
+                  },
+                  "subscriptionId": {
+                    "type": "string",
+                    "description": "subscriptionId"
+                  }
+                }
+              },
+              "description": "value"
+            }
+          }
+        },
+        "description": "Un registro"
+      },
+      "post": {
+        "summary": "When there is an updated item",
+        "description": "Creates a new webhook subscription, used by PowerAutomate Triggers.",
+        "operationId": "WhenItemUpdate",
+        "x-ms-trigger": "single",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uuid",
+            "x-ms-dynamic-values": {
+              "operationId": "ListWorkspaces",
+              "value-path": "id",
+              "value-collection": "data",
+              "value-title": "name"
+            }
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "resource": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "Table ID to listen to",
+                  "title": "",
+                  "x-ms-dynamic-values": {
+                    "operationId": "ListTables",
+                    "value-path": "id",
+                    "value-collection": "data",
+                    "value-title": "name",
+                    "parameters": {
+                      "workspace_id": {
+                        "parameter": "workspace_id"
+                      }
+                    }
+                  }
+                },
+                "change_type": {
+                  "type": "string",
+                  "description": "Comma separated: created,updated,deleted",
+                  "title": "",
+                  "default": "created,updated,deleted",
+                  "x-ms-visibility": "important"
+                },
+                "notification_url": {
+                  "type": "string",
+                  "format": "uri",
+                  "x-ms-notification-url": true,
+                  "x-ms-visibility": "internal"
+                },
+                "client_state": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "resource",
+                "change_type",
+                "notification_url"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        }
+      }
     }
+  },
+  "definitions": {
+    "Workspace": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "owner_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "Table": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string"
+        },
+        "slug": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "parameters": {},
+  "responses": {},
+  "security": [
+    {
+      "oauth2-auth": [
+        "openid",
+        "profile",
+        "email",
+        "offline_access"
+      ]
+    }
+  ],
+  "tags": [],
+  "securityDefinitions": {
+    "oauth2-auth": {
+      "type": "oauth2",
+      "flow": "accessCode",
+      "authorizationUrl": "https://pocketid-sso.pelucasistemas.com.ar/authorize",
+      "tokenUrl": "https://pocketid-sso.pelucasistemas.com.ar/api/oidc/token",
+      "scopes": {
+        "openid": "openid",
+        "profile": "profile",
+        "email": "email",
+        "offline_access": "offline_access"
+      }
+    }
+  }
 }

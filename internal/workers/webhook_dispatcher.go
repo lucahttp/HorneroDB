@@ -119,7 +119,7 @@ func DispatchWebhookAsync(workspaceID, tableID uuid.UUID, tableSlug, changeType 
 			outboxEvent := metadata.WebhookOutboxEvent{
 				WebhookID:       wh.ID,
 				NotificationURL: wh.NotificationURL,
-				Payload:         jsonPayload,
+				Payload:         metadata.JSON(jsonPayload),
 				Status:          "pending",
 				NextAttemptAt:   time.Now(),
 			}
