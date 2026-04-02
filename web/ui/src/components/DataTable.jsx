@@ -190,6 +190,9 @@ export function DataTable({
     }
 
     const scrollHandler = (e) => {
+      // If focus is inside the popover, don't close it on scroll (handling mobile keyboard opening)
+      if (document.activeElement && document.activeElement.closest('.column-add-popover')) return;
+
       // e.target can be document or non-Element nodes which lack .closest()
       if (!e.target?.closest || !e.target.closest('.column-add-popover')) {
         setShowAddColumn(false)

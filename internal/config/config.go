@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/rand"
 	"fmt"
 	"os"
 	"time"
@@ -19,6 +20,7 @@ type ServerConfig struct {
 	AdminURL     string
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
+	CORSOrigins  []string // Allowed CORS origins (empty = same origin only)
 }
 
 type DatabaseConfig struct {
@@ -68,7 +70,10 @@ func Load() (*Config, error) {
 		if isProduction {
 			return nil, fmt.Errorf("JWT_SECRET environment variable is required in production")
 		}
-		jwtSecret = "change-me-in-production"
+		// Generate a random secret for development (don't use hardcoded one)
+		jwtSecret = generateRandomSecret(32)
+		fmt.Printf("⚠️  WARNING: Generated random JWT secret for development: %s\n", jwtSecret)
+		fmt.Printf("    Set JWT_SECRET env var to persist sessions across restarts\n")
 	} else if isProduction && jwtSecret == "change-me-in-production" {
 		return nil, fmt.Errorf("JWT_SECRET must be changed from default value in production")
 	}
@@ -85,6 +90,7 @@ func Load() (*Config, error) {
 			AdminURL:     getEnv("HORNERO_ADMIN_URL", "http://localhost:5173"),
 			ReadTimeout:  30 * time.Second,
 			WriteTimeout: 30 * time.Second,
+			CORSOrigins:  parseCORSOrigins(getEnv("CORS_ORIGINS", "")),
 		},
 		Database: DatabaseConfig{
 			Host:     getEnv("DB_HOST", "localhost"),
@@ -125,4 +131,74 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+// parseCORSOrigins parses a comma-separated list of CORS origins
+// Returns nil if empty (which means same-origin only in production)
+func parseCORSOrigins(origins string) []string {
+	if origins == "" {
+		return nil
+	}
+
+	// Split by comma and trim spaces
+	var result []string
+	for _, origin := range splitAndTrim(origins, ",") {
+		if origin != "" {
+			result = append(result, origin)
+		}
+	}
+	return result
+}
+
+// splitAndTrim splits a string by separator and trims spaces from each part
+func splitAndTrim(s, sep string) []string {
+	var parts []string
+	start := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == sep[0] {
+			part := s[start:i]
+			// Trim spaces
+			part = trimSpaces(part)
+			parts = append(parts, part)
+			start = i + 1
+		}
+	}
+	// Add last part
+	if start < len(s) {
+		part := trimSpaces(s[start:])
+		parts = append(parts, part)
+	}
+	return parts
+}
+
+// trimSpaces removes leading and trailing spaces from a string
+func trimSpaces(s string) string {
+	start := 0
+	end := len(s)
+
+	for start < end && (s[start] == ' ' || s[start] == '\t') {
+		start++
+	}
+	for end > start && (s[end-1] == ' ' || s[end-1] == '\t') {
+		end--
+	}
+
+	return s[start:end]
+}
+
+// generateRandomSecret creates a cryptographically secure random secret
+// Used for JWT signing in development mode when no secret is configured
+func generateRandomSecret(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
+	b := make([]byte, length)
+	for i := range b {
+		randByte := make([]byte, 1)
+		if _, err := rand.Read(randByte); err != nil {
+			// Fallback to simple generation if crypto/rand fails
+			b[i] = charset[time.Now().UnixNano()%int64(len(charset))]
+		} else {
+			b[i] = charset[int(randByte[0])%len(charset)]
+		}
+	}
+	return string(b)
 }

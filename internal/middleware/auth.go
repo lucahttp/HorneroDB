@@ -321,12 +321,11 @@ func handlePocketIDToken(c *gin.Context, accessToken, jwtSecret string) bool {
 
 	log.Printf("DEBUG: PocketID token verified for user: %s (%s)", userInfo.Email, userInfo.Sub)
 
-	// Resolve user role and workspace (same logic as OIDC callback)
-	roleName := "user"
-	workspaceID := ""
+	// Resolve user role and workspace using shared function
+	roleName, workspaceID, _, _ := ResolveUserRole(userInfo.Sub)
 
+	// Upsert user in local DB
 	if database.DB != nil {
-		// Upsert user in local DB
 		user := metadata.User{
 			ID:          userInfo.Sub,
 			Email:       userInfo.Email,
@@ -335,32 +334,6 @@ func handlePocketIDToken(c *gin.Context, accessToken, jwtSecret string) bool {
 			LastLoginAt: time.Now(),
 		}
 		database.DB.Table("_hornero_users").Save(&user)
-
-		// Check if user is owner of any workspace
-		var ws metadata.Workspace
-		res := database.DB.Table("_hornero_workspaces").
-			Where("owner_id = ?", userInfo.Sub).
-			Limit(1).Find(&ws)
-		if res.Error == nil && res.RowsAffected > 0 {
-			workspaceID = ws.ID.String()
-			roleName = "admin"
-		} else {
-			// Check if user has a role assigned in any workspace
-			var userRole metadata.UserRole
-			resRole := database.DB.Table("_hornero_user_roles").
-				Where("user_id = ?", userInfo.Sub).
-				Limit(1).Find(&userRole)
-			if resRole.Error == nil && resRole.RowsAffected > 0 && userRole.RoleID != uuid.Nil {
-				var role metadata.Role
-				resRoleName := database.DB.Table("_hornero_roles").
-					Where("id = ?", userRole.RoleID).
-					Limit(1).Find(&role)
-				if resRoleName.Error == nil && resRoleName.RowsAffected > 0 {
-					roleName = role.Name
-				}
-				workspaceID = userRole.WorkspaceID.String()
-			}
-		}
 	}
 
 	// Set context (same fields as HMAC JWT flow)
@@ -372,7 +345,6 @@ func handlePocketIDToken(c *gin.Context, accessToken, jwtSecret string) bool {
 
 	return true
 }
-
 
 func OptionalAuth(secret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -451,4 +423,53 @@ func GetRolePermissions(c *gin.Context) string {
 		}
 	}
 	return ""
+}
+
+// ResolveUserRole determines the role and workspace for a user
+// It checks if the user is a workspace owner first, then checks for assigned roles
+// TODO: Move to internal/services/auth/ when the auth service grows
+// Returns: (roleName, workspaceID, isOwner, error)
+func ResolveUserRole(userID string) (string, string, bool, error) {
+	roleName := "user"
+	workspaceID := ""
+	isOwner := false
+
+	if database.DB == nil {
+		return roleName, workspaceID, isOwner, nil
+	}
+
+	// FIRST: Check if user is owner of any workspace
+	var ws metadata.Workspace
+	res := database.DB.Table("_hornero_workspaces").
+		Where("owner_id = ?", userID).
+		Limit(1).
+		Find(&ws)
+
+	if res.Error == nil && res.RowsAffected > 0 {
+		// User is owner of a workspace - give admin role
+		workspaceID = ws.ID.String()
+		roleName = "admin"
+		isOwner = true
+	} else {
+		// SECOND: Check if user has a role assigned in any workspace
+		var userRole metadata.UserRole
+		resRole := database.DB.Table("_hornero_user_roles").
+			Where("user_id = ?", userID).
+			Limit(1).
+			Find(&userRole)
+
+		if resRole.Error == nil && resRole.RowsAffected > 0 && userRole.RoleID != uuid.Nil {
+			var role metadata.Role
+			resRoleName := database.DB.Table("_hornero_roles").
+				Where("id = ?", userRole.RoleID).
+				Limit(1).
+				Find(&role)
+			if resRoleName.Error == nil && resRoleName.RowsAffected > 0 {
+				roleName = role.Name
+			}
+			workspaceID = userRole.WorkspaceID.String()
+		}
+	}
+
+	return roleName, workspaceID, isOwner, nil
 }

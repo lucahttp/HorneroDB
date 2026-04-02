@@ -316,3 +316,11 @@ quiero que cuando la pantalla es reducida (mobile) se muestre solo "Todas" es ve
 
 # UI General
 qiero que el sistema de tablas y ver todas las tablas se vea mas como NocoDB
+
+
+
+# Backup
+quiero que se pueda hacer backup de la base de datos
+
+# Monitoreo, Logs, Tracing, Syslogs, etc
+quiero que se pueda ver los logs de la base de datos

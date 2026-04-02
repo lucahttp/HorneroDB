@@ -15,6 +15,8 @@ import (
 	"hornerodb/internal/handlers/api"
 	"hornerodb/internal/handlers/mcp"
 	"hornerodb/internal/middleware"
+	"hornerodb/internal/services/data"
+	"hornerodb/internal/services/permission"
 	"hornerodb/internal/workers"
 	"hornerodb/web"
 
@@ -78,8 +80,16 @@ func main() {
 	r.Use(middleware.SecurityHeaders())  // Production security headers
 
 	// Standard CORS configuration using gin-contrib/cors
+	// SECURITY: By default, only allow same-origin requests from AdminURL
+	// For multi-origin setups, set CORS_ORIGINS env variable
+	corsOrigins := cfg.Server.CORSOrigins
+	if len(corsOrigins) == 0 {
+		// Default: only allow requests from the admin URL (same-origin policy)
+		corsOrigins = []string{cfg.Server.AdminURL}
+	}
+
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"*"}, // You can restrict this in production
+		AllowOrigins:     corsOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Content-Length", "Accept-Encoding", "X-CSRF-Token", "Authorization", "X-Workspace-ID"},
 		ExposeHeaders:    []string{"Content-Length"},
@@ -211,7 +221,10 @@ func main() {
 		userRoutes.GET("/auth/qr", api.GetSystemLoginQR)
 
 		// === MCP (Model Context Protocol) ===
-		mcpServer := mcp.New()
+		// Initialize services for MCP with proper security
+		dataService := data.NewService()
+		permService := permission.NewService()
+		mcpServer := mcp.New(dataService, permService)
 		protected.GET("/mcp/sse", mcpServer.HandleSSE)
 		protected.POST("/mcp/message", mcpServer.HandleMessage)
 	}

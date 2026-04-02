@@ -20,6 +20,7 @@ import (
 
 	"hornerodb/internal/config"
 	"hornerodb/internal/database"
+	"hornerodb/internal/middleware"
 	"hornerodb/internal/models/metadata"
 )
 
@@ -137,10 +138,11 @@ func (o *OIDCAuth) ExchangeCode(ctx context.Context, code, codeVerifier string) 
 	}
 	defer resp.Body.Close()
 
-	// Debug: print response status and body
+	// Debug: print response status (body contains sensitive tokens, don't log it)
 	body, _ := io.ReadAll(resp.Body)
-	fmt.Printf("DEBUG - Token response status: %d\n", resp.StatusCode)
-	fmt.Printf("DEBUG - Token response body: %s\n", string(body))
+	// SECURITY: Never log token response body as it contains sensitive credentials
+	// fmt.Printf("DEBUG - Token response status: %d\n", resp.StatusCode)
+	// fmt.Printf("DEBUG - Token response body: %s\n", string(body))
 
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("token exchange failed with status %d: %s", resp.StatusCode, string(body))
@@ -218,8 +220,9 @@ func (o *OIDCAuth) HandleCallback(c *gin.Context, jwtSecret string) error {
 	}
 
 	// Debug: print token response
-	fmt.Printf("Token response: %+v\n", tokenResp)
-	fmt.Printf("ID Token: %s\n", tokenResp.IDToken)
+	// SECURITY: Never log tokens as they contain sensitive credentials
+	// fmt.Printf("Token response: %+v\n", tokenResp)
+	// fmt.Printf("ID Token: %s\n", tokenResp.IDToken)
 
 	// Verify ID token - MUST verify cryptographically
 	idToken, err := o.VerifyIDToken(ctx, tokenResp.IDToken)
@@ -252,37 +255,10 @@ func handleUserWithClaims(c *gin.Context, jwtSecret string, claims UserClaims, t
 		fmt.Printf("Warning: Failed to upsert user %s: %v\n", claims.Sub, err)
 	}
 
-	roleName := "user"
-	workspaceID := ""
-
-	// FIRST: Check if user is owner of any workspace
-	var ws metadata.Workspace
-	res := database.DB.Table("_hornero_workspaces").
-		Where("owner_id = ?", claims.Sub).
-		Limit(1).Find(&ws)
-
-	if res.Error == nil && res.RowsAffected > 0 {
-		// User is owner of a workspace - give admin role
-		workspaceID = ws.ID.String()
-		roleName = "admin"
+	// Resolve user role and workspace using shared function
+	roleName, workspaceID, isOwner, _ := middleware.ResolveUserRole(claims.Sub)
+	if isOwner {
 		fmt.Printf("DEBUG: User %s is owner of workspace %s\n", claims.Sub, workspaceID)
-	} else {
-		// SECOND: Check if user has a role assigned in any workspace
-		var userRole metadata.UserRole
-		resRole := database.DB.Table("_hornero_user_roles").
-			Where("user_id = ?", claims.Sub).
-			Limit(1).Find(&userRole)
-
-		if resRole.Error == nil && resRole.RowsAffected > 0 && userRole.RoleID != uuid.Nil {
-			var role metadata.Role
-			resRoleName := database.DB.Table("_hornero_roles").
-				Where("id = ?", userRole.RoleID).
-				Limit(1).Find(&role)
-			if resRoleName.Error == nil && resRoleName.RowsAffected > 0 {
-				roleName = role.Name
-			}
-			workspaceID = userRole.WorkspaceID.String()
-		}
 	}
 
 	// Generate app JWT with role
@@ -328,9 +304,10 @@ func (o *OIDCAuth) HandleCallbackAndRedirect(c *gin.Context, jwtSecret, redirect
 	}
 
 	// Debug: print what we got
-	fmt.Printf("DEBUG - Full token response: %+v\n", tokenResp)
-	fmt.Printf("DEBUG - ID Token value: '%s'\n", tokenResp.IDToken)
-	fmt.Printf("DEBUG - Access Token value: '%s'\n", tokenResp.AccessToken)
+	// SECURITY: Never log tokens as they contain sensitive credentials
+	// fmt.Printf("DEBUG - Full token response: %+v\n", tokenResp)
+	// fmt.Printf("DEBUG - ID Token value: '%s'\n", tokenResp.IDToken)
+	// fmt.Printf("DEBUG - Access Token value: '%s'\n", tokenResp.AccessToken)
 
 	// Try to verify ID token - MUST verify cryptographically
 	idToken, err := o.VerifyIDToken(ctx, tokenResp.IDToken)
@@ -346,37 +323,10 @@ func (o *OIDCAuth) HandleCallbackAndRedirect(c *gin.Context, jwtSecret, redirect
 		return fmt.Errorf("failed to extract claims: %w", err)
 	}
 
-	roleName := "user"
-	workspaceID := ""
-
-	// FIRST: Check if user is owner of any workspace
-	var ws metadata.Workspace
-	err = database.DB.Table("_hornero_workspaces").
-		Where("owner_id = ?", claims.Sub).
-		First(&ws).Error
-
-	if err == nil {
-		// User is owner of a workspace - give admin role
-		workspaceID = ws.ID.String()
-		roleName = "admin"
+	// Resolve user role and workspace using shared function
+	roleName, workspaceID, isOwner, _ := middleware.ResolveUserRole(claims.Sub)
+	if isOwner {
 		fmt.Printf("DEBUG: User %s is owner of workspace %s\n", claims.Sub, workspaceID)
-	} else {
-		// SECOND: Check if user has a role assigned in any workspace
-		var userRole metadata.UserRole
-		err = database.DB.Table("_hornero_user_roles").
-			Where("user_id = ?", claims.Sub).
-			First(&userRole).Error
-
-		if err == nil && userRole.RoleID != uuid.Nil {
-			var role metadata.Role
-			err = database.DB.Table("_hornero_roles").
-				Where("id = ?", userRole.RoleID).
-				First(&role).Error
-			if err == nil {
-				roleName = role.Name
-			}
-			workspaceID = userRole.WorkspaceID.String()
-		}
 	}
 
 	appToken, err := GenerateJWTWithRole(jwtSecret, claims.Sub, claims.Email, roleName, workspaceID, 24*time.Hour)

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"hornerodb/internal/database"
 	"hornerodb/internal/middleware"
 	"hornerodb/internal/models/metadata"
@@ -36,6 +37,32 @@ func SanitizeSlug(name string) string {
 func ValidateSlug(slug string) bool {
 	// Must start with letter, then only alphanumeric and underscores
 	return regexp.MustCompile(`^[a-z][a-z0-9_]*$`).MatchString(slug)
+}
+
+// ValidateTableName validates that a workspaceID and slug are safe for SQL
+// Returns the safe table name or error if invalid
+func ValidateTableName(workspaceID, slug string) (string, error) {
+	// Validate workspaceID is a valid UUID format
+	if _, err := uuid.Parse(workspaceID); err != nil {
+		return "", fmt.Errorf("invalid workspace_id format")
+	}
+
+	// Validate slug
+	if !ValidateSlug(slug) {
+		return "", fmt.Errorf("invalid slug format")
+	}
+
+	// Build table name
+	tableName := "data_" + workspaceID + "_" + slug
+
+	// Additional safety: ensure no SQL injection in the combined name
+	// Only allow: data_UUID_validslug format
+	validTablePattern := regexp.MustCompile(`^data_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_[a-z][a-z0-9_]*$`)
+	if !validTablePattern.MatchString(tableName) {
+		return "", fmt.Errorf("generated table name is invalid")
+	}
+
+	return tableName, nil
 }
 
 func ListTables(c *gin.Context) {
@@ -118,7 +145,12 @@ func CreateTable(c *gin.Context) {
 			return err
 		}
 
-		safeTableName := "data_" + workspaceID + "_" + slug
+		// Validate and build safe table name
+		safeTableName, err := ValidateTableName(workspaceID, slug)
+		if err != nil {
+			return fmt.Errorf("invalid table name: %v", err)
+		}
+
 		createSQL := `CREATE TABLE IF NOT EXISTS "` + safeTableName + `" (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			created_by VARCHAR(255),

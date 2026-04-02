@@ -103,6 +103,8 @@ func (s *Server) HandleSSE(c *gin.Context) {
 }
 
 // HandleMessage receives standard MCP JSON-RPC messages and routes them to the Server logic
+// This handler extracts authentication context from the gin.Context (set by AuthRequired middleware)
+// and passes it to the MCP tools for proper authorization.
 func (s *Server) HandleMessage(c *gin.Context) {
 	sessionID := c.Query("sessionId")
 	if sessionID == "" {
@@ -132,11 +134,24 @@ func (s *Server) HandleMessage(c *gin.Context) {
 		return
 	}
 
+	// Extract authentication context from gin.Context
+	// These values are set by the AuthRequired middleware
+	toolCtx := ToolContext{}
+
+	if userID, exists := c.Get("user_id"); exists {
+		toolCtx.UserID = userID.(string)
+	}
+
+	if roleName, exists := c.Get("role_name"); exists {
+		toolCtx.RoleName = roleName.(string)
+	}
+
+	// Note: workspace_id is not extracted here because each tool receives it as a parameter
+	// The tool itself validates workspace access using resolveTable()
+
 	// Process business logic asynchronously so we don't block the POST handler
-	// However, standard JSON-RPC HTTP clients expect an immediate HTTP 202 or 200 depending on implementation.
-	// We'll process synchronously to push the response to the client channel.
 	go func() {
-		resp := s.HandleRequest(req)
+		resp := s.HandleRequestWithContext(toolCtx, req)
 
 		// Push the response down the SSE channel safely
 		select {

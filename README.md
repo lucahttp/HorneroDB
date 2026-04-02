@@ -24,7 +24,7 @@ Your *vibecoded* app can have its **data protected just like large enterprises (
 
 We are building an ecosystem designed for the modern developer:
 
-* **(Upcoming) Hornero MCP** — Plug HorneroDB into the AI you are *vibecoding* with. The AI will understand your backend, configure your database, and program the UI automatically.
+* **✅ Hornero MCP** — Plug HorneroDB into the AI you are *vibecoding* with. The AI will understand your backend, configure your database, and program the UI automatically. **Now with full security**: authentication, workspace isolation, and granular permissions (row/column-level).
 * **(Upcoming) Data Security Agent** — A System Prompt for a specialized agent that can help you configure and manage your database security.
 * **OpenAPI Collection** — Making it extremely simple to integrate with other platforms (Native support for n8n, PowerAutomate, etc.).
 * **Implementation Examples** — Ready-to-use templates (e.g., Booking System, E-commerce).
@@ -145,6 +145,66 @@ Each API Key can have specific restrictions. Ideal for your public e-commerce:
 }
 ```
 
+### MCP (Model Context Protocol) Security
+
+The MCP server now includes full authentication and authorization:
+
+* **Authentication Required**: All MCP tools require valid JWT/API Key authentication
+* **Workspace Isolation**: Users can only access workspaces they have permission for
+* **Permission Enforcement**: Row-level and column-level security applied to all MCP operations
+* **Audit Trail**: All MCP operations are logged with user context
+
+Example secure MCP usage:
+```javascript
+// MCP client must authenticate first via OAuth2 flow
+// Then all tool calls include user context for permission checks
+{
+  "tool": "list_records",
+  "arguments": {
+    "workspace_id": "...",
+    "table_slug": "customers"
+  }
+  // Automatically filtered by user's permissions
+}
+```
+
+---
+
+## ⚙️ Security Configuration
+
+### CORS (Cross-Origin Resource Sharing)
+
+By default, HorneroDB only allows requests from the Admin URL (same-origin policy). To enable multiple origins:
+
+```bash
+# .env file
+HORNERO_ADMIN_URL=http://localhost:5173
+CORS_ORIGINS=http://localhost:5173,https://api.example.com,https://app.example.com
+```
+
+**Note**: Each workspace can define additional `allowed_origins` for their specific API clients.
+
+### JWT Secret (Development vs Production)
+
+**Development**: If `JWT_SECRET` is not set, a random 32-character secret is generated automatically. You'll see a warning in the logs:
+```
+⚠️  WARNING: Generated random JWT secret for development: xxxx...
+    Set JWT_SECRET env var to persist sessions across restarts
+```
+
+**Production**: `JWT_SECRET` is **required** and must be:
+- At least 32 characters long
+- Changed from the default value
+- Stored securely (use environment variables, never commit to git)
+
+```bash
+# Production - Required
+JWT_SECRET=your-super-secret-random-string-min-32-chars
+
+# Development - Optional (auto-generated if not set)
+# JWT_SECRET=dev-secret-change-in-production
+```
+
 ---
 
 ## 🆚 Comparison
@@ -166,10 +226,11 @@ Each API Key can have specific restrictions. Ideal for your public e-commerce:
 * [x] Nice style UI
 * [x] Granular column-level permissions
 * [x] API key rate limiting & domain restrictions
+* [x] MCP Server for AI Assistants (with full security)
+* [x] Webhooks with Outbox Pattern (reliable delivery)
 * [ ] (WIP) Table Relations UI
-* [ ] (WIP) MCP Server for AI Assistants
 * [ ] Advanced Filters and Search
-* [ ] Webhooks and Automations
+* [ ] Data Import/Export
 
 ---
 

@@ -27,6 +27,8 @@ export function ColumnHeaderMenu({ column, icon, onRename, onDelete }) {
       setEditing(false)
     }
     const scrollHandler = (e) => {
+      if (document.activeElement && document.activeElement.closest('.column-menu')) return;
+
       if (!e.target.closest('.column-menu')) {
         setOpen(false)
         setEditing(false)

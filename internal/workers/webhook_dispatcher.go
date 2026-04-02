@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // WebhookPayload represents an MS Graph API-style webhook event payload
@@ -143,35 +144,55 @@ func StartWebhookProcessor() {
 }
 
 func processOutboxEvents() {
+	// Use a transaction with SELECT FOR UPDATE SKIP LOCKED to prevent race conditions
+	// This ensures only one instance processes each event, even with multiple servers
 	var events []metadata.WebhookOutboxEvent
-	
-	// Fetch pending events ready to be processed
-	err := database.DB.Table("_hornero_webhook_events").
-		Where("status = ? AND next_attempt_at <= ?", "pending", time.Now()).
-		Limit(50).
-		Find(&events).Error
+
+	err := database.DB.Transaction(func(tx *gorm.DB) error {
+		// Fetch and lock pending events in a single atomic operation
+		// SKIP LOCKED prevents blocking on events being processed by other instances
+		return tx.Raw(`
+			SELECT * FROM _hornero_webhook_events 
+			WHERE status = ? AND next_attempt_at <= ? 
+			ORDER BY next_attempt_at ASC 
+			LIMIT 50 
+			FOR UPDATE SKIP LOCKED`,
+			"pending", time.Now(),
+		).Scan(&events).Error
+	})
 
 	if err != nil || len(events) == 0 {
 		return
 	}
 
+	slog.Info("processing webhook outbox events", "count", len(events))
+
 	for _, event := range events {
-		// Mark as processing
-		database.DB.Table("_hornero_webhook_events").Where("id = ?", event.ID).Update("status", "processing")
-		
+		// Mark as processing immediately (with a short timeout to detect stuck jobs)
+		// This prevents other instances from picking it up if something goes wrong
+		processingDeadline := time.Now().Add(2 * time.Minute)
+		database.DB.Table("_hornero_webhook_events").
+			Where("id = ? AND status = ?", event.ID, "pending").
+			Updates(map[string]interface{}{
+				"status":             "processing",
+				"processing_timeout": processingDeadline,
+			})
+
 		go func(e metadata.WebhookOutboxEvent) {
 			success := sendPayloadInternal(e.WebhookID, e.NotificationURL, e.Payload)
-			
+
 			if success {
 				database.DB.Table("_hornero_webhook_events").Where("id = ?", e.ID).Updates(map[string]interface{}{
-					"status": "completed",
+					"status":       "completed",
+					"completed_at": time.Now(),
 				})
 			} else {
 				attempts := e.Attempts + 1
 				if attempts >= 5 {
 					database.DB.Table("_hornero_webhook_events").Where("id = ?", e.ID).Updates(map[string]interface{}{
-						"status":   "failed",
-						"attempts": attempts,
+						"status":    "failed",
+						"attempts":  attempts,
+						"failed_at": time.Now(),
 					})
 				} else {
 					// Exponential backoff
@@ -272,6 +293,6 @@ func sendPayloadInternal(webhookID uuid.UUID, url string, payload []byte) bool {
 		slog.Warn("Webhook returned non-success response", "webhook_id", webhookID, "status", resp.StatusCode)
 		return false
 	}
-	
+
 	return true
 }

@@ -121,8 +121,20 @@ func CreateColumn(c *gin.Context) {
 	// Add column to physical table
 	colSQL := getColumnSQL(input.FieldType)
 	if colSQL != "" {
-		// Safe because we validated the slug
-		safeTableName := "data_" + workspaceID + "_" + table.Slug
+		// Validate table name for safety
+		safeTableName, err := ValidateTableName(workspaceID, table.Slug)
+		if err != nil {
+			// Rollback: delete the metadata column
+			database.DB.Table("_hornero_columns").Delete(&column)
+			slog.Error("invalid table name",
+				"error", err,
+				"workspace_id", workspaceID,
+				"table_slug", table.Slug,
+			)
+			response.ValidationError(c, "invalid table name")
+			return
+		}
+
 		alterSQL := `ALTER TABLE "` + safeTableName + `" ADD COLUMN IF NOT EXISTS "` + slug + `" ` + colSQL
 		if err := database.DB.Exec(alterSQL).Error; err != nil {
 			// Rollback: delete the metadata column if physical column creation fails

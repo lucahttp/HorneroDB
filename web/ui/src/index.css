@@ -932,6 +932,28 @@ th:hover .column-menu-trigger,
   letter-spacing: normal;
 }
 
+@media (max-width: 640px) {
+  .column-add-popover {
+    position: fixed !important;
+    top: 50% !important;
+    left: 50% !important;
+    right: auto !important;
+    transform: translate(-50%, -50%) !important;
+    width: 90% !important;
+    max-width: 320px !important;
+    margin: 0 !important;
+  }
+  
+  .column-menu {
+    position: fixed !important;
+    top: 50% !important;
+    left: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    width: 90% !important;
+    max-width: 280px !important;
+  }
+}
+
 .column-add-input {
   width: 100%;
   padding: 0.5rem 0.75rem;
