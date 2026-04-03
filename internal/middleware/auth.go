@@ -187,7 +187,40 @@ func RequireAdminRole() gin.HandlerFunc {
 	}
 }
 
-// RequireSystemPermission ensures the authenticated entity has a specific system-level permission
+// RequireInstanceAdmin ensures the authenticated user has instance-level admin privileges
+// (can_create_workspaces = true). This is used for global operations like creating workspaces.
+func RequireInstanceAdmin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := GetUserID(c)
+		if userID == "" {
+			c.JSON(403, gin.H{"error": "Authentication required"})
+			c.Abort()
+			return
+		}
+
+		// Check if user has instance-level permission to create workspaces
+		var user metadata.User
+		err := database.DB.Table("_hornero_users").
+			Select("can_create_workspaces").
+			Where("id = ?", userID).
+			First(&user).Error
+
+		if err != nil || !user.CanCreateWorkspaces {
+			c.JSON(403, gin.H{"error": "Instance admin privileges required to perform this action"})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
+
+// RequireSystemPermission ensures the authenticated entity has a specific system-level permission.
+//
+// Security note: this middleware MUST run after WorkspaceAuth. WorkspaceAuth injects
+// "workspace_id" from the URL param into context (overwriting any API-key-embedded workspace),
+// and rejects API keys whose workspace doesn't match the URL. Therefore GetUserWorkspace(c)
+// here always reflects the URL workspace — no additional boundary check is needed.
 func RequireSystemPermission(action string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		workspaceID := GetUserWorkspace(c)

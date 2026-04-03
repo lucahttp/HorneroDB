@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { motion } from 'framer-motion'
 import axios from 'axios'
-import { ClipboardCheck, Table2Columns, EditPencil, Trash, Eye, Network, ViewGrid } from 'iconoir-react'
+import { ClipboardCheck, Table2Columns, EditPencil, Trash, Network, ViewGrid } from 'iconoir-react'
 import { API_URL } from '../constants'
 import { useAuth } from '../context/AuthContext'
 import { Button } from '../components/index.jsx'
@@ -214,16 +214,6 @@ export default function Workspace() {
                           )}
                         </div>
 
-                        {/* Preview button */}
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setPreviewTable(table) }}
-                          className="btn btn-ghost btn-sm"
-                          style={{ position: 'absolute', top: '10px', right: '70px', padding: '4px', opacity: 0.6 }}
-                          title="Vista previa"
-                        >
-                          <Eye width="1rem" height="1rem" style={{ color: 'var(--text-secondary)' }} />
-                        </button>
-
                         <button
                           onClick={(e) => renameTable(table.id, table.name, e)}
                           className="btn btn-ghost btn-sm"
@@ -299,12 +289,21 @@ export default function Workspace() {
                 ) : (
                   <>
                     <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
-                      Arrastrá los nodos para reorganizar · Click en ✎ para editar
+                      {t('drag_to_rearrange')} · {t('click_to_edit')}
                     </p>
                     <SchemaEditor
                       tables={tables}
                       workspaceId={wsId}
                       onEditTable={setEditingTable}
+                      onPreviewTable={setPreviewTable}
+                      onCreateTable={async (name) => {
+                        const res = await axios.post(`${API_URL}/workspaces/${wsId}/tables`, {
+                          name,
+                          slug: name.toLowerCase().replace(/\s+/g, '_')
+                        })
+                        const listRes = await axios.get(`${API_URL}/workspaces/${wsId}/tables`)
+                        setTables(listRes.data.data)
+                      }}
                     />
                   </>
                 )}

@@ -1,11 +1,13 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { LogOut, Table2Columns, Settings as SettingsIcon, Menu, Xmark } from 'iconoir-react'
+import { LogOut, Table2Columns, Settings as SettingsIcon, Menu, Xmark, Shield } from 'iconoir-react'
 import { LanguageSelector } from './LanguageSelector.jsx'
 import { ThemeToggle } from './index.jsx'
 import horneroLogo from '../assets/hornero solo.png'
 import { useAuth } from '../context/AuthContext'
+import axios from 'axios'
+import { API_URL } from '../constants'
 
 export default function TopNavbar({ workspaceId }) {
   const { user, logout } = useAuth()
@@ -13,6 +15,16 @@ export default function TopNavbar({ workspaceId }) {
   const navigate = useNavigate()
   const { pathname } = window.location
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [isInstanceAdmin, setIsInstanceAdmin] = useState(false)
+
+  // Verificar si el usuario es admin de instancia
+  useEffect(() => {
+    axios.get(`${API_URL}/auth/me`)
+      .then(res => {
+        setIsInstanceAdmin(res.data.data?.can_create_workspaces || false)
+      })
+      .catch(() => setIsInstanceAdmin(false))
+  }, [])
 
   const links = workspaceId ? [
     { id: 'data', label: t('data') || 'Data', icon: <Table2Columns width="1rem" height="1rem" />, path: `/workspace/${workspaceId}` },
@@ -64,6 +76,19 @@ export default function TopNavbar({ workspaceId }) {
         {/* Desktop Actions */}
         <div className="hidden md:flex items-center gap-4" style={{ marginLeft: '0.5rem' }}>
           <LanguageSelector />
+          
+          {/* Admin Link - Solo para admins de instancia */}
+          {isInstanceAdmin && (
+            <button 
+              onClick={() => navigate('/admin/instance')}
+              className="btn btn-ghost btn-sm"
+              style={{ padding: '0.375rem 0.5rem' }}
+              title={t('instance_admin') || 'Admin de Instancia'}
+            >
+              <Shield width="1rem" height="1rem" />
+            </button>
+          )}
+          
           <div className="avatar" style={{ width: '1.85rem', height: '1.85rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {user?.email?.charAt(0).toUpperCase() || 'U'}
           </div>
@@ -119,6 +144,21 @@ export default function TopNavbar({ workspaceId }) {
             </label>
             <LanguageSelector />
           </div>
+
+          {/* Admin Link Mobile - Solo para admins de instancia */}
+          {isInstanceAdmin && (
+            <button 
+              onClick={() => {
+                navigate('/admin/instance')
+                setIsMenuOpen(false)
+              }}
+              className="btn btn-secondary"
+              style={{ justifyContent: 'center', gap: '0.5rem', width: '100%' }}
+            >
+              <Shield width="1.1rem" height="1.1rem" />
+              {t('instance_admin') || 'Admin de Instancia'}
+            </button>
+          )}
 
           <button 
             onClick={logout} 

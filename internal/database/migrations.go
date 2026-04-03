@@ -6,6 +6,71 @@ import (
 	"hornerodb/internal/models/metadata"
 )
 
+// RunMigrations ejecuta todas las migraciones necesarias
+// Se llama al iniciar la aplicación
+func RunMigrations() error {
+	log.Println("🔄 Running database migrations...")
+
+	// Migraciones de schema base
+	if err := Migrate(); err != nil {
+		return err
+	}
+
+	// Migraciones incrementales (columnas nuevas, etc.)
+	if err := runIncrementalMigrations(); err != nil {
+		return err
+	}
+
+	log.Println("✅ All migrations completed successfully")
+	return nil
+}
+
+// runIncrementalMigrations maneja cambios incrementales al schema
+// Verifica si cada cambio ya existe antes de aplicarlo
+func runIncrementalMigrations() error {
+	// Migración 001: Agregar can_create_workspaces a _hornero_users
+	if err := addColumnIfNotExists("_hornero_users", "can_create_workspaces", "BOOLEAN DEFAULT false"); err != nil {
+		log.Printf("⚠️  Migration 001 failed: %v", err)
+		// No retornamos error para permitir que la app siga funcionando
+	}
+
+	// Futuras migraciones van aquí:
+	// if err := addColumnIfNotExists("_hornero_users", "nuevo_campo", "VARCHAR(255)"); err != nil {
+	//     log.Printf("⚠️  Migration 002 failed: %v", err)
+	// }
+
+	return nil
+}
+
+// addColumnIfNotExists verifica si una columna existe antes de agregarla
+func addColumnIfNotExists(tableName, columnName, columnType string) error {
+	// Verificar si la columna ya existe
+	var count int64
+	checkSQL := `
+		SELECT COUNT(*) 
+		FROM information_schema.columns 
+		WHERE table_name = ? 
+		AND column_name = ?
+	`
+
+	if err := DB.Raw(checkSQL, tableName, columnName).Scan(&count).Error; err != nil {
+		return err
+	}
+
+	// Si la columna no existe, agregarla
+	if count == 0 {
+		alterSQL := "ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " " + columnType
+		if err := DB.Exec(alterSQL).Error; err != nil {
+			return err
+		}
+		log.Printf("✅ Added column %s to %s", columnName, tableName)
+	} else {
+		log.Printf("⏭️  Column %s already exists in %s, skipping", columnName, tableName)
+	}
+
+	return nil
+}
+
 func Migrate() error {
 	// Create schema if not exists
 	err := DB.Exec("CREATE SCHEMA IF NOT EXISTS _hornero").Error
@@ -76,6 +141,12 @@ func Migrate() error {
 	}
 
 	err = DB.Table("_hornero_webhook_events").AutoMigrate(&metadata.WebhookOutboxEvent{})
+	if err != nil {
+		return err
+	}
+
+	// Instance Settings
+	err = DB.Table("_hornero_instance_settings").AutoMigrate(&metadata.InstanceSettings{})
 	if err != nil {
 		return err
 	}

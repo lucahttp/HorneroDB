@@ -16,7 +16,7 @@ type PaginationConfig struct {
 
 var DefaultConfig = PaginationConfig{
 	DefaultLimit:  20,
-	MaxLimit:      100,
+	MaxLimit:      1000, // Aumentado de 100 a 1000
 	DefaultOffset: 0,
 }
 

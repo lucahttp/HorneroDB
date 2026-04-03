@@ -3,6 +3,8 @@ import { motion } from 'framer-motion'
 import { Lock, EmojiSingLeftNote } from 'iconoir-react'
 import { API_URL } from '../constants'
 import horneroLogo from '../assets/hornero solo.png'
+import { ThemeToggle } from '../components/index.jsx'
+import { LanguageSelector } from '../components/LanguageSelector.jsx'
 
 export default function Login() {
   const { t } = useTranslation()
@@ -12,7 +14,17 @@ export default function Login() {
 
   return (
     <div className="login-container">
-      {/* Left panel — bold yellow brand */}
+      {/* Theme + language controls — always visible, even before login */}
+      <div style={{
+        position: 'fixed', top: '1rem', right: '1rem',
+        display: 'flex', alignItems: 'center', gap: '0.5rem',
+        zIndex: 200,
+      }}>
+        <ThemeToggle />
+        <LanguageSelector />
+      </div>
+
+      {/* Left panel — bold brand */}
       <div className="login-left">
         <motion.div
           style={{ textAlign: 'center' }}
@@ -62,3 +74,4 @@ export default function Login() {
     </div>
   )
 }
+

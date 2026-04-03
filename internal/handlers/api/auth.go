@@ -32,14 +32,15 @@ func GetCurrentUser(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{
-		"id":           user.ID,
-		"user_id":      user.ID,
-		"email":        user.Email,
-		"name":         user.Name,
-		"picture":      user.Picture,
-		"role":         middleware.GetUserRole(c),
-		"workspace_id": middleware.GetUserWorkspace(c),
-		"auth_source":  middleware.GetAuthSource(c),
+		"id":                    user.ID,
+		"user_id":               user.ID,
+		"email":                 user.Email,
+		"name":                  user.Name,
+		"picture":               user.Picture,
+		"can_create_workspaces": user.CanCreateWorkspaces,
+		"role":                  middleware.GetUserRole(c),
+		"workspace_id":          middleware.GetUserWorkspace(c),
+		"auth_source":           middleware.GetAuthSource(c),
 	})
 }
 

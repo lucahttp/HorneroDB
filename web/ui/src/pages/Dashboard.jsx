@@ -18,15 +18,19 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [newWorkspaceName, setNewWorkspaceName] = useState('')
-  const [isNamingModalOpen, setIsNamingModalOpen] = useState(false) // This state is not used in the provided snippet, but keeping it as per diff
+  const [isNamingModalOpen, setIsNamingModalOpen] = useState(false)
   const [importFile, setImportFile] = useState(null)
+  const [canCreateWorkspaces, setCanCreateWorkspaces] = useState(false)
 
   const importInputRef = useRef(null)
   
   const [showCreate, setShowCreate] = useState(false)
   const [newName, setNewName] = useState('')
   const [creating, setCreating] = useState(false)
+
+  // Fetch workspaces and user permissions
   useEffect(() => {
+    // Fetch workspaces
     axios.get(`${API_URL}/workspaces`)
       .then(res => setWorkspaces(Array.isArray(res.data.data) ? res.data.data : []))
       .catch((err) => {
@@ -34,6 +38,17 @@ export default function Dashboard() {
         notify(t('error_fetching_workspaces') || 'Error fetching workspaces', 'error')
       })
       .finally(() => setLoading(false))
+
+    // Fetch current user permissions
+    axios.get(`${API_URL}/auth/me`)
+      .then(res => {
+        if (res.data.data) {
+          setCanCreateWorkspaces(res.data.data.can_create_workspaces || false)
+        }
+      })
+      .catch(() => {
+        setCanCreateWorkspaces(false)
+      })
   }, [])
 
   const handleCreate = async () => {
@@ -154,11 +169,22 @@ export default function Dashboard() {
                 accept=".json" 
                 onChange={handleImportWorkspace} 
               />
-              <Button variant="secondary" onClick={() => importInputRef.current?.click()} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem' }}>
+              <Button 
+                variant="secondary" 
+                onClick={() => importInputRef.current?.click()} 
+                disabled={!canCreateWorkspaces}
+                title={!canCreateWorkspaces ? t('admin_only_feature') || 'Solo administradores pueden importar workspaces' : ''}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', opacity: canCreateWorkspaces ? 1 : 0.5 }}
+              >
                 <svg width="1.25rem" height="1.25rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
                 <span className="hidden sm:inline">{t('import_workspace') || 'Import'}</span>
               </Button>
-              <Button onClick={() => setShowCreate(true)} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem' }}>
+              <Button 
+                onClick={() => setShowCreate(true)} 
+                disabled={!canCreateWorkspaces}
+                title={!canCreateWorkspaces ? t('admin_only_feature') || 'Solo administradores pueden crear workspaces' : ''}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', opacity: canCreateWorkspaces ? 1 : 0.5 }}
+              >
                 <span style={{ fontSize: '1.25rem', lineHeight: 1 }}>+</span>
                 <span className="hidden sm:inline">{t('new_workspace_button')}</span>
               </Button>
@@ -174,7 +200,11 @@ export default function Dashboard() {
               <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>
                 {t('create_first_workspace_hint')}
               </p>
-              <Button onClick={() => setShowCreate(true)}>
+              <Button 
+                onClick={() => setShowCreate(true)}
+                disabled={!canCreateWorkspaces}
+                style={{ opacity: canCreateWorkspaces ? 1 : 0.5 }}
+              >
                 {t('create_workspace_button')}
               </Button>
             </div>

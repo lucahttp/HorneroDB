@@ -1,7 +1,8 @@
 package middleware
 
 import (
-	"fmt"
+	"log/slog"
+
 	"hornerodb/internal/database"
 	"hornerodb/internal/models/metadata"
 
@@ -46,6 +47,23 @@ func WorkspaceAuth() gin.HandlerFunc {
 			return
 		}
 
+		// Check if user is instance admin (can_create_workspaces = true)
+		// Instance admins have full access to all workspaces
+		var isInstanceAdmin bool
+		database.DB.Table("_hornero_users").
+			Select("can_create_workspaces").
+			Where("id = ?", userID).
+			Scan(&isInstanceAdmin)
+
+		if isInstanceAdmin {
+			// Instance admin gets admin role on all workspaces
+			c.Set("role", "admin")
+			c.Set("is_owner", false)
+			c.Set("is_instance_admin", true)
+			c.Next()
+			return
+		}
+
 		// SPECIAL HANDLING FOR API KEYS
 		if authSource == "apikey" {
 			// effectiveUserID is actually the API Key ID here
@@ -66,7 +84,7 @@ func WorkspaceAuth() gin.HandlerFunc {
 		}
 
 		// FIRST: Check if user is the owner of the workspace - give full access
-		fmt.Printf("DEBUG WorkspaceAuth: userID=%s, ownerID=%s, workspaceID=%s\n", userID, workspace.OwnerID.String(), workspaceIDStr)
+		slog.Debug("WorkspaceAuth", "user_id", userID, "owner_id", workspace.OwnerID.String(), "workspace_id", workspaceIDStr)
 
 		if workspace.OwnerID.String() == userID {
 			// User is the owner - grant admin access
@@ -82,8 +100,7 @@ func WorkspaceAuth() gin.HandlerFunc {
 			Where("workspace_id = ? AND user_id = ?", workspaceID, userID).
 			First(&userRole).Error; err != nil {
 
-			// No role assigned and not owner - deny access
-			fmt.Printf("WorkspaceAuth 403: User %s not found in Workspace %s. Err: %v\n", userID, workspaceID, err)
+			slog.Warn("WorkspaceAuth denied", "user_id", userID, "workspace_id", workspaceID, "error", err)
 
 			c.JSON(403, gin.H{"error": "access denied to this workspace"})
 			c.Abort()

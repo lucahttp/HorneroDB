@@ -22,8 +22,28 @@ func ListWorkspaces(c *gin.Context) {
 		return
 	}
 
+	// Check if user is instance admin (can_create_workspaces = true)
+	// Instance admins can see ALL workspaces
+	var isInstanceAdmin bool
+	database.DB.Table("_hornero_users").
+		Select("can_create_workspaces").
+		Where("id = ?", userID).
+		Scan(&isInstanceAdmin)
+
 	var workspaces []metadata.Workspace
-	q := database.DB.Table("_hornero_workspaces")
+	var q *gorm.DB
+
+	if isInstanceAdmin {
+		// Instance admin: show all workspaces
+		q = database.DB.Table("_hornero_workspaces")
+	} else {
+		// Regular user: only show workspaces where user is owner OR has a role assigned
+		q = database.DB.Table("_hornero_workspaces w").
+			Distinct("w.*").
+			Joins("LEFT JOIN _hornero_user_roles ur ON ur.workspace_id = w.id AND ur.user_id = ?", userID).
+			Where("w.owner_id = ? OR ur.user_id IS NOT NULL", userID)
+	}
+
 	q = query.ApplyPagination(q, c)
 
 	result := q.Find(&workspaces)

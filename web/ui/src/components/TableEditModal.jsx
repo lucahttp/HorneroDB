@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import axios from 'axios'
 import { Xmark, Plus, Trash, Table2Columns } from 'iconoir-react'
 import { Button } from './index.jsx'
@@ -6,32 +7,20 @@ import { notify } from './Toast.jsx'
 import { API_URL } from '../constants/index.js'
 import { FIELD_TYPE_OPTIONS, getFieldConfig } from '../fieldTypeConfig.jsx'
 
-/**
- * Modal to edit a table: rename it and manage its columns.
- * Props:
- *   table — table object with { id, name, slug, columns }
- *   workspaceId
- *   onClose()
- *   onTableUpdated(updatedTable) — called after rename
- *   onColumnAdded(newCol) / onColumnDeleted(colId)
- */
 export function TableEditModal({ table, workspaceId, onClose, onTableUpdated, onColumnAdded, onColumnDeleted }) {
-  const [tab, setTab] = useState('columns') // 'general' | 'columns'
+  const { t } = useTranslation()
+  const [tab, setTab] = useState('columns')
   const [name, setName] = useState(table.name)
   const [saving, setSaving] = useState(false)
 
-  // New column form
   const [newColName, setNewColName] = useState('')
   const [newColType, setNewColType] = useState('text')
   const [newColTargetTable, setNewColTargetTable] = useState('')
   const [addingCol, setAddingCol] = useState(false)
   const [showAddForm, setShowAddForm] = useState(false)
-
-  // local columns state (start from prop)
   const [columns, setColumns] = useState(table.columns || [])
-
-  // Tables list for relation picker (fetched lazily)
   const [allTables, setAllTables] = useState([])
+
   useEffect(() => {
     if (newColType === 'relation' && allTables.length === 0) {
       axios.get(`${API_URL}/workspaces/${workspaceId}/tables`)
@@ -46,9 +35,9 @@ export function TableEditModal({ table, workspaceId, onClose, onTableUpdated, on
     try {
       await axios.put(`${API_URL}/workspaces/${workspaceId}/tables/${table.id}`, { name })
       onTableUpdated({ ...table, name })
-      notify('Tabla renombrada', 'success')
+      notify(t('table_renamed_success'), 'success')
     } catch {
-      notify('Error al renombrar la tabla', 'error')
+      notify(t('error_rename_table'), 'error')
     } finally {
       setSaving(false)
     }
@@ -70,23 +59,23 @@ export function TableEditModal({ table, workspaceId, onClose, onTableUpdated, on
       setNewColType('text')
       setNewColTargetTable('')
       setShowAddForm(false)
-      notify('Columna creada', 'success')
+      notify(t('column_created'), 'success')
     } catch {
-      notify('Error al crear la columna', 'error')
+      notify(t('error_create_column'), 'error')
     } finally {
       setAddingCol(false)
     }
   }
 
   const handleDeleteColumn = async (col) => {
-    if (!confirm(`¿Eliminar la columna "${col.name}"? Esta acción no se puede deshacer.`)) return
+    if (!confirm(t('confirm_delete_column', { name: col.name }))) return
     try {
       await axios.delete(`${API_URL}/workspaces/${workspaceId}/tables/${table.id}/columns/${col.id}`)
       setColumns(prev => prev.filter(c => c.id !== col.id))
       onColumnDeleted?.(col.id)
-      notify('Columna eliminada', 'success')
+      notify(t('column_deleted_success'), 'success')
     } catch {
-      notify('Error al eliminar la columna', 'error')
+      notify(t('error_delete_column_action'), 'error')
     }
   }
 
@@ -109,8 +98,8 @@ export function TableEditModal({ table, workspaceId, onClose, onTableUpdated, on
 
         {/* Tabs */}
         <div className="tabs" style={{ marginBottom: 0, paddingLeft: '1.5rem' }}>
-          <button className={`tab${tab === 'columns' ? ' active' : ''}`} onClick={() => setTab('columns')}>Columnas</button>
-          <button className={`tab${tab === 'general' ? ' active' : ''}`} onClick={() => setTab('general')}>General</button>
+          <button className={`tab${tab === 'columns' ? ' active' : ''}`} onClick={() => setTab('columns')}>{t('tab_columns')}</button>
+          <button className={`tab${tab === 'general' ? ' active' : ''}`} onClick={() => setTab('general')}>{t('tab_general')}</button>
         </div>
 
         {/* Body */}
@@ -118,7 +107,7 @@ export function TableEditModal({ table, workspaceId, onClose, onTableUpdated, on
           {tab === 'general' && (
             <div>
               <div className="form-group">
-                <label className="form-label">Nombre de la tabla</label>
+                <label className="form-label">{t('table_name_field')}</label>
                 <input
                   className="form-input"
                   value={name}
@@ -127,18 +116,17 @@ export function TableEditModal({ table, workspaceId, onClose, onTableUpdated, on
                 />
               </div>
               <Button onClick={handleRename} loading={saving} disabled={!name.trim() || name === table.name}>
-                Guardar
+                {t('save')}
               </Button>
             </div>
           )}
 
           {tab === 'columns' && (
             <div>
-              {/* Existing columns */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
                 {columns.length === 0 && (
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', textAlign: 'center', padding: '1rem 0' }}>
-                    No hay columnas. Agrega una abajo.
+                    {t('no_columns_hint')}
                   </p>
                 )}
                 {columns.map(col => {
@@ -164,22 +152,21 @@ export function TableEditModal({ table, workspaceId, onClose, onTableUpdated, on
                 })}
               </div>
 
-              {/* Add column form */}
               {showAddForm ? (
                 <div style={{ padding: '1rem', border: '2px dashed var(--border-color)', borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label" style={{ fontSize: '0.7rem' }}>Nombre</label>
+                    <label className="form-label" style={{ fontSize: '0.7rem' }}>{t('col_name_label')}</label>
                     <input
                       className="form-input"
                       autoFocus
-                      placeholder="nombre_columna"
+                      placeholder={t('col_name_placeholder')}
                       value={newColName}
                       onChange={e => setNewColName(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') handleAddColumn(); if (e.key === 'Escape') setShowAddForm(false) }}
                     />
                   </div>
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label" style={{ fontSize: '0.7rem' }}>Tipo</label>
+                    <label className="form-label" style={{ fontSize: '0.7rem' }}>{t('col_type_label')}</label>
                     <select
                       className="form-select"
                       value={newColType}
@@ -192,16 +179,16 @@ export function TableEditModal({ table, workspaceId, onClose, onTableUpdated, on
                   </div>
                   {newColType === 'relation' && (
                     <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label" style={{ fontSize: '0.7rem' }}>Tabla destino</label>
+                      <label className="form-label" style={{ fontSize: '0.7rem' }}>{t('col_target_table_label')}</label>
                       <select className="form-select" value={newColTargetTable} onChange={e => setNewColTargetTable(e.target.value)}>
-                        <option value="">Seleccionar tabla...</option>
-                        {allTables.map(t => <option key={t.id} value={t.slug}>{t.name}</option>)}
+                        <option value="">{t('col_target_table_placeholder')}</option>
+                        {allTables.map(tbl => <option key={tbl.id} value={tbl.slug}>{tbl.name}</option>)}
                       </select>
                     </div>
                   )}
                   <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                    <Button size="sm" onClick={handleAddColumn} loading={addingCol} disabled={!newColName.trim()}>Crear</Button>
-                    <Button variant="secondary" size="sm" onClick={() => setShowAddForm(false)}>Cancelar</Button>
+                    <Button size="sm" onClick={handleAddColumn} loading={addingCol} disabled={!newColName.trim()}>{t('create')}</Button>
+                    <Button variant="secondary" size="sm" onClick={() => setShowAddForm(false)}>{t('cancel')}</Button>
                   </div>
                 </div>
               ) : (
@@ -211,7 +198,7 @@ export function TableEditModal({ table, workspaceId, onClose, onTableUpdated, on
                   onClick={() => setShowAddForm(true)}
                 >
                   <Plus width="1rem" height="1rem" />
-                  Agregar columna
+                  {t('add_column_button')}
                 </button>
               )}
             </div>

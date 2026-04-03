@@ -1,6 +1,8 @@
 package mcp
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +10,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -177,6 +180,125 @@ func New(dataSvc *data.Service, permSvc *permission.Service) *Server {
 					Required: []string{"workspace_id", "table_slug", "record_id"},
 				},
 			},
+			// ── Schema management tools (require workspace admin) ──────────────
+			{
+				Name:        "create_workspace",
+				Description: "Crea un nuevo workspace con roles admin/user por defecto. El caller queda como owner.",
+				InputSchema: InputSchema{
+					Type: "object",
+					Properties: map[string]Property{
+						"name": {Type: "string", Description: "Nombre del workspace"},
+						"slug": {Type: "string", Description: "Slug único (opcional, se genera desde name)"},
+					},
+					Required: []string{"name"},
+				},
+			},
+			{
+				Name:        "create_table",
+				Description: "Crea una tabla en el workspace (requiere ser admin). Crea la tabla física en PostgreSQL.",
+				InputSchema: InputSchema{
+					Type: "object",
+					Properties: map[string]Property{
+						"workspace_id": {Type: "string", Description: "ID del workspace"},
+						"name":         {Type: "string", Description: "Nombre legible de la tabla"},
+						"slug":         {Type: "string", Description: "Slug único (opcional, se genera desde name)"},
+					},
+					Required: []string{"workspace_id", "name"},
+				},
+			},
+			{
+				Name:        "rename_table",
+				Description: "Renombra una tabla (requiere ser admin).",
+				InputSchema: InputSchema{
+					Type: "object",
+					Properties: map[string]Property{
+						"workspace_id": {Type: "string", Description: "ID del workspace"},
+						"table_slug":   {Type: "string", Description: "Slug actual de la tabla"},
+						"new_name":     {Type: "string", Description: "Nuevo nombre legible"},
+					},
+					Required: []string{"workspace_id", "table_slug", "new_name"},
+				},
+			},
+			{
+				Name:        "delete_table",
+				Description: "Elimina una tabla y todos sus datos (requiere ser admin). Irreversible.",
+				InputSchema: InputSchema{
+					Type: "object",
+					Properties: map[string]Property{
+						"workspace_id": {Type: "string", Description: "ID del workspace"},
+						"table_slug":   {Type: "string", Description: "Slug de la tabla a eliminar"},
+					},
+					Required: []string{"workspace_id", "table_slug"},
+				},
+			},
+			{
+				Name:        "create_column",
+				Description: "Agrega una columna a una tabla (requiere ser admin). Tipos: text, long_text, number, integer, float, boolean, date, datetime, email, url, select, relation, json, attachment.",
+				InputSchema: InputSchema{
+					Type: "object",
+					Properties: map[string]Property{
+						"workspace_id": {Type: "string", Description: "ID del workspace"},
+						"table_slug":   {Type: "string", Description: "Slug de la tabla"},
+						"name":         {Type: "string", Description: "Nombre de la columna"},
+						"field_type":   {Type: "string", Description: "Tipo de campo"},
+						"meta":         {Type: "object", Description: "Metadatos opcionales (ej: {\"target_table\":\"slug\"} para relation)"},
+					},
+					Required: []string{"workspace_id", "table_slug", "name", "field_type"},
+				},
+			},
+			{
+				Name:        "delete_column",
+				Description: "Elimina una columna y sus datos (requiere ser admin). Irreversible.",
+				InputSchema: InputSchema{
+					Type: "object",
+					Properties: map[string]Property{
+						"workspace_id": {Type: "string", Description: "ID del workspace"},
+						"table_slug":   {Type: "string", Description: "Slug de la tabla"},
+						"column_slug":  {Type: "string", Description: "Slug de la columna"},
+					},
+					Required: []string{"workspace_id", "table_slug", "column_slug"},
+				},
+			},
+			{
+				Name:        "create_role",
+				Description: "Crea un rol en el workspace (requiere ser admin).",
+				InputSchema: InputSchema{
+					Type: "object",
+					Properties: map[string]Property{
+						"workspace_id": {Type: "string", Description: "ID del workspace"},
+						"name":         {Type: "string", Description: "Nombre del rol (ej: editor, viewer)"},
+						"description":  {Type: "string", Description: "Descripción opcional"},
+						"permissions":  {Type: "object", Description: "Permisos iniciales (opcional, misma estructura que set_role_permissions)"},
+					},
+					Required: []string{"workspace_id", "name"},
+				},
+			},
+			{
+				Name:        "delete_role",
+				Description: "Elimina un rol del workspace (requiere ser admin). No se puede eliminar el rol 'admin'.",
+				InputSchema: InputSchema{
+					Type: "object",
+					Properties: map[string]Property{
+						"workspace_id": {Type: "string", Description: "ID del workspace"},
+						"role_name":    {Type: "string", Description: "Nombre del rol a eliminar"},
+					},
+					Required: []string{"workspace_id", "role_name"},
+				},
+			},
+			{
+				Name:        "set_role_permissions",
+				Description: "Configura los permisos de un rol para una tabla específica o '*' (todas). Hace merge sobre los permisos existentes (requiere ser admin). Niveles: 'all', 'own', 'none'.",
+				InputSchema: InputSchema{
+					Type: "object",
+					Properties: map[string]Property{
+						"workspace_id": {Type: "string", Description: "ID del workspace"},
+						"role_name":    {Type: "string", Description: "Nombre del rol"},
+						"table_slug":   {Type: "string", Description: "Slug de la tabla o '*' para todas"},
+						"permissions":  {Type: "object", Description: "{\"create\":\"all\",\"read\":\"all\",\"update\":\"own\",\"delete\":\"none\"}"},
+					},
+					Required: []string{"workspace_id", "role_name", "table_slug", "permissions"},
+				},
+			},
 		},
 	}
 }
@@ -270,6 +392,25 @@ func (s *Server) handleToolCallWithContext(ctx ToolContext, req MCPRequest) MCPR
 		result, err = s.updateRecord(ctx, arguments)
 	case "delete_record":
 		result, err = s.deleteRecord(ctx, arguments)
+	// ── Schema management tools ─────────────────────────────────────────────
+	case "create_workspace":
+		result, err = s.createWorkspace(ctx, arguments)
+	case "create_table":
+		result, err = s.mcpCreateTable(ctx, arguments)
+	case "rename_table":
+		result, err = s.mcpRenameTable(ctx, arguments)
+	case "delete_table":
+		result, err = s.mcpDeleteTable(ctx, arguments)
+	case "create_column":
+		result, err = s.mcpCreateColumn(ctx, arguments)
+	case "delete_column":
+		result, err = s.mcpDeleteColumn(ctx, arguments)
+	case "create_role":
+		result, err = s.mcpCreateRole(ctx, arguments)
+	case "delete_role":
+		result, err = s.mcpDeleteRole(ctx, arguments)
+	case "set_role_permissions":
+		result, err = s.mcpSetRolePermissions(ctx, arguments)
 	default:
 		return MCPResponse{
 			JSONRPC: "2.0",
@@ -357,25 +498,15 @@ func (s *Server) listWorkspaces(ctx ToolContext) (interface{}, error) {
 		return nil, errors.New("authentication required")
 	}
 
-	// Get workspaces where user has a role
-	var userRoles []metadata.UserRole
-	err := database.DB.Table("_hornero_user_roles").
-		Where("user_id = ?", ctx.UserID).
-		Find(&userRoles).Error
+	// Include workspaces where the user has a role OR is the owner.
+	// (Owner may not have a user_role entry if workspace was created via REST API import.)
+	var workspaces []metadata.Workspace
+	err := database.DB.Table("_hornero_workspaces").
+		Where("owner_id = ? OR id IN (SELECT workspace_id FROM _hornero_user_roles WHERE user_id = ?)",
+			ctx.UserID, ctx.UserID).
+		Find(&workspaces).Error
 	if err != nil {
 		return nil, err
-	}
-
-	// Get workspace details
-	var workspaces []metadata.Workspace
-	if len(userRoles) > 0 {
-		var workspaceIDs []string
-		for _, ur := range userRoles {
-			workspaceIDs = append(workspaceIDs, ur.WorkspaceID.String())
-		}
-		database.DB.Table("_hornero_workspaces").
-			Where("id IN ?", workspaceIDs).
-			Find(&workspaces)
 	}
 
 	return workspaces, nil
@@ -391,13 +522,20 @@ func (s *Server) listTables(ctx ToolContext, args map[string]interface{}) (inter
 		return nil, errors.New("workspace_id is required")
 	}
 
-	// Validate user has access to this workspace
-	var count int64
-	database.DB.Table("_hornero_user_roles").
-		Where("user_id = ? AND workspace_id = ?", ctx.UserID, workspaceID).
-		Count(&count)
-	if count == 0 {
-		return nil, errors.New("access denied: user does not have access to this workspace")
+	// Grant access if the user is the workspace owner OR has any role assigned.
+	// Mirrors WorkspaceAuth middleware logic so owners without a user_role entry aren't silently excluded.
+	var ws metadata.Workspace
+	if err := database.DB.Table("_hornero_workspaces").First(&ws, "id = ?", workspaceID).Error; err != nil {
+		return nil, errors.New("workspace not found")
+	}
+	if ws.OwnerID.String() != ctx.UserID {
+		var count int64
+		database.DB.Table("_hornero_user_roles").
+			Where("user_id = ? AND workspace_id = ?", ctx.UserID, workspaceID).
+			Count(&count)
+		if count == 0 {
+			return nil, errors.New("access denied: user does not have access to this workspace")
+		}
 	}
 
 	var tables []metadata.Table
@@ -669,8 +807,9 @@ func toJSON(v interface{}) string {
 	return string(b)
 }
 
-// Run starts the MCP server in stdio mode (for command-line usage)
-func (s *Server) Run() {
+// Run starts the MCP server in stdio mode (for command-line usage).
+// ctx must be pre-authenticated — use buildStdioContext() in Start().
+func (s *Server) Run(ctx ToolContext) {
 	decoder := json.NewDecoder(os.Stdin)
 	encoder := json.NewEncoder(os.Stdout)
 
@@ -684,9 +823,6 @@ func (s *Server) Run() {
 			continue
 		}
 
-		// For stdio mode, we don't have authentication context
-		// This mode should only be used for local development with caution
-		ctx := ToolContext{}
 		resp := s.HandleRequestWithContext(ctx, req)
 		if err := encoder.Encode(resp); err != nil {
 			log.Printf("Error encoding: %v", err)
@@ -694,12 +830,58 @@ func (s *Server) Run() {
 	}
 }
 
-// Start initializes and runs the MCP server in stdio mode
+// buildStdioContext authenticates for stdio mode using the MCP_API_KEY env var.
+// This ensures only authorized agents (Cursor, Claude Desktop, etc.) can invoke tools
+// on a locally running server without an HTTP session.
+func buildStdioContext() (ToolContext, error) {
+	key := os.Getenv("MCP_API_KEY")
+	if key == "" {
+		return ToolContext{}, errors.New("MCP_API_KEY env var is required for stdio mode")
+	}
+	if len(key) < 10 || key[:4] != "key_" {
+		return ToolContext{}, errors.New("MCP_API_KEY must be a valid API key starting with 'key_'")
+	}
+
+	hash := sha256.Sum256([]byte(key))
+	keyHash := hex.EncodeToString(hash[:])
+
+	// Reuse the same JOIN query as verifyAPIKey in middleware/auth.go
+	type apiKeyWithRole struct {
+		metadata.APIKey
+		RoleName string `gorm:"column:role_name"`
+	}
+	var result apiKeyWithRole
+	err := database.DB.
+		Table("_hornero_api_keys k").
+		Select("k.*, r.name as role_name").
+		Joins("LEFT JOIN _hornero_roles r ON r.id = k.role_id").
+		Where("k.key_hash = ?", keyHash).
+		First(&result).Error
+	if err != nil {
+		return ToolContext{}, errors.New("MCP_API_KEY is invalid or not found in database")
+	}
+	if result.ExpiresAt != nil && result.ExpiresAt.Before(time.Now()) {
+		return ToolContext{}, errors.New("MCP_API_KEY has expired")
+	}
+
+	return ToolContext{
+		UserID:      result.ID.String(),
+		RoleName:    result.RoleName,
+		WorkspaceID: result.WorkspaceID.String(),
+	}, nil
+}
+
+// Start initializes and runs the MCP server in stdio mode.
+// Requires MCP_API_KEY env var — fails fast if not set or invalid.
 func Start() {
-	// In stdio mode, we create services without authentication
-	// This is primarily for local development and testing
+	ctx, err := buildStdioContext()
+	if err != nil {
+		log.Fatalf("MCP stdio auth failed: %v\nSet MCP_API_KEY to a valid workspace API key.", err)
+	}
+	log.Printf("MCP stdio: authenticated as workspace %s", ctx.WorkspaceID)
+
 	dataSvc := data.NewService()
 	permSvc := permission.NewService()
 	server := New(dataSvc, permSvc)
-	server.Run()
+	server.Run(ctx)
 }

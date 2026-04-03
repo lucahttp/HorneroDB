@@ -1,6 +1,10 @@
 package api
 
 import (
+	"errors"
+	"net"
+	"net/url"
+
 	"hornerodb/internal/database"
 	"hornerodb/internal/middleware"
 	"hornerodb/internal/models/metadata"
@@ -58,6 +62,12 @@ func CreateWebhook(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&input); err != nil {
 		response.ValidationError(c, "Invalid webhook data")
+		return
+	}
+
+	// Validate URL to prevent SSRF attacks
+	if err := validateWebhookURL(input.NotificationURL); err != nil {
+		response.ValidationError(c, "Invalid notification_url: "+err.Error())
 		return
 	}
 
@@ -175,4 +185,51 @@ func DeleteWebhook(c *gin.Context) {
 	}
 
 	response.Success(c, map[string]interface{}{"message": "webhook deleted"})
+}
+
+// validateWebhookURL validates that the URL is safe and not an SSRF risk
+func validateWebhookURL(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return err
+	}
+
+	// Only allow http and https
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return errors.New("only http and https URLs are allowed")
+	}
+
+	// Check for private IP ranges
+	host := parsed.Hostname()
+	if host == "" {
+		return errors.New("invalid URL: missing host")
+	}
+
+	// Block localhost
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return errors.New("localhost URLs are not allowed")
+	}
+
+	// Block private IP ranges
+	ip := net.ParseIP(host)
+	if ip != nil {
+		// Check private ranges
+		privateRanges := []string{
+			"10.0.0.0/8",
+			"172.16.0.0/12",
+			"192.168.0.0/16",
+			"127.0.0.0/8",
+			"169.254.0.0/16",
+			"::1/128",
+			"fc00::/7",
+		}
+		for _, cidr := range privateRanges {
+			_, ipNet, _ := net.ParseCIDR(cidr)
+			if ipNet != nil && ipNet.Contains(ip) {
+				return errors.New("private IP addresses are not allowed")
+			}
+		}
+	}
+
+	return nil
 }

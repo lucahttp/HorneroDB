@@ -215,14 +215,36 @@ func UpdateTable(c *gin.Context) {
 		return
 	}
 
-	var input map[string]interface{}
+	// Whitelist de campos permitidos para actualización
+	var input struct {
+		Name        string `json:"name"`
+		Slug        string `json:"slug"`
+		Description string `json:"description"`
+	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
 		response.ValidationError(c, "Invalid table data")
 		return
 	}
 
-	result := database.DB.Table("_hornero_tables").Where("id = ?", tableID).Updates(input)
+	// Construir mapa solo con campos proporcionados
+	updates := make(map[string]interface{})
+	if input.Name != "" {
+		updates["name"] = input.Name
+	}
+	if input.Slug != "" {
+		updates["slug"] = input.Slug
+	}
+	if input.Description != "" {
+		updates["description"] = input.Description
+	}
+
+	if len(updates) == 0 {
+		response.ValidationError(c, "No fields to update")
+		return
+	}
+
+	result := database.DB.Table("_hornero_tables").Where("id = ?", tableID).Updates(updates)
 	if result.Error != nil {
 		slog.Error("failed to update table",
 			"error", result.Error,

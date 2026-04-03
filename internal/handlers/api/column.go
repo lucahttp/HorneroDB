@@ -77,6 +77,12 @@ func CreateColumn(c *gin.Context) {
 		return
 	}
 
+	// Validate field type against whitelist
+	if !ValidateFieldType(input.FieldType) {
+		response.ValidationError(c, "invalid field_type: must be one of text, long_text, number, integer, boolean, date, datetime, email, url, attachment, select, relation, json")
+		return
+	}
+
 	tblID, err := uuid.Parse(tableID)
 	if err != nil {
 		response.ValidationError(c, "invalid table_id format")
@@ -119,7 +125,7 @@ func CreateColumn(c *gin.Context) {
 	}
 
 	// Add column to physical table
-	colSQL := getColumnSQL(input.FieldType)
+	colSQL := GetColumnSQL(input.FieldType)
 	if colSQL != "" {
 		// Validate table name for safety
 		safeTableName, err := ValidateTableName(workspaceID, table.Slug)
@@ -153,7 +159,7 @@ func CreateColumn(c *gin.Context) {
 	response.Created(c, column)
 }
 
-func getColumnSQL(fieldType string) string {
+func GetColumnSQL(fieldType string) string {
 	switch fieldType {
 	case "text":
 		return "VARCHAR(255)"
@@ -181,11 +187,31 @@ func getColumnSQL(fieldType string) string {
 		return "UUID"
 	case "json":
 		return "JSONB"
-	case "float":
-		return "DOUBLE PRECISION"
 	default:
-		return "VARCHAR(255)"
+		return ""
 	}
+}
+
+// ValidFieldTypes contiene todos los tipos de campo permitidos
+var ValidFieldTypes = map[string]bool{
+	"text":       true,
+	"long_text":  true,
+	"number":     true,
+	"integer":    true,
+	"boolean":    true,
+	"date":       true,
+	"datetime":   true,
+	"email":      true,
+	"url":        true,
+	"attachment": true,
+	"select":     true,
+	"relation":   true,
+	"json":       true,
+}
+
+// ValidateFieldType verifica si el tipo de campo es válido
+func ValidateFieldType(fieldType string) bool {
+	return ValidFieldTypes[fieldType]
 }
 
 func UpdateColumn(c *gin.Context) {
@@ -196,14 +222,44 @@ func UpdateColumn(c *gin.Context) {
 		return
 	}
 
-	var input map[string]interface{}
+	var input struct {
+		Name      string        `json:"name"`
+		Slug      string        `json:"slug"`
+		FieldType string        `json:"field_type"`
+		Meta      metadata.JSON `json:"meta"`
+	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
 		response.ValidationError(c, "Invalid column data")
 		return
 	}
 
-	result := database.DB.Table("_hornero_columns").Where("id = ?", columnID).Updates(input)
+	// Construir mapa solo con campos proporcionados
+	updates := make(map[string]interface{})
+	if input.Name != "" {
+		updates["name"] = input.Name
+	}
+	if input.Slug != "" {
+		updates["slug"] = input.Slug
+	}
+	if input.FieldType != "" {
+		// Validar field type
+		if !ValidateFieldType(input.FieldType) {
+			response.ValidationError(c, "invalid field_type")
+			return
+		}
+		updates["field_type"] = input.FieldType
+	}
+	if input.Meta != nil {
+		updates["meta"] = input.Meta
+	}
+
+	if len(updates) == 0 {
+		response.ValidationError(c, "No fields to update")
+		return
+	}
+
+	result := database.DB.Table("_hornero_columns").Where("id = ?", columnID).Updates(updates)
 	if result.Error != nil {
 		slog.Error("failed to update column",
 			"error", result.Error,

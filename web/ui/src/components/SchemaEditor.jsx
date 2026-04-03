@@ -1,6 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { getFieldConfig } from '../fieldTypeConfig.jsx'
+import { Plus } from 'iconoir-react'
 
+import { useTranslation } from 'react-i18next'
 const NODE_WIDTH = 220
 const NODE_HEADER_H = 44
 const NODE_ROW_H = 30
@@ -36,7 +38,7 @@ function buildEdges(tables) {
   const tableBySlug = Object.fromEntries(tables.map(t => [t.slug, t]))
 
   tables.forEach(srcTable => {
-    ;(srcTable.columns || []).forEach((col, colIdx) => {
+    ; (srcTable.columns || []).forEach((col, colIdx) => {
       if (col.field_type !== 'relation') return
       const meta = typeof col.meta === 'string' ? JSON.parse(col.meta || '{}') : (col.meta || {})
       const targetSlug = meta.target_table
@@ -70,11 +72,15 @@ function bezierPath(sx, sy, ex, ey) {
   return `M ${sx} ${sy} C ${sx + cp} ${sy}, ${ex - cp} ${ey}, ${ex} ${ey}`
 }
 
-export function SchemaEditor({ tables, workspaceId, onEditTable }) {
+export function SchemaEditor({ tables, workspaceId, onEditTable, onCreateTable, onPreviewTable }) {
   const storageKey = `erd-positions-${workspaceId}`
   const [positions, setPositions] = useState(() => initialPositions(tables, storageKey))
   const [dragging, setDragging] = useState(null) // { tableId, offsetX, offsetY }
+  const [showCreateForm, setShowCreateForm] = useState(false)
+  const [newTableName, setNewTableName] = useState('')
+  const [creatingTable, setCreatingTable] = useState(false)
   const svgRef = useRef(null)
+  const { t } = useTranslation()
 
   // Persist positions
   useEffect(() => {
@@ -145,8 +151,20 @@ export function SchemaEditor({ tables, workspaceId, onEditTable }) {
     return (positions[t.id]?.y || 0) + h + 60
   }))
 
+  const handleCreate = async () => {
+    if (!newTableName.trim() || creatingTable) return
+    setCreatingTable(true)
+    try {
+      await onCreateTable(newTableName.trim())
+      setNewTableName('')
+      setShowCreateForm(false)
+    } finally {
+      setCreatingTable(false)
+    }
+  }
+
   return (
-    <div className="erd-canvas-wrap">
+    <div className="erd-canvas-wrap" style={{ position: 'relative' }}>
       <svg
         ref={svgRef}
         width={maxX}
@@ -260,6 +278,17 @@ export function SchemaEditor({ tables, workspaceId, onEditTable }) {
                 <text x={NODE_WIDTH - 22} y="23" fontSize="11" fill="var(--text-secondary)" textAnchor="middle">✎</text>
               </g>
 
+              {/* Preview button */}
+              <g
+                style={{ cursor: 'pointer' }}
+                onClick={(e) => { e.stopPropagation(); onPreviewTable(table) }}
+              >
+                <rect x={NODE_WIDTH - 57} y="8" width="22" height="22" rx="6" fill="var(--bg-elevated)" stroke="var(--border-light)" strokeWidth="1.5" />
+                {/* Simple eye icon in SVG */}
+                <ellipse cx={NODE_WIDTH - 46} cy="19" rx="5" ry="3.5" fill="none" stroke="var(--text-secondary)" strokeWidth="1.5" />
+                <circle cx={NODE_WIDTH - 46} cy="19" r="1.5" fill="var(--text-secondary)" />
+              </g>
+
               {/* Columns */}
               {cols.map((col, i) => {
                 const cfg = getFieldConfig(col.field_type)
@@ -304,6 +333,69 @@ export function SchemaEditor({ tables, workspaceId, onEditTable }) {
           )
         })}
       </svg>
+      {/* Floating "Add Table" button / mini-form */}
+      <div style={{
+        position: 'absolute', bottom: '1.25rem', right: '1.25rem',
+        display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.5rem',
+        zIndex: 10,
+      }}>
+        {showCreateForm && (
+          <div style={{
+            background: 'var(--bg-elevated)',
+            border: 'var(--border-thick) solid var(--border-color)',
+            borderRadius: 'var(--radius-md)',
+            padding: '1rem',
+            boxShadow: '4px 4px 0 var(--border-color)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.625rem',
+            minWidth: '220px',
+          }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.05em' }}>
+              {t('new_table_title')}
+            </div>
+            <input
+              className="form-input"
+              placeholder={t('table_name_placeholder')}
+              value={newTableName}
+              onChange={e => setNewTableName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') handleCreate()
+                if (e.key === 'Escape') { setShowCreateForm(false); setNewTableName('') }
+              }}
+              autoFocus
+              style={{ fontSize: '0.875rem' }}
+            />
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => { setShowCreateForm(false); setNewTableName('') }}
+              >{t('cancel')}</button>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={handleCreate}
+                disabled={!newTableName.trim() || creatingTable}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+              >
+                {creatingTable ? (
+                  <div style={{ width: '0.875rem', height: '0.875rem', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />
+                ) : <Plus width="0.875rem" height="0.875rem" />}
+                {t('create')}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() => setShowCreateForm(v => !v)}
+          style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', boxShadow: '3px 3px 0 var(--border-color)' }}
+          title={t('new_table_title')}
+        >
+          <Plus width="1rem" height="1rem" />
+          {t('new_table_button')}
+        </button>
+      </div>
     </div>
   )
 }

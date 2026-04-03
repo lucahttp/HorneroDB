@@ -55,6 +55,15 @@ func (JSON) GormDataType() string {
 	return "jsonb"
 }
 
+// MustJSON convierte cualquier valor a JSON, panic si falla (útil para valores conocidos)
+func MustJSON(v interface{}) JSON {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return JSON(b)
+}
+
 type Workspace struct {
 	ID        uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
 	Name      string    `gorm:"type:varchar(255);not null" json:"name"`

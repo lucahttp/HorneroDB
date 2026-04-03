@@ -1,12 +1,12 @@
 package api
 
 import (
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math/rand"
 	"time"
 
 	"hornerodb/internal/database"
@@ -20,13 +20,15 @@ import (
 	"gorm.io/gorm"
 )
 
+// generateAPIKey creates a cryptographically secure random key with the given prefix.
+// 24 random bytes → 48 hex chars, giving 192 bits of entropy.
 func generateAPIKey(prefix string) (string, string) {
-	rand.Seed(time.Now().UnixNano())
-	chars := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	key := prefix
-	for i := 0; i < 32; i++ {
-		key += string(chars[rand.Intn(len(chars))])
+	b := make([]byte, 24)
+	if _, err := cryptorand.Read(b); err != nil {
+		// Fallback should never happen on any supported OS
+		panic("crypto/rand unavailable: " + err.Error())
 	}
+	key := prefix + hex.EncodeToString(b)
 
 	hash := sha256.Sum256([]byte(key))
 	keyHash := hex.EncodeToString(hash[:])
@@ -68,7 +70,6 @@ func ListAPIKeys(c *gin.Context) {
 		Name             string     `json:"name"`
 		Prefix           string     `json:"prefix"`
 		MaskedKey        string     `json:"masked_key"`
-		KeyHash          string     `json:"key_hash,omitempty"`
 		RoleID           *uuid.UUID `json:"role_id"`
 		LastUsedAt       *time.Time `json:"last_used_at"`
 		ExpiresAt        *time.Time `json:"expires_at"`
@@ -91,7 +92,6 @@ func ListAPIKeys(c *gin.Context) {
 			Name:             key.Name,
 			Prefix:           key.Prefix,
 			MaskedKey:        key.Prefix + "****************",
-			KeyHash:          key.KeyHash,
 			RoleID:           &key.RoleID,
 			LastUsedAt:       key.LastUsedAt,
 			ExpiresAt:        key.ExpiresAt,

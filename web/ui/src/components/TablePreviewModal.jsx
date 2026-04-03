@@ -1,17 +1,12 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import axios from 'axios'
 import { Xmark, Table2Columns } from 'iconoir-react'
 import { API_URL } from '../constants/index.js'
 import { getFieldConfig } from '../fieldTypeConfig.jsx'
 
-/**
- * Preview modal — shows the first 10 rows of a table.
- * Props:
- *   table — { id, name, slug, columns }
- *   workspaceId
- *   onClose()
- */
 export function TablePreviewModal({ table, workspaceId, onClose }) {
+  const { t } = useTranslation()
   const [records, setRecords] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -20,13 +15,12 @@ export function TablePreviewModal({ table, workspaceId, onClose }) {
     axios
       .get(`${API_URL}/workspaces/${workspaceId}/data/${table.slug}`, { params: { limit: 10 } })
       .then(r => setRecords(r.data.data || []))
-      .catch(() => setError('No se pudieron cargar los datos'))
+      .catch(() => setError(t('preview_error')))
       .finally(() => setLoading(false))
-  }, [workspaceId, table.slug])
+  }, [workspaceId, table.slug, t])
 
   const columns = table.columns || []
 
-  // Format a cell value for display
   const renderCell = (record, col) => {
     const val = record[col.slug]
     if (val == null || val === '') return <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>—</span>
@@ -50,9 +44,9 @@ export function TablePreviewModal({ table, workspaceId, onClose }) {
               <Table2Columns width="1.1rem" height="1.1rem" style={{ color: '#fff' }} />
             </div>
             <div>
-              <div className="modal-title">Preview — {table.name}</div>
+              <div className="modal-title">{t('preview_title')} — {table.name}</div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                Primeras 10 filas · @{table.slug}
+                {t('preview_subtitle')} · @{table.slug}
               </div>
             </div>
           </div>
@@ -69,11 +63,11 @@ export function TablePreviewModal({ table, workspaceId, onClose }) {
             <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--danger)' }}>{error}</div>
           ) : records.length === 0 ? (
             <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-              Esta tabla no tiene registros aún.
+              {t('preview_no_records')}
             </div>
           ) : columns.length === 0 ? (
             <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>
-              Esta tabla no tiene columnas definidas.
+              {t('preview_no_columns')}
             </div>
           ) : (
             <table className="table" style={{ fontSize: '0.8125rem' }}>
@@ -111,7 +105,7 @@ export function TablePreviewModal({ table, workspaceId, onClose }) {
 
         {!loading && !error && records.length > 0 && (
           <div className="modal-footer" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-            Mostrando {records.length} de los primeros registros
+            {t('preview_showing', { count: records.length })}
           </div>
         )}
       </div>

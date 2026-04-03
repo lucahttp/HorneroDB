@@ -97,7 +97,7 @@ func ImportUser(c *gin.Context) {
 		cfg, _ := config.Load()
 
 		if cfg.Auth.PocketIDConfig.Enabled {
-			fmt.Printf("DEBUG: PocketID Enabled, syncing user: %s\n", input.Email)
+			slog.Debug("PocketID enabled, syncing user", "email", input.Email)
 			client := auth.NewPocketIDClient(&cfg.Auth.PocketIDConfig)
 
 			// A. Try to find existing user in PocketID
@@ -105,16 +105,11 @@ func ImportUser(c *gin.Context) {
 			var pUser *auth.PocketIDUser
 
 			if pErr == nil && len(pUsers) > 0 {
-				// Match found
 				pUser = &pUsers[0]
-				fmt.Printf("DEBUG: Found existing PocketID user: %s (ID: %s)\n", pUser.Username, pUser.ID)
+				slog.Debug("found existing PocketID user", "username", pUser.Username, "pocket_id", pUser.ID)
 			} else {
-				// B. User does not exist in PocketID -> Create them
-				fmt.Printf("DEBUG: User not found in PocketID. Creating: %s\n", input.Email)
-
-				// Derive basic names from email for the invite
-				// email: "lucas@example.com" -> First: "lucas", Last: "User"
-				// This is a placeholder; user can update profile later in PocketID.
+				// User does not exist in PocketID — create them.
+				// Derives basic names from email; user can update profile later in PocketID.
 				firstName := input.Email
 				lastName := "User"
 
@@ -129,7 +124,7 @@ func ImportUser(c *gin.Context) {
 					return
 				}
 				pUser = createdUser
-				fmt.Printf("DEBUG: Created PocketID user: %s (ID: %s)\n", pUser.Username, pUser.ID)
+				slog.Debug("created PocketID user", "username", pUser.Username, "pocket_id", pUser.ID)
 			}
 
 			// Create local user record using PocketID's UUID
@@ -149,9 +144,8 @@ func ImportUser(c *gin.Context) {
 			}
 
 		} else {
-			// PocketID Disabled -> Legacy/Dev behavior
-			// We allow local creation for dev environments without OIDC
-			fmt.Println("DEBUG: PocketID Integration NOT Enabled. Creating local-only placeholder.")
+			// PocketID disabled — allow local creation for dev environments without OIDC.
+			slog.Debug("PocketID not enabled, creating local-only user", "email", input.Email)
 
 			var existing metadata.User
 			if err := database.DB.Table("_hornero_users").Where("email = ?", input.Email).First(&existing).Error; err == nil {
@@ -218,7 +212,7 @@ func ImportUser(c *gin.Context) {
 		if err == nil && otat != "" {
 			loginUrl = fmt.Sprintf("%s/lc/%s", cfg.Auth.PocketIDConfig.PublicURL, otat)
 		} else {
-			fmt.Printf("Error generating OTAT: %v\n", err)
+			slog.Warn("failed to generate OTAT", "error", err, "user_id", user.ID)
 		}
 
 		// Generate 256x256 QR embedding the unique loginUrl
@@ -226,7 +220,7 @@ func ImportUser(c *gin.Context) {
 		if err == nil {
 			qrCodeBase64 = base64.StdEncoding.EncodeToString(qrBytes)
 		} else {
-			fmt.Printf("Error generating QR: %v\n", err)
+			slog.Warn("failed to generate QR code", "error", err, "user_id", user.ID)
 		}
 	}
 
@@ -276,5 +270,63 @@ func GetSystemLoginQR(c *gin.Context) {
 		"qr_code": qrBase64,
 		"url":     cfg.Auth.PocketIDConfig.PublicURL,
 		"message": "Scan to access Login Portal",
+	})
+}
+
+// GetUserRecoveryQR generates a personalized recovery QR code for a specific user
+// This includes a one-time access token (OTAT) for direct login
+func GetUserRecoveryQR(c *gin.Context) {
+	targetUserID := c.Param("user_id")
+	if targetUserID == "" {
+		response.ValidationError(c, "user_id is required")
+		return
+	}
+
+	// Verify target user exists
+	var user metadata.User
+	if err := database.DB.Table("_hornero_users").Where("id = ?", targetUserID).First(&user).Error; err != nil {
+		response.NotFoundError(c, "user")
+		return
+	}
+
+	cfg, _ := config.Load()
+	if !cfg.Auth.PocketIDConfig.Enabled {
+		response.ValidationError(c, "PocketID is not enabled")
+		return
+	}
+
+	client := auth.NewPocketIDClient(&cfg.Auth.PocketIDConfig)
+
+	loginUrl := cfg.Auth.PocketIDConfig.PublicURL
+
+	// Generate One-Time Access Token for this specific user
+	otat, err := client.GenerateOneTimeAccessToken(targetUserID)
+	if err == nil && otat != "" {
+		loginUrl = fmt.Sprintf("%s/lc/%s", cfg.Auth.PocketIDConfig.PublicURL, otat)
+	} else {
+		slog.Warn("failed to generate OTAT for user recovery",
+			"error", err,
+			"user_id", targetUserID)
+		response.ValidationError(c, "Failed to generate recovery link")
+		return
+	}
+
+	// Generate 256x256 QR with the personalized URL
+	qrBytes, err := client.GenerateQR(loginUrl, 256)
+	if err != nil {
+		slog.Error("failed to generate recovery QR",
+			"error", err,
+			"user_id", targetUserID)
+		response.DatabaseError(c, err, "generating recovery QR")
+		return
+	}
+
+	qrBase64 := base64.StdEncoding.EncodeToString(qrBytes)
+	response.Success(c, gin.H{
+		"qr_code": qrBase64,
+		"url":     loginUrl,
+		"user_id": targetUserID,
+		"email":   user.Email,
+		"message": "Scan to login directly. Link is single-use.",
 	})
 }

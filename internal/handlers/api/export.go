@@ -118,6 +118,11 @@ func ImportWorkspace(c *gin.Context) {
 				return err
 			}
 
+			// Validate table slug before using in SQL
+			if !ValidateSlug(newTable.Slug) {
+				return fmt.Errorf("invalid table slug: %s", newTable.Slug)
+			}
+
 			// Generate the physical SQL table
 			physicalTableName := "data_" + newWorkspaceID.String() + "_" + newTable.Slug
 			createSQL := "CREATE TABLE \"" + physicalTableName + "\" (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by VARCHAR(255), updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP)"
@@ -150,29 +155,22 @@ func ImportWorkspace(c *gin.Context) {
 				}
 			}
 
-			// Physical Alter Table
-			physicalTableName := "data_" + newWorkspaceID.String() + "_" + tableSlug
-			dataTypeMapping := map[string]string{
-				"text":       "TEXT",
-				"uuid":       "UUID",
-				"number":     "DOUBLE PRECISION",
-				"datetime":   "TIMESTAMP WITH TIME ZONE",
-				"boolean":    "BOOLEAN",
-				"json":       "JSONB",
-				"relation":   "UUID",
-				"email":      "VARCHAR(255)",
-				"url":        "TEXT",
-				"color":      "VARCHAR(20)",
-				"status":     "VARCHAR(100)",
-				"richtext":   "TEXT",
-				"multiple":   "JSONB",
-				"user":       "VARCHAR(255)",
-				"attachment": "JSONB",
+			// Validate slugs before using in SQL
+			if !ValidateSlug(tableSlug) {
+				return fmt.Errorf("invalid table slug: %s", tableSlug)
+			}
+			if !ValidateSlug(col.Slug) {
+				return fmt.Errorf("invalid column slug: %s", col.Slug)
+			}
+			if !ValidateFieldType(col.FieldType) {
+				return fmt.Errorf("invalid field type: %s", col.FieldType)
 			}
 
-			pgType := "TEXT"
-			if t, ok := dataTypeMapping[col.FieldType]; ok {
-				pgType = t
+			// Physical Alter Table — reuse GetColumnSQL to stay in sync with column.go type map
+			physicalTableName := "data_" + newWorkspaceID.String() + "_" + tableSlug
+			pgType := GetColumnSQL(col.FieldType)
+			if pgType == "" {
+				pgType = "TEXT" // fallback for unknown types on import
 			}
 
 			alterSQL := "ALTER TABLE \"" + physicalTableName + "\" ADD COLUMN \"" + col.Slug + "\" " + pgType

@@ -47,8 +47,8 @@ func main() {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 
-	// Run migrations
-	if err := database.Migrate(); err != nil {
+	// Run migrations (includes incremental migrations)
+	if err := database.RunMigrations(); err != nil {
 		log.Fatalf("Failed to migrate: %v", err)
 	}
 
@@ -109,6 +109,16 @@ func main() {
 	// API v1
 	v1 := r.Group("/api/v1")
 
+	// === INITIAL SETUP ROUTES ===
+	// These routes are available to authenticated users during initial setup
+	setupRoutes := v1.Group("/setup")
+	setupRoutes.Use(middleware.AuthRequired(cfg.Auth.JWTSecret))
+	setupRoutes.Use(middleware.RequireUserSession())
+	{
+		setupRoutes.GET("/status", api.CheckInitialSetup)
+		setupRoutes.POST("/complete", api.CompleteInitialSetup)
+	}
+
 	// Protected routes - require auth (JWT or API Key)
 	protected := v1.Group("")
 	protected.Use(middleware.AuthRequired(cfg.Auth.JWTSecret))
@@ -118,8 +128,25 @@ func main() {
 		userRoutes := protected.Group("")
 		userRoutes.Use(middleware.RequireUserSession())
 		userRoutes.GET("/workspaces", api.ListWorkspaces)
-		userRoutes.POST("/workspaces", api.CreateWorkspace)
-		userRoutes.POST("/workspaces/import", api.ImportWorkspace)
+		userRoutes.GET("/users/:user_id/recovery-qr", api.GetUserRecoveryQR)
+
+		// Instance admin only routes for workspace creation
+		instanceAdminRoutes := protected.Group("")
+		instanceAdminRoutes.Use(middleware.RequireUserSession())
+		instanceAdminRoutes.Use(middleware.RequireInstanceAdmin())
+		instanceAdminRoutes.POST("/workspaces", api.CreateWorkspace)
+		instanceAdminRoutes.POST("/workspaces/import", api.ImportWorkspace)
+
+		// === INSTANCE ADMIN ROUTES ===
+		// Global user management - only instance admins can access
+		adminRoutes := protected.Group("/admin")
+		adminRoutes.Use(middleware.RequireInstanceAdmin())
+		{
+			adminRoutes.GET("/users", api.ListInstanceUsers)
+			adminRoutes.GET("/users/:user_id", api.GetInstanceUser)
+			adminRoutes.PATCH("/users/:user_id", api.UpdateInstanceUser)
+			adminRoutes.GET("/settings", api.GetInstanceSettings)
+		}
 
 		// Routes that REQUIRE workspace authorization (checking ownership/roles internally)
 		workspaceGroup := protected.Group("/workspaces/:workspace_id")

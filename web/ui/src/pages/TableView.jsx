@@ -48,11 +48,26 @@ export default function TableView() {
         .map(c => c.slug)
         .join(',')
 
-      const expandParam = relationsToExpand ? `?expand=${relationsToExpand}` : ''
-      const recordsRes = await axios.get(`${API_URL}/workspaces/${workspaceId}/data/${tableData.slug}${expandParam}`)
+      // Build query params properly
+      const params = new URLSearchParams()
+      params.append('limit', '1000') // Fetch up to 1000 records
+      if (relationsToExpand) {
+        params.append('expand', relationsToExpand)
+      }
+      
+      const recordsRes = await axios.get(
+        `${API_URL}/workspaces/${workspaceId}/data/${tableData.slug}?${params.toString()}`
+      )
       setRecords(recordsRes.data.data || [])
     } catch (err) {
-      console.error(err)
+      console.error('Error loading table data:', err)
+      if (err.response) {
+        console.error('Response status:', err.response.status)
+        console.error('Response data:', err.response.data)
+        notify(`${t('error_loading_data') || 'Error loading data'}: ${err.response.status}`, 'error')
+      } else {
+        notify(t('error_loading_data') || 'Error loading data', 'error')
+      }
     }
     setLoading(false)
   }

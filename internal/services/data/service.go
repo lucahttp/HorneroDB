@@ -3,6 +3,7 @@ package data
 import (
 	"encoding/json"
 	"errors"
+	"regexp"
 	"strings"
 
 	"hornerodb/internal/database"
@@ -13,6 +14,15 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
+
+// validTableNamePattern valida que el nombre de tabla física sea seguro
+// Pattern: data_<uuid>_<slug>
+var validTableNamePattern = regexp.MustCompile(`^data_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}_[a-zA-Z][a-zA-Z0-9_]*$`)
+
+// validateTableName verifica que el nombre de tabla sea seguro para usar en SQL
+func validateTableName(tableName string) bool {
+	return validTableNamePattern.MatchString(tableName)
+}
 
 // RequestContext holds the resolved state needed for data operations
 type RequestContext struct {
@@ -151,6 +161,11 @@ func (s *Service) UpdateRecord(ctx RequestContext, recordID string, input map[st
 
 // DeleteRecord deletes a record
 func (s *Service) DeleteRecord(ctx RequestContext, recordID string) error {
+	// Validate table name before using in SQL
+	if !validateTableName(ctx.TableName) {
+		return errors.New("invalid table name format")
+	}
+
 	dbQuery := database.DB.Table(ctx.TableName).Where("id = ?", recordID)
 
 	if ctx.AccessLevel == permission.AccessOwn {

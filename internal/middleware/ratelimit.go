@@ -41,13 +41,30 @@ func init() {
 	go func() {
 		for {
 			time.Sleep(time.Minute)
-			limiter.Lock()
+
+			// Primero obtener copia de las keys con RLock
+			limiter.RLock()
+			keysToDelete := make([]string, 0)
 			for ip, v := range limiter.visitors {
 				if time.Since(v.lastSeen) > 3*time.Minute {
-					delete(limiter.visitors, ip)
+					keysToDelete = append(keysToDelete, ip)
 				}
 			}
-			limiter.Unlock()
+			limiter.RUnlock()
+
+			// Luego eliminar con Lock solo si hay algo que borrar
+			if len(keysToDelete) > 0 {
+				limiter.Lock()
+				for _, ip := range keysToDelete {
+					// Verificar nuevamente antes de borrar (podría haberse actualizado)
+					if v, exists := limiter.visitors[ip]; exists {
+						if time.Since(v.lastSeen) > 3*time.Minute {
+							delete(limiter.visitors, ip)
+						}
+					}
+				}
+				limiter.Unlock()
+			}
 		}
 	}()
 }
