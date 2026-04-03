@@ -1,6 +1,7 @@
 package database
 
 import (
+	"fmt"
 	"log"
 
 	"hornerodb/internal/models/metadata"
@@ -44,6 +45,11 @@ func runIncrementalMigrations() error {
 
 // addColumnIfNotExists verifica si una columna existe antes de agregarla
 func addColumnIfNotExists(tableName, columnName, columnType string) error {
+	// Validar que los nombres solo contengan caracteres permitidos (seguridad)
+	if !isValidIdentifier(tableName) || !isValidIdentifier(columnName) {
+		return fmt.Errorf("invalid table or column name: %s.%s", tableName, columnName)
+	}
+
 	// Verificar si la columna ya existe
 	var count int64
 	checkSQL := `
@@ -59,7 +65,11 @@ func addColumnIfNotExists(tableName, columnName, columnType string) error {
 
 	// Si la columna no existe, agregarla
 	if count == 0 {
-		alterSQL := "ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " " + columnType
+		// Usar Exec con formato seguro (PostgreSQL quote_ident)
+		alterSQL := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s",
+			DB.Statement.Quote(tableName),
+			DB.Statement.Quote(columnName),
+			columnType) // columnType no es un identificador, es un tipo SQL
 		if err := DB.Exec(alterSQL).Error; err != nil {
 			return err
 		}
@@ -69,6 +79,26 @@ func addColumnIfNotExists(tableName, columnName, columnType string) error {
 	}
 
 	return nil
+}
+
+// isValidIdentifier verifica que un identificador SQL solo contenga caracteres seguros
+func isValidIdentifier(name string) bool {
+	if name == "" {
+		return false
+	}
+	// Solo permitir: letras, números, underscore, y debe empezar con letra o underscore
+	for i, r := range name {
+		if i == 0 {
+			if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_') {
+				return false
+			}
+		} else {
+			if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func Migrate() error {

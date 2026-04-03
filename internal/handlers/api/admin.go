@@ -10,6 +10,7 @@ import (
 	"hornerodb/internal/response"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // ListInstanceUsers returns all users in the instance with their global permissions
@@ -34,7 +35,15 @@ func ListInstanceUsers(c *gin.Context) {
 // UpdateInstanceUser updates global permissions for a user (instance-level)
 // Only instance admins can modify these permissions
 func UpdateInstanceUser(c *gin.Context) {
+	currentUserID := middleware.GetUserID(c)
 	targetUserID := c.Param("user_id")
+
+	// Validate UUID format
+	if _, err := uuid.Parse(targetUserID); err != nil {
+		response.ValidationError(c, "Invalid user_id format")
+		return
+	}
+
 	if targetUserID == "" {
 		response.ValidationError(c, "user_id is required")
 		return
@@ -47,6 +56,23 @@ func UpdateInstanceUser(c *gin.Context) {
 	if err := c.ShouldBindJSON(&input); err != nil {
 		response.ValidationError(c, "Invalid user data")
 		return
+	}
+
+	// Prevent self-lockout: cannot revoke your own admin privileges
+	if targetUserID == currentUserID && input.CanCreateWorkspaces != nil && !*input.CanCreateWorkspaces {
+		// Check if this is the last admin
+		var adminCount int64
+		if err := database.DB.Table("_hornero_users").
+			Where("can_create_workspaces = ?", true).
+			Count(&adminCount).Error; err != nil {
+			response.DatabaseError(c, err, "checking admin count")
+			return
+		}
+
+		if adminCount <= 1 {
+			response.ValidationError(c, "Cannot revoke your own admin privileges: you are the last instance admin")
+			return
+		}
 	}
 
 	// Verify target user exists
@@ -86,7 +112,7 @@ func UpdateInstanceUser(c *gin.Context) {
 	slog.Info("instance user updated",
 		"target_user_id", targetUserID,
 		"updates", updates,
-		"admin_user_id", middleware.GetUserID(c),
+		"admin_user_id", currentUserID,
 	)
 
 	response.Success(c, user)
@@ -95,6 +121,13 @@ func UpdateInstanceUser(c *gin.Context) {
 // GetInstanceUser returns a specific user with their global permissions
 func GetInstanceUser(c *gin.Context) {
 	targetUserID := c.Param("user_id")
+
+	// Validate UUID format
+	if _, err := uuid.Parse(targetUserID); err != nil {
+		response.ValidationError(c, "Invalid user_id format")
+		return
+	}
+
 	if targetUserID == "" {
 		response.ValidationError(c, "user_id is required")
 		return

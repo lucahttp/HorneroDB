@@ -57,7 +57,7 @@ func GetMyPermissions(c *gin.Context) {
 		Find(&permissions)
 
 	if result.Error != nil {
-		c.JSON(500, gin.H{"error": result.Error.Error()})
+		response.DatabaseError(c, result.Error, "fetching permissions")
 		return
 	}
 

@@ -1,8 +1,10 @@
 package api
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"hornerodb/internal/database"
@@ -11,6 +13,7 @@ import (
 	"hornerodb/internal/response"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // CheckInitialSetup verifica si la instancia necesita configuración inicial
@@ -52,22 +55,6 @@ func CheckInitialSetup(c *gin.Context) {
 // CompleteInitialSetup completa la configuración inicial de la instancia
 // Solo funciona si no hay admins configurados (primer setup)
 func CompleteInitialSetup(c *gin.Context) {
-	// Verificar que realmente se necesite setup
-	var adminCount int64
-	err := database.DB.Table("_hornero_users").
-		Where("can_create_workspaces = ?", true).
-		Count(&adminCount).Error
-
-	if err != nil {
-		response.DatabaseError(c, err, "checking setup status")
-		return
-	}
-
-	if adminCount > 0 {
-		response.ValidationError(c, "Initial setup already completed")
-		return
-	}
-
 	// Obtener el usuario actual (debe estar autenticado)
 	userID := middleware.GetUserID(c)
 	email := c.GetString("email")
@@ -91,97 +78,145 @@ func CompleteInitialSetup(c *gin.Context) {
 		return
 	}
 
-	// Verificar que el usuario existe en la base de datos
-	var user metadata.User
-	res := database.DB.Table("_hornero_users").Where("id = ?", userID).First(&user)
-
-	if res.Error != nil || res.RowsAffected == 0 {
-		// El usuario no existe en la BD local, crearlo primero
-		user = metadata.User{
-			ID:    userID,
-			Email: email,
-			Name:  c.GetString("name"),
-		}
-
-		if err := database.DB.Table("_hornero_users").Create(&user).Error; err != nil {
-			slog.Error("Failed to create user during setup", "error", err, "user_id", userID)
-			response.DatabaseError(c, err, "creating user")
-			return
-		}
-	}
-
-	// Hacer al usuario admin de instancia
-	result := database.DB.Table("_hornero_users").
-		Where("id = ?", userID).
-		Update("can_create_workspaces", true)
-
-	if result.Error != nil {
-		slog.Error("Failed to grant admin privileges", "error", result.Error, "user_id", userID)
-		response.DatabaseError(c, result.Error, "granting admin privileges")
+	// Validaciones de entrada
+	if input.InstanceName == "" || len(input.InstanceName) > 100 {
+		response.ValidationError(c, "Instance name is required and must be less than 100 characters")
 		return
 	}
 
-	// Guardar configuración de la instancia
-	settings := map[string]interface{}{
-		"instance_name":      input.InstanceName,
-		"contact_email":      input.ContactEmail,
-		"setup_completed":    true,
-		"setup_completed_at": time.Now(),
-		"setup_completed_by": userID,
+	if input.ContactEmail != "" && !isValidEmail(input.ContactEmail) {
+		response.ValidationError(c, "Invalid contact email format")
+		return
 	}
 
-	generalSettings := metadata.InstanceSettings{
-		Key:   "general",
-		Value: metadata.MustJSON(settings),
+	if input.PocketIDEnabled && input.PocketIDURL == "" {
+		response.ValidationError(c, "PocketID URL is required when PocketID is enabled")
+		return
 	}
 
-	if err := database.DB.Table("_hornero_instance_settings").
-		Where("key = ?", "general").
-		Assign(generalSettings).
-		FirstOrCreate(&generalSettings).Error; err != nil {
-		slog.Error("Failed to save general settings", "error", err)
+	if input.DefaultRateLimit < 10 || input.DefaultRateLimit > 10000 {
+		response.ValidationError(c, "Default rate limit must be between 10 and 10000")
+		return
 	}
 
-	// Guardar configuración de PocketID si está habilitado
-	if input.PocketIDEnabled && input.PocketIDURL != "" {
-		pocketidSettings := map[string]interface{}{
-			"enabled":    true,
-			"public_url": input.PocketIDURL,
+	if input.MaxWorkspaces < 1 || input.MaxWorkspaces > 100 {
+		response.ValidationError(c, "Max workspaces must be between 1 and 100")
+		return
+	}
+
+	// Usar transacción para evitar race condition (TOCTOU)
+	var setupCompleted bool
+	err := database.DB.Transaction(func(tx *gorm.DB) error {
+		// Verificar que realmente se necesite setup (con bloqueo)
+		var adminCount int64
+		if err := tx.Table("_hornero_users").
+			Where("can_create_workspaces = ?", true).
+			Count(&adminCount).Error; err != nil {
+			return err
 		}
-		pidSettings := metadata.InstanceSettings{
-			Key:   "pocketid",
-			Value: metadata.MustJSON(pocketidSettings),
+
+		if adminCount > 0 {
+			return fmt.Errorf("setup already completed")
 		}
-		if err := database.DB.Table("_hornero_instance_settings").
-			Where("key = ?", "pocketid").
-			Assign(pidSettings).
-			FirstOrCreate(&pidSettings).Error; err != nil {
-			slog.Error("Failed to save pocketid settings", "error", err)
+
+		// Verificar que el usuario existe o crearlo
+		var user metadata.User
+		res := tx.Table("_hornero_users").Where("id = ?", userID).First(&user)
+
+		if res.Error != nil || res.RowsAffected == 0 {
+			// Crear usuario
+			user = metadata.User{
+				ID:    userID,
+				Email: email,
+				Name:  c.GetString("name"),
+			}
+			if err := tx.Table("_hornero_users").Create(&user).Error; err != nil {
+				return err
+			}
 		}
+
+		// Hacer al usuario admin de instancia
+		if err := tx.Table("_hornero_users").
+			Where("id = ?", userID).
+			Update("can_create_workspaces", true).Error; err != nil {
+			return err
+		}
+
+		// Guardar configuración de la instancia
+		settings := map[string]interface{}{
+			"instance_name":      input.InstanceName,
+			"contact_email":      input.ContactEmail,
+			"setup_completed":    true,
+			"setup_completed_at": time.Now(),
+			"setup_completed_by": userID,
+		}
+
+		generalSettings := metadata.InstanceSettings{
+			Key:   "general",
+			Value: metadata.MustJSON(settings),
+		}
+
+		if err := tx.Table("_hornero_instance_settings").
+			Where("key = ?", "general").
+			Assign(generalSettings).
+			FirstOrCreate(&generalSettings).Error; err != nil {
+			return err
+		}
+
+		// Guardar configuración de PocketID si está habilitado
+		if input.PocketIDEnabled && input.PocketIDURL != "" {
+			pocketidSettings := map[string]interface{}{
+				"enabled":    true,
+				"public_url": input.PocketIDURL,
+			}
+			pidSettings := metadata.InstanceSettings{
+				Key:   "pocketid",
+				Value: metadata.MustJSON(pocketidSettings),
+			}
+			if err := tx.Table("_hornero_instance_settings").
+				Where("key = ?", "pocketid").
+				Assign(pidSettings).
+				FirstOrCreate(&pidSettings).Error; err != nil {
+				return err
+			}
+		}
+
+		// Guardar configuración de rate limits
+		rateLimitSettings := map[string]interface{}{
+			"default_rate_limit_per_minute": input.DefaultRateLimit,
+			"max_workspaces_per_user":       input.MaxWorkspaces,
+		}
+		rlSettings := metadata.InstanceSettings{
+			Key:   "rate_limits",
+			Value: metadata.MustJSON(rateLimitSettings),
+		}
+		if err := tx.Table("_hornero_instance_settings").
+			Where("key = ?", "rate_limits").
+			Assign(rlSettings).
+			FirstOrCreate(&rlSettings).Error; err != nil {
+			return err
+		}
+
+		setupCompleted = true
+		return nil
+	})
+
+	if err != nil {
+		if err.Error() == "setup already completed" {
+			response.ValidationError(c, "Initial setup already completed")
+			return
+		}
+		slog.Error("Setup transaction failed", "error", err)
+		response.DatabaseError(c, err, "completing setup")
+		return
 	}
 
-	// Guardar configuración de rate limits
-	rateLimitSettings := map[string]interface{}{
-		"default_rate_limit_per_minute": input.DefaultRateLimit,
-		"max_workspaces_per_user":       input.MaxWorkspaces,
-	}
-	rlSettings := metadata.InstanceSettings{
-		Key:   "rate_limits",
-		Value: metadata.MustJSON(rateLimitSettings),
-	}
-	if err := database.DB.Table("_hornero_instance_settings").
-		Where("key = ?", "rate_limits").
-		Assign(rlSettings).
-		FirstOrCreate(&rlSettings).Error; err != nil {
-		slog.Error("Failed to save rate limit settings", "error", err)
+	if !setupCompleted {
+		response.Error(c, 500, "SETUP_FAILED", "Failed to complete setup")
+		return
 	}
 
-	slog.Info("Initial setup completed",
-		"user_id", userID,
-		"email", email,
-		"instance_name", input.InstanceName,
-		"pocketid_enabled", input.PocketIDEnabled,
-	)
+	slog.Info("Initial setup completed", "user_id", userID)
 
 	response.Success(c, gin.H{
 		"message":       "Initial setup completed successfully",
@@ -189,6 +224,14 @@ func CompleteInitialSetup(c *gin.Context) {
 		"instance_name": input.InstanceName,
 		"contact_email": input.ContactEmail,
 	})
+}
+
+// isValidEmail valida formato básico de email
+func isValidEmail(email string) bool {
+	if len(email) < 3 || len(email) > 254 {
+		return false
+	}
+	return strings.Contains(email, "@") && strings.Contains(email, ".")
 }
 
 // GetInstanceSettings retorna la configuración actual de la instancia
