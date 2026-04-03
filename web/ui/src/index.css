@@ -1200,3 +1200,65 @@ th:hover .column-menu-trigger,
     min-width: 600px !important;
   }
 }
+
+/* ═══════════════════════════════════════════
+   VIEW TOGGLE (Grid / Diagram)
+   ═══════════════════════════════════════════ */
+.view-toggle {
+  display: inline-flex;
+  border: var(--border-thick) solid var(--border-color);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.view-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.375rem 0.75rem;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: var(--font-sans);
+}
+
+.view-toggle-btn:hover {
+  background: var(--bg-surface);
+  color: var(--text);
+}
+
+.view-toggle-btn.active {
+  background: var(--primary);
+  color: #fff;
+}
+
+.view-toggle-btn:first-child {
+  border-right: 1.5px solid var(--border-color);
+}
+
+/* ═══════════════════════════════════════════
+   ERD CANVAS
+   ═══════════════════════════════════════════ */
+.erd-canvas-wrap {
+  border: var(--border-thick) solid var(--border-color);
+  border-radius: var(--radius-lg);
+  overflow: auto;
+  max-width: 100%;
+  background: var(--bg-surface);
+  min-height: 420px;
+  position: relative;
+  box-shadow: 6px 6px 0 var(--border-color);
+}
+
+.erd-svg {
+  display: block;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Dark mode adjustments for diagram */
+.dark .erd-canvas-wrap {
+  background: #111111;
+}

@@ -1,0 +1,25 @@
+[36mvite v7.3.1 [32mbuilding client environment for production...[36m[39m
+transforming...
+[32mΓ£ô[39m 2225 modules transformed.
+Γ£ù Build failed in 2.11s
+error during build:
+src/pages/Workspace.jsx (6:64): "Sitemap" is not exported by "node_modules/iconoir-react/dist/esm/index.mjs", imported by "src/pages/Workspace.jsx".
+file: C:/Users/lucas/HorneroDB/web/ui/src/pages/Workspace.jsx:6:64
+
+4: import { motion } from 'framer-motion'
+5: import axios from 'axios'
+6: import { ClipboardCheck, Table2Columns, EditPencil, Trash, Eye, Sitemap, ViewGrid } from 'iconoir-react'
+                                                                   ^
+7: import { API_URL } from '../constants'
+8: import { useAuth } from '../context/AuthContext'
+
+    at getRollupError (file:///C:/Users/lucas/HorneroDB/web/ui/node_modules/rollup/dist/es/shared/parseAst.js:402:41)
+    at error (file:///C:/Users/lucas/HorneroDB/web/ui/node_modules/rollup/dist/es/shared/parseAst.js:398:42)
+    at Module.error (file:///C:/Users/lucas/HorneroDB/web/ui/node_modules/rollup/dist/es/shared/node-entry.js:17040:16)
+    at Module.traceVariable (file:///C:/Users/lucas/HorneroDB/web/ui/node_modules/rollup/dist/es/shared/node-entry.js:17452:29)
+    at ModuleScope.findVariable (file:///C:/Users/lucas/HorneroDB/web/ui/node_modules/rollup/dist/es/shared/node-entry.js:15070:39)
+    at FunctionScope.findVariable (file:///C:/Users/lucas/HorneroDB/web/ui/node_modules/rollup/dist/es/shared/node-entry.js:5673:38)
+    at FunctionBodyScope.findVariable (file:///C:/Users/lucas/HorneroDB/web/ui/node_modules/rollup/dist/es/shared/node-entry.js:5673:38)
+    at Identifier.bind (file:///C:/Users/lucas/HorneroDB/web/ui/node_modules/rollup/dist/es/shared/node-entry.js:5447:40)
+    at CallExpression.bind (file:///C:/Users/lucas/HorneroDB/web/ui/node_modules/rollup/dist/es/shared/node-entry.js:2825:28)
+    at CallExpression.bind (file:///C:/Users/lucas/HorneroDB/web/ui/node_modules/rollup/dist/es/shared/node-entry.js:12179:15)
