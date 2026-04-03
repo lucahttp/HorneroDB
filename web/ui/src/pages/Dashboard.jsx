@@ -9,7 +9,6 @@ import { useAuth } from '../context/AuthContext'
 import { Button, Badge } from '../components/index.jsx'
 import { notify } from '../components/Toast.jsx'
 import TopNavbar from '../components/TopNavbar.jsx'
-import { DashboardTour } from '../components/DashboardTour.jsx'
 
 export default function Dashboard() {
   const { user, logout } = useAuth()
@@ -149,7 +148,6 @@ export default function Dashboard() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
-      <DashboardTour />
       <TopNavbar />
 
       <div style={{ flex: 1, maxWidth: '960px', width: '100%', margin: '0 auto', padding: '3rem 2rem' }}>

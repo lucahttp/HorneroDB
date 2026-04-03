@@ -12,8 +12,6 @@ import TopNavbar from '../components/TopNavbar.jsx'
 import { SchemaEditor } from '../components/SchemaEditor.jsx'
 import { TableEditModal } from '../components/TableEditModal.jsx'
 import { TablePreviewModal } from '../components/TablePreviewModal.jsx'
-import { OnboardingTour } from '../components/OnboardingTour.jsx'
-import { TableEditTour } from '../components/TableEditTour.jsx'
 
 export default function Workspace() {
   const { user, logout } = useAuth()
@@ -128,7 +126,6 @@ export default function Workspace() {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <OnboardingTour />
       <TopNavbar workspaceId={wsId} />
 
       <div className="main-content">
@@ -319,17 +316,14 @@ export default function Workspace() {
 
       {/* TableEditModal */}
       {editingTable && (
-        <>
-          <TableEditTour isOpen={!!editingTable} />
-          <TableEditModal
-            table={editingTable}
-            workspaceId={wsId}
-            onClose={() => setEditingTable(null)}
-            onTableUpdated={handleTableUpdated}
-            onColumnAdded={handleColumnAdded}
-            onColumnDeleted={handleColumnDeleted}
-          />
-        </>
+        <TableEditModal
+          table={editingTable}
+          workspaceId={wsId}
+          onClose={() => setEditingTable(null)}
+          onTableUpdated={handleTableUpdated}
+          onColumnAdded={handleColumnAdded}
+          onColumnDeleted={handleColumnDeleted}
+        />
       )}
 
       {/* TablePreviewModal */}

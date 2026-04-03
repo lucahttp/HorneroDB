@@ -227,46 +227,5 @@
     "preview_error": "No se pudieron cargar los datos",
     "preview_no_records": "Esta tabla no tiene registros aún.",
     "preview_no_columns": "Esta tabla no tiene columnas definidas.",
-    "preview_showing": "Mostrando {{count}} de los primeros registros",
-    "tour": {
-        "welcome_title": "¡Bienvenido a HorneroDB! 🎉",
-        "welcome_content": "Este es tu espacio de trabajo. Te mostraremos cómo crear tablas y columnas.",
-        "add_table_title": "Creá tu primera tabla ➕",
-        "add_table_content": "Hacé clic en este botón para crear una tabla. Después podrás agregarle columnas.",
-        "next_steps_title": "¿Y ahora? 🤔",
-        "next_steps_content": "Una vez que crees una tabla, hacé clic en el lápiz ✎ para editarla y agregar columnas. Ahí te explicaremos los tipos de datos.",
-        "next": "Siguiente",
-        "back": "Atrás",
-        "skip": "Omitir",
-        "close": "Cerrar",
-        "last": "¡Listo!",
-        "add_table_more": "Hacé clic en el + para agregar más tablas a tu base de datos.",
-        "dashboard": {
-            "welcome_title": "¡Bienvenido a HorneroDB! 🎉",
-            "welcome_content": "Este es tu panel principal donde podés gestionar todos tus workspaces. Un workspace es como una base de datos independiente.",
-            "workspaces_title": "Tus Workspaces 📁",
-            "workspaces_content": "Cada workspace es una base de datos separada. Hacé clic para entrar y empezar a crear tablas.",
-            "create_title": "Creá tu primer workspace ➕",
-            "create_content": "¡Empezá acá! Creá tu primer workspace para comenzar a organizar tus datos.",
-            "create_more": "Hacé clic en el + para crear más workspaces.",
-            "import_title": "¿Ya tenés un workspace? 📥",
-            "import_content": "Si tenés un backup, podés importarlo acá para restaurar todos tus datos."
-        },
-        "table_edit": {
-            "columns_tab_title": "Pestaña Columnas 📝",
-            "columns_tab_content": "Acá es donde definís la estructura de tu tabla. Cada columna representa un campo de datos.",
-            "column_list_title": "Tus Columnas 📋",
-            "column_list_content": "Estas son las columnas actuales de la tabla. Podés renombrarlas o eliminarlas.",
-            "add_column_title": "Agregar Columna ➕",
-            "add_column_content": "Hacé clic acá para agregar una nueva columna. ¡Esto es lo más importante!",
-            "column_name_title": "Nombre de la Columna ✏️",
-            "column_name_content": "Escribí el nombre de la columna. Usá nombres descriptivos como 'email', 'fecha_nacimiento' o 'precio'.",
-            "column_type_title": "Tipo de Dato 🎯",
-            "column_type_content": "¡Esto es clave! Elegí el tipo de dato adecuado: Texto para nombres, Número para precios, Fecha para cumpleaños, Relación para conectar con otras tablas, etc.",
-            "save_column_title": "Guardar Columna 💾",
-            "save_column_content": "Hacé clic en 'Agregar' para guardar la columna. ¡Listo! Ya podés empezar a guardar datos en esta columna.",
-            "relations_title": "Tipos Especiales 🔗",
-            "relations_content": "Probá el tipo 'Relación' para conectar tablas entre sí. Por ejemplo: un Cliente relacionado con sus Pedidos. ¡Es muy poderoso!"
-        }
-    }
+    "preview_showing": "Mostrando {{count}} de los primeros registros"
 }

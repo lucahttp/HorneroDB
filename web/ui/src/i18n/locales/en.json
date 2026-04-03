@@ -227,46 +227,5 @@
     "preview_error": "Could not load data",
     "preview_no_records": "This table has no records yet.",
     "preview_no_columns": "This table has no columns defined.",
-    "preview_showing": "Showing {{count}} of the first records",
-    "tour": {
-        "welcome_title": "Welcome to HorneroDB! 🎉",
-        "welcome_content": "This is your workspace. We'll show you how to create tables and columns.",
-        "add_table_title": "Create your first table ➕",
-        "add_table_content": "Click this button to create a table. Then you can add columns to it.",
-        "next_steps_title": "What now? 🤔",
-        "next_steps_content": "Once you create a table, click the pencil ✎ to edit it and add columns. There we'll explain the data types.",
-        "next": "Next",
-        "back": "Back",
-        "skip": "Skip",
-        "close": "Close",
-        "last": "Done!",
-        "add_table_more": "Click the + to add more tables to your database.",
-        "dashboard": {
-            "welcome_title": "Welcome to HorneroDB! 🎉",
-            "welcome_content": "This is your main dashboard where you can manage all your workspaces. A workspace is like an independent database.",
-            "workspaces_title": "Your Workspaces 📁",
-            "workspaces_content": "Each workspace is a separate database. Click to enter and start creating tables.",
-            "create_title": "Create your first workspace ➕",
-            "create_content": "Start here! Create your first workspace to begin organizing your data.",
-            "create_more": "Click the + to create more workspaces.",
-            "import_title": "Already have a workspace? 📥",
-            "import_content": "If you have a backup, you can import it here to restore all your data."
-        },
-        "table_edit": {
-            "columns_tab_title": "Columns Tab 📝",
-            "columns_tab_content": "This is where you define your table structure. Each column represents a data field.",
-            "column_list_title": "Your Columns 📋",
-            "column_list_content": "These are the current columns in the table. You can rename or delete them.",
-            "add_column_title": "Add Column ➕",
-            "add_column_content": "Click here to add a new column. This is the most important part!",
-            "column_name_title": "Column Name ✏️",
-            "column_name_content": "Type the column name. Use descriptive names like 'email', 'birth_date' or 'price'.",
-            "column_type_title": "Data Type 🎯",
-            "column_type_content": "This is key! Choose the right data type: Text for names, Number for prices, Date for birthdays, Relation to connect with other tables, etc.",
-            "save_column_title": "Save Column 💾",
-            "save_column_content": "Click 'Add' to save the column. Done! You can now start saving data in this column.",
-            "relations_title": "Special Types 🔗",
-            "relations_content": "Try the 'Relation' type to connect tables together. For example: a Customer related to their Orders. It's very powerful!"
-        }
-    }
+    "preview_showing": "Showing {{count}} of the first records"
 }
