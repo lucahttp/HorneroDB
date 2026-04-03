@@ -62,6 +62,26 @@ export default function InitialSetup() {
       return
     }
 
+    // Validar rate limit
+    const rateLimitValue = parseInt(defaultRateLimit)
+    if (isNaN(rateLimitValue) || rateLimitValue < 10 || rateLimitValue > 10000) {
+      notify(t('invalid_rate_limit') || 'El rate limit debe estar entre 10 y 10000', 'error')
+      return
+    }
+
+    // Validar max workspaces
+    const maxWsValue = parseInt(maxWorkspaces)
+    if (isNaN(maxWsValue) || maxWsValue < 1 || maxWsValue > 100) {
+      notify(t('invalid_max_workspaces') || 'El máximo de workspaces debe estar entre 1 y 100', 'error')
+      return
+    }
+
+    // Validar PocketID URL si está habilitado
+    if (pocketIDEnabled && !pocketIDURL.trim()) {
+      notify(t('pocketid_url_required') || 'La URL de PocketID es requerida cuando está habilitado', 'error')
+      return
+    }
+
     setIsSubmitting(true)
     
     try {
@@ -70,8 +90,8 @@ export default function InitialSetup() {
         contact_email: contactEmail || user?.email,
         pocketid_enabled: pocketIDEnabled,
         pocketid_url: pocketIDURL,
-        default_rate_limit: parseInt(defaultRateLimit) || 60,
-        max_workspaces: parseInt(maxWorkspaces) || 10
+        default_rate_limit: rateLimitValue,
+        max_workspaces: maxWsValue
       })
       
       notify(t('setup_completed') || '¡Configuración completada! Ahora sos administrador de la instancia.', 'success')

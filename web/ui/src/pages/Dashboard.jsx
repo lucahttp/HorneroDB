@@ -203,6 +203,7 @@ export default function Dashboard() {
               <Button 
                 onClick={() => setShowCreate(true)}
                 disabled={!canCreateWorkspaces}
+                title={!canCreateWorkspaces ? t('admin_only_feature') || 'Solo administradores pueden crear workspaces' : ''}
                 style={{ opacity: canCreateWorkspaces ? 1 : 0.5 }}
               >
                 {t('create_workspace_button')}

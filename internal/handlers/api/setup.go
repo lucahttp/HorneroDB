@@ -244,10 +244,16 @@ func GetInstanceSettings(c *gin.Context) {
 	}
 
 	var isAdmin bool
-	database.DB.Table("_hornero_users").
+	err := database.DB.Table("_hornero_users").
 		Select("can_create_workspaces").
 		Where("id = ?", userID).
-		Scan(&isAdmin)
+		Scan(&isAdmin).Error
+
+	if err != nil {
+		slog.Error("Error checking admin status", "error", err, "user_id", userID)
+		response.DatabaseError(c, err, "checking admin status")
+		return
+	}
 
 	if !isAdmin {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin privileges required"})
@@ -256,8 +262,17 @@ func GetInstanceSettings(c *gin.Context) {
 
 	// Contar usuarios totales y admins
 	var totalUsers, totalAdmins int64
-	database.DB.Table("_hornero_users").Count(&totalUsers)
-	database.DB.Table("_hornero_users").Where("can_create_workspaces = ?", true).Count(&totalAdmins)
+	if err := database.DB.Table("_hornero_users").Count(&totalUsers).Error; err != nil {
+		slog.Error("Error counting total users", "error", err)
+		response.DatabaseError(c, err, "counting users")
+		return
+	}
+
+	if err := database.DB.Table("_hornero_users").Where("can_create_workspaces = ?", true).Count(&totalAdmins).Error; err != nil {
+		slog.Error("Error counting admins", "error", err)
+		response.DatabaseError(c, err, "counting admins")
+		return
+	}
 
 	response.Success(c, gin.H{
 		"total_users":  totalUsers,

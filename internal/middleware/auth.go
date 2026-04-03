@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -205,7 +206,20 @@ func RequireInstanceAdmin() gin.HandlerFunc {
 			Where("id = ?", userID).
 			First(&user).Error
 
-		if err != nil || !user.CanCreateWorkspaces {
+		if err != nil {
+			// Error de base de datos - loguear y retornar 500
+			slog.Error("Database error checking admin privileges",
+				"error", err,
+				"user_id", userID,
+				"path", c.Request.URL.Path,
+			)
+			c.JSON(500, gin.H{"error": "Internal server error"})
+			c.Abort()
+			return
+		}
+
+		if !user.CanCreateWorkspaces {
+			// Usuario no tiene permisos - retornar 403
 			c.JSON(403, gin.H{"error": "Instance admin privileges required to perform this action"})
 			c.Abort()
 			return

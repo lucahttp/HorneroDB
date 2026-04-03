@@ -5,6 +5,7 @@ import { API_URL } from '../constants'
 import { useAuth } from '../context/AuthContext'
 import TopNavbar from '../components/TopNavbar.jsx'
 import { notify } from '../components/Toast.jsx'
+import { Button } from '../components/index.jsx'
 import { CheckCircle, Xmark, User } from 'iconoir-react'
 
 export default function InstanceAdmin() {
@@ -48,16 +49,16 @@ export default function InstanceAdmin() {
       await axios.patch(`${API_URL}/admin/users/${userId}`, {
         can_create_workspaces: !currentValue
       })
-      
+
       // Actualizar localmente
-      setUsers(users.map(u => 
-        u.id === userId 
+      setUsers(users.map(u =>
+        u.id === userId
           ? { ...u, can_create_workspaces: !currentValue }
           : u
       ))
-      
+
       notify(
-        !currentValue 
+        !currentValue
           ? (t('permissions_granted') || 'Permisos concedidos')
           : (t('permissions_revoked') || 'Permisos revocados'),
         'success'
@@ -94,7 +95,7 @@ export default function InstanceAdmin() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
       <TopNavbar />
-      
+
       <div style={{ maxWidth: '960px', margin: '0 auto', padding: '3rem 2rem' }}>
         <div style={{ marginBottom: '2rem' }}>
           <h1 style={{ fontSize: '2rem', fontWeight: 900, marginBottom: '0.5rem' }}>
@@ -106,19 +107,19 @@ export default function InstanceAdmin() {
         </div>
 
         <div style={{ background: 'var(--surface)', borderRadius: '0.75rem', overflow: 'hidden' }}>
-          <div style={{ 
-            padding: '1rem 1.5rem', 
+          <div style={{
+            padding: '1rem 1.5rem',
             borderBottom: '1px solid var(--border)',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center'
           }}>
             <h2 style={{ fontSize: '1.125rem', fontWeight: 600 }}>
-              {t('users_list') || 'Usuarios'} 
-              <span style={{ 
-                marginLeft: '0.5rem', 
-                padding: '0.25rem 0.5rem', 
-                background: 'var(--primary)', 
+              {t('users_list') || 'Usuarios'}
+              <span style={{
+                marginLeft: '0.5rem',
+                padding: '0.25rem 0.5rem',
+                background: 'var(--primary)',
                 color: 'white',
                 borderRadius: '9999px',
                 fontSize: '0.875rem'
@@ -135,10 +136,10 @@ export default function InstanceAdmin() {
           ) : (
             <div style={{ maxHeight: '600px', overflow: 'auto' }}>
               {users.map((u) => (
-                <div 
+                <div
                   key={u.id}
-                  style={{ 
-                    padding: '1rem 1.5rem', 
+                  style={{
+                    padding: '1rem 1.5rem',
                     borderBottom: '1px solid var(--border)',
                     display: 'flex',
                     justifyContent: 'space-between',
@@ -148,16 +149,16 @@ export default function InstanceAdmin() {
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                     {u.picture ? (
-                      <img 
-                        src={u.picture} 
+                      <img
+                        src={u.picture}
                         alt={u.name || u.email}
                         style={{ width: '40px', height: '40px', borderRadius: '50%' }}
                       />
                     ) : (
-                      <div style={{ 
-                        width: '40px', 
-                        height: '40px', 
-                        borderRadius: '50%', 
+                      <div style={{
+                        width: '40px',
+                        height: '40px',
+                        borderRadius: '50%',
                         background: 'var(--primary)',
                         display: 'flex',
                         alignItems: 'center',
@@ -171,12 +172,12 @@ export default function InstanceAdmin() {
                       <div style={{ fontWeight: 600 }}>
                         {u.name || u.email}
                         {u.id === user?.id && (
-                          <span style={{ 
-                            marginLeft: '0.5rem', 
-                            fontSize: '0.75rem', 
+                          <span style={{
+                            marginLeft: '0.5rem',
+                            fontSize: '0.75rem',
                             color: 'var(--primary)'
                           }}>
-                            (vos)
+                            ({t('you') || 'Vos'})
                           </span>
                         )}
                       </div>
@@ -188,12 +189,12 @@ export default function InstanceAdmin() {
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ 
-                        fontSize: '0.875rem', 
+                      <div style={{
+                        fontSize: '0.875rem',
                         fontWeight: 500,
                         color: u.can_create_workspaces ? 'var(--success)' : 'var(--text-secondary)'
                       }}>
-                        {u.can_create_workspaces 
+                        {u.can_create_workspaces
                           ? (t('can_create_workspaces') || 'Puede crear workspaces')
                           : (t('cannot_create_workspaces') || 'No puede crear workspaces')
                         }
@@ -203,21 +204,11 @@ export default function InstanceAdmin() {
                       </div>
                     </div>
 
-                    <button
+                    <Button
                       onClick={() => togglePermission(u.id, u.can_create_workspaces)}
-                      style={{
-                        padding: '0.5rem 1rem',
-                        borderRadius: '0.5rem',
-                        border: 'none',
-                        cursor: 'pointer',
-                        background: u.can_create_workspaces ? 'var(--danger)' : 'var(--success)',
-                        color: 'white',
-                        fontSize: '0.875rem',
-                        fontWeight: 500,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.5rem'
-                      }}
+                      variant={u.can_create_workspaces ? "danger" : "success"}
+                      size="sm"
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
                     >
                       {u.can_create_workspaces ? (
                         <>
@@ -230,7 +221,7 @@ export default function InstanceAdmin() {
                           {t('grant') || 'Conceder'}
                         </>
                       )}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               ))}
@@ -238,10 +229,10 @@ export default function InstanceAdmin() {
           )}
         </div>
 
-        <div style={{ 
-          marginTop: '2rem', 
-          padding: '1rem', 
-          background: 'var(--surface)', 
+        <div style={{
+          marginTop: '2rem',
+          padding: '1rem',
+          background: 'var(--surface)',
           borderRadius: '0.5rem',
           fontSize: '0.875rem',
           color: 'var(--text-secondary)'
