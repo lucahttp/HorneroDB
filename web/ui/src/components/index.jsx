@@ -162,3 +162,8 @@ export function EmptyState({ icon, title, description, action }) {
     </div>
   )
 }
+
+// Re-export tour components (currently disabled)
+export { OnboardingTour, resetTour } from './OnboardingTour'
+export { DashboardTour } from './DashboardTour'
+export { TableEditTour } from './TableEditTour'

@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext'
 import { Button, Badge } from '../components/index.jsx'
 import { notify } from '../components/Toast.jsx'
 import TopNavbar from '../components/TopNavbar.jsx'
+import { DashboardTour } from '../components/DashboardTour.jsx'
 
 export default function Dashboard() {
   const { user, logout } = useAuth()
@@ -148,6 +149,7 @@ export default function Dashboard() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
+      <DashboardTour />
       <TopNavbar />
 
       <div style={{ flex: 1, maxWidth: '960px', width: '100%', margin: '0 auto', padding: '3rem 2rem' }}>
@@ -174,6 +176,7 @@ export default function Dashboard() {
                 onClick={() => importInputRef.current?.click()} 
                 disabled={!canCreateWorkspaces}
                 title={!canCreateWorkspaces ? t('admin_only_feature') || 'Solo administradores pueden importar workspaces' : ''}
+                data-tour="import-workspace"
                 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', opacity: canCreateWorkspaces ? 1 : 0.5 }}
               >
                 <svg width="1.25rem" height="1.25rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
@@ -183,6 +186,7 @@ export default function Dashboard() {
                 onClick={() => setShowCreate(true)} 
                 disabled={!canCreateWorkspaces}
                 title={!canCreateWorkspaces ? t('admin_only_feature') || 'Solo administradores pueden crear workspaces' : ''}
+                data-tour="create-workspace"
                 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', opacity: canCreateWorkspaces ? 1 : 0.5 }}
               >
                 <span style={{ fontSize: '1.25rem', lineHeight: 1 }}>+</span>
@@ -219,7 +223,7 @@ export default function Dashboard() {
                   transition={{ delay: index * 0.06 }}
                 >
                   <div
-                    className="card cursor-pointer"
+                    className="card cursor-pointer workspace-card"
                     onClick={() => navigate(`/workspace/${ws.id}`)}
                     style={{ minHeight: '140px', display: 'flex', flexDirection: 'column', position: 'relative' }}
                   >

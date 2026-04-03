@@ -98,7 +98,13 @@ export function TableEditModal({ table, workspaceId, onClose, onTableUpdated, on
 
         {/* Tabs */}
         <div className="tabs" style={{ marginBottom: 0, paddingLeft: '1.5rem' }}>
-          <button className={`tab${tab === 'columns' ? ' active' : ''}`} onClick={() => setTab('columns')}>{t('tab_columns')}</button>
+          <button 
+            className={`tab${tab === 'columns' ? ' active' : ''}`} 
+            onClick={() => setTab('columns')}
+            data-tour="columns-tab"
+          >
+            {t('tab_columns')}
+          </button>
           <button className={`tab${tab === 'general' ? ' active' : ''}`} onClick={() => setTab('general')}>{t('tab_general')}</button>
         </div>
 
@@ -123,7 +129,7 @@ export function TableEditModal({ table, workspaceId, onClose, onTableUpdated, on
 
           {tab === 'columns' && (
             <div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
+              <div data-tour="column-list" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
                 {columns.length === 0 && (
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', textAlign: 'center', padding: '1rem 0' }}>
                     {t('no_columns_hint')}
@@ -159,6 +165,7 @@ export function TableEditModal({ table, workspaceId, onClose, onTableUpdated, on
                     <input
                       className="form-input"
                       autoFocus
+                      data-tour="column-name-input"
                       placeholder={t('col_name_placeholder')}
                       value={newColName}
                       onChange={e => setNewColName(e.target.value)}
@@ -169,6 +176,7 @@ export function TableEditModal({ table, workspaceId, onClose, onTableUpdated, on
                     <label className="form-label" style={{ fontSize: '0.7rem' }}>{t('col_type_label')}</label>
                     <select
                       className="form-select"
+                      data-tour="column-type-select"
                       value={newColType}
                       onChange={e => setNewColType(e.target.value)}
                     >
@@ -187,7 +195,15 @@ export function TableEditModal({ table, workspaceId, onClose, onTableUpdated, on
                     </div>
                   )}
                   <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                    <Button size="sm" onClick={handleAddColumn} loading={addingCol} disabled={!newColName.trim()}>{t('create')}</Button>
+                    <Button 
+                      size="sm" 
+                      onClick={handleAddColumn} 
+                      loading={addingCol} 
+                      disabled={!newColName.trim()}
+                      data-tour="save-column-btn"
+                    >
+                      {t('create')}
+                    </Button>
                     <Button variant="secondary" size="sm" onClick={() => setShowAddForm(false)}>{t('cancel')}</Button>
                   </div>
                 </div>
@@ -196,6 +212,7 @@ export function TableEditModal({ table, workspaceId, onClose, onTableUpdated, on
                   className="btn btn-secondary btn-sm"
                   style={{ width: '100%', justifyContent: 'center', gap: '0.5rem' }}
                   onClick={() => setShowAddForm(true)}
+                  data-tour="add-column-btn"
                 >
                   <Plus width="1rem" height="1rem" />
                   {t('add_column_button')}

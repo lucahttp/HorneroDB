@@ -12,6 +12,8 @@ import TopNavbar from '../components/TopNavbar.jsx'
 import { SchemaEditor } from '../components/SchemaEditor.jsx'
 import { TableEditModal } from '../components/TableEditModal.jsx'
 import { TablePreviewModal } from '../components/TablePreviewModal.jsx'
+import { OnboardingTour } from '../components/OnboardingTour.jsx'
+import { TableEditTour } from '../components/TableEditTour.jsx'
 
 export default function Workspace() {
   const { user, logout } = useAuth()
@@ -126,6 +128,7 @@ export default function Workspace() {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <OnboardingTour />
       <TopNavbar workspaceId={wsId} />
 
       <div className="main-content">
@@ -167,7 +170,7 @@ export default function Workspace() {
                   </button>
                 </div>
 
-                <Button size="sm" onClick={() => setShowCreateTable(true)}>
+                <Button size="sm" onClick={() => setShowCreateTable(true)} data-tour="add-table">
                   {t('new_table_button')}
                 </Button>
               </div>
@@ -181,7 +184,7 @@ export default function Workspace() {
                     <div className="empty-icon"><ClipboardCheck width="2rem" height="2rem" /></div>
                     <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>{t('no_tables_yet')}</h3>
                     <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>{t('create_first_table_hint')}</p>
-                    <Button onClick={() => setShowCreateTable(true)}>{t('create_first_table_button')}</Button>
+                    <Button onClick={() => setShowCreateTable(true)} data-tour="add-table">{t('create_first_table_button')}</Button>
                   </div>
                 ) : (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem' }}>
@@ -194,7 +197,7 @@ export default function Workspace() {
                         style={{ position: 'relative' }}
                       >
                         <div
-                          className="card cursor-pointer"
+                          className="card cursor-pointer table-card"
                           onClick={() => navigate(`/workspace/${wsId}/tables/${table.id}`)}
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
@@ -316,14 +319,17 @@ export default function Workspace() {
 
       {/* TableEditModal */}
       {editingTable && (
-        <TableEditModal
-          table={editingTable}
-          workspaceId={wsId}
-          onClose={() => setEditingTable(null)}
-          onTableUpdated={handleTableUpdated}
-          onColumnAdded={handleColumnAdded}
-          onColumnDeleted={handleColumnDeleted}
-        />
+        <>
+          <TableEditTour isOpen={!!editingTable} />
+          <TableEditModal
+            table={editingTable}
+            workspaceId={wsId}
+            onClose={() => setEditingTable(null)}
+            onTableUpdated={handleTableUpdated}
+            onColumnAdded={handleColumnAdded}
+            onColumnDeleted={handleColumnDeleted}
+          />
+        </>
       )}
 
       {/* TablePreviewModal */}
