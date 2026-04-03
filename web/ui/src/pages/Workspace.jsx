@@ -148,7 +148,7 @@ export default function Workspace() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '0.75rem' }}>
               <h2 style={{ fontSize: '1.125rem', fontWeight: 700 }}>{t('tables')}</h2>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <div id="workspace-nav" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 {/* View toggle */}
                 <div className="view-toggle" role="group" aria-label="Vista">
                   <button

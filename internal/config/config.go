@@ -15,12 +15,14 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port         string
-	PublicURL    string
-	AdminURL     string
-	ReadTimeout  time.Duration
-	WriteTimeout time.Duration
-	CORSOrigins  []string // Allowed CORS origins (empty = same origin only)
+	Port          string
+	PublicURL     string
+	AdminURL      string
+	ReadTimeout   time.Duration
+	WriteTimeout  time.Duration
+	CORSOrigins   []string // Allowed CORS origins (empty = same origin only)
+	Environment   string   // "development", "staging", "production"
+	SecureCookies bool     // true = Secure flag en cookies (solo HTTPS)
 }
 
 type DatabaseConfig struct {
@@ -85,12 +87,14 @@ func Load() (*Config, error) {
 
 	config := &Config{
 		Server: ServerConfig{
-			Port:         getEnv("SERVER_PORT", "8080"),
-			PublicURL:    getEnv("VITE_SERVER_PUBLIC_URL", "http://localhost:5173"),
-			AdminURL:     getEnv("HORNERO_ADMIN_URL", "http://localhost:5173"),
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-			CORSOrigins:  parseCORSOrigins(getEnv("CORS_ORIGINS", "")),
+			Port:          getEnv("SERVER_PORT", "8080"),
+			PublicURL:     getEnv("VITE_SERVER_PUBLIC_URL", "http://localhost:5173"),
+			AdminURL:      getEnv("HORNERO_ADMIN_URL", "http://localhost:5173"),
+			ReadTimeout:   30 * time.Second,
+			WriteTimeout:  30 * time.Second,
+			CORSOrigins:   parseCORSOrigins(getEnv("CORS_ORIGINS", "")),
+			Environment:   getEnv("HORNERO_ENV", "development"),
+			SecureCookies: isProduction || getEnv("HORNERO_SECURE_COOKIES", "false") == "true",
 		},
 		Database: DatabaseConfig{
 			Host:     getEnv("DB_HOST", "localhost"),

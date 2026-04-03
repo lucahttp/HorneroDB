@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"hornerodb/internal/config"
+	"hornerodb/internal/middleware"
 	authservice "hornerodb/internal/services/auth"
 )
 
@@ -171,9 +172,9 @@ func (o *OAuthServer) Authorize(c *gin.Context) {
 	}
 
 	// Store MCP client context in cookies so the OIDC callback can pick it up
-	c.SetCookie("mcp_client_id", clientID, 3600, "/", "", false, true)
-	c.SetCookie("mcp_redirect_uri", redirectURI, 3600, "/", "", false, true)
-	c.SetCookie("mcp_state", state, 3600, "/", "", false, true)
+	middleware.SetSecureCookie(c, "mcp_client_id", clientID, 3600, true)
+	middleware.SetSecureCookie(c, "mcp_redirect_uri", redirectURI, 3600, false)
+	middleware.SetSecureCookie(c, "mcp_state", state, 3600, true)
 
 	// Kick off PocketID OIDC
 	base := baseURL(c, o.PublicURL)
@@ -183,8 +184,8 @@ func (o *OAuthServer) Authorize(c *gin.Context) {
 	codeVerifier := authservice.GenerateCodeVerifier()
 	loginURL := o.OIDCAuth.GetLoginURLWithRedirect(oidcState, codeVerifier, oidcCallbackURL)
 
-	c.SetCookie("oidc_state", oidcState, 3600, "/", "", false, true)
-	c.SetCookie("oidc_code_verifier", codeVerifier, 3600, "/", "", false, false)
+	middleware.SetSecureCookie(c, "oidc_state", oidcState, 3600, true)
+	middleware.SetSecureCookie(c, "oidc_code_verifier", codeVerifier, 3600, true)
 
 	c.Redirect(http.StatusFound, loginURL)
 }

@@ -79,6 +79,14 @@ func main() {
 	r.Use(gin.Recovery())                // Recover from panics
 	r.Use(middleware.SecurityHeaders())  // Production security headers
 
+	// CSRF Protection for state-changing operations
+	// Uses CORS origins as the allowed origins list
+	csrfOrigins := cfg.Server.CORSOrigins
+	if len(csrfOrigins) == 0 {
+		csrfOrigins = []string{cfg.Server.AdminURL}
+	}
+	r.Use(middleware.CSRFProtection(csrfOrigins))
+
 	// Standard CORS configuration using gin-contrib/cors
 	// SECURITY: By default, only allow same-origin requests from AdminURL
 	// For multi-origin setups, set CORS_ORIGINS env variable
@@ -143,13 +151,14 @@ func main() {
 		adminRoutes.Use(middleware.RequireInstanceAdmin())
 		{
 			adminRoutes.GET("/users", api.ListInstanceUsers)
-			adminRoutes.GET("/users/:user_id", api.GetInstanceUser)
-			adminRoutes.PATCH("/users/:user_id", api.UpdateInstanceUser)
+			adminRoutes.GET("/users/:user_id", middleware.ValidateUUIDParam("user_id"), api.GetInstanceUser)
+			adminRoutes.PATCH("/users/:user_id", middleware.ValidateUUIDParam("user_id"), api.UpdateInstanceUser)
 			adminRoutes.GET("/settings", api.GetInstanceSettings)
 		}
 
 		// Routes that REQUIRE workspace authorization (checking ownership/roles internally)
 		workspaceGroup := protected.Group("/workspaces/:workspace_id")
+		workspaceGroup.Use(middleware.ValidateUUIDParam("workspace_id"))
 		workspaceGroup.Use(middleware.WorkspaceAuth())
 		workspaceGroup.Use(middleware.WorkspaceSecurity())
 		{
@@ -157,21 +166,21 @@ func main() {
 
 			// === TABLES (Read-only for all roles) ===
 			workspaceGroup.GET("/tables", api.ListTables)
-			workspaceGroup.GET("/tables/:table_id", api.GetTable)
+			workspaceGroup.GET("/tables/:table_id", middleware.ValidateUUIDParam("table_id"), api.GetTable)
 
 			// === COLUMNS (Read-only for all roles) ===
-			workspaceGroup.GET("/tables/:table_id/columns", api.ListColumns)
+			workspaceGroup.GET("/tables/:table_id/columns", middleware.ValidateUUIDParam("table_id"), api.ListColumns)
 
 			// === DATA (RECORDS) (Dataverse permissions apply within handlers) ===
 			workspaceGroup.GET("/data/:table_slug", api.ListRecords)
 			workspaceGroup.POST("/data/:table_slug", api.CreateRecord)
-			workspaceGroup.GET("/data/:table_slug/:id", api.GetRecord)
-			workspaceGroup.PUT("/data/:table_slug/:id", api.UpdateRecord)
-			workspaceGroup.DELETE("/data/:table_slug/:id", api.DeleteRecord)
+			workspaceGroup.GET("/data/:table_slug/:id", middleware.ValidateUUIDParam("id"), api.GetRecord)
+			workspaceGroup.PUT("/data/:table_slug/:id", middleware.ValidateUUIDParam("id"), api.UpdateRecord)
+			workspaceGroup.DELETE("/data/:table_slug/:id", middleware.ValidateUUIDParam("id"), api.DeleteRecord)
 
 			// === ROLES DE SEGURIDAD (Read-only for all roles) ===
 			workspaceGroup.GET("/roles", api.ListRoles)
-			workspaceGroup.GET("/roles/:role_id", api.GetRole)
+			workspaceGroup.GET("/roles/:role_id", middleware.ValidateUUIDParam("role_id"), api.GetRole)
 
 			// Admin-only Workspace Routes
 			adminWorkspaceGroup := workspaceGroup.Group("")
@@ -188,13 +197,13 @@ func main() {
 				tablesGroup.Use(middleware.RequireSystemPermission("tables"))
 				{
 					tablesGroup.POST("/tables", api.CreateTable)
-					tablesGroup.PUT("/tables/:table_id", api.UpdateTable)
-					tablesGroup.DELETE("/tables/:table_id", api.DeleteTable)
+					tablesGroup.PUT("/tables/:table_id", middleware.ValidateUUIDParam("table_id"), api.UpdateTable)
+					tablesGroup.DELETE("/tables/:table_id", middleware.ValidateUUIDParam("table_id"), api.DeleteTable)
 
 					// === COLUMNS (Admin operations) ===
-					tablesGroup.POST("/tables/:table_id/columns", api.CreateColumn)
-					tablesGroup.PUT("/tables/:table_id/columns/:column_id", api.UpdateColumn)
-					tablesGroup.DELETE("/tables/:table_id/columns/:column_id", api.DeleteColumn)
+					tablesGroup.POST("/tables/:table_id/columns", middleware.ValidateUUIDParam("table_id"), api.CreateColumn)
+					tablesGroup.PUT("/tables/:table_id/columns/:column_id", middleware.ValidateUUIDParam("table_id"), middleware.ValidateUUIDParam("column_id"), api.UpdateColumn)
+					tablesGroup.DELETE("/tables/:table_id/columns/:column_id", middleware.ValidateUUIDParam("table_id"), middleware.ValidateUUIDParam("column_id"), api.DeleteColumn)
 				}
 
 				// === ROLES & USERS (Admin operations) ===
@@ -204,18 +213,18 @@ func main() {
 					// === PERMISSIONS (legacy) ===
 					rolesGroup.GET("/permissions", api.ListPermissions)
 					rolesGroup.POST("/permissions", api.CreatePermission)
-					rolesGroup.PUT("/permissions/:permission_id", api.UpdatePermission)
-					rolesGroup.DELETE("/permissions/:permission_id", api.DeletePermission)
+					rolesGroup.PUT("/permissions/:permission_id", middleware.ValidateUUIDParam("permission_id"), api.UpdatePermission)
+					rolesGroup.DELETE("/permissions/:permission_id", middleware.ValidateUUIDParam("permission_id"), api.DeletePermission)
 
 					rolesGroup.POST("/roles", api.CreateRole)
-					rolesGroup.PUT("/roles/:role_id", api.UpdateRole)
-					rolesGroup.DELETE("/roles/:role_id", api.DeleteRole)
+					rolesGroup.PUT("/roles/:role_id", middleware.ValidateUUIDParam("role_id"), api.UpdateRole)
+					rolesGroup.DELETE("/roles/:role_id", middleware.ValidateUUIDParam("role_id"), api.DeleteRole)
 
 					rolesGroup.GET("/users", api.ListWorkspaceUsers)
 					rolesGroup.POST("/users", api.ImportUser)
-					rolesGroup.POST("/users/:user_id/role", api.AssignRoleToUser)
-					rolesGroup.DELETE("/users/:user_id/role", api.RemoveRoleFromUser)
-					rolesGroup.DELETE("/users/:user_id", api.RemoveRoleFromUser) // Short alias
+					rolesGroup.POST("/users/:user_id/role", middleware.ValidateUUIDParam("user_id"), api.AssignRoleToUser)
+					rolesGroup.DELETE("/users/:user_id/role", middleware.ValidateUUIDParam("user_id"), api.RemoveRoleFromUser)
+					rolesGroup.DELETE("/users/:user_id", middleware.ValidateUUIDParam("user_id"), api.RemoveRoleFromUser) // Short alias
 				}
 
 				// === API KEYS (Admin operations) ===
@@ -224,9 +233,9 @@ func main() {
 				{
 					keysGroup.GET("/keys", api.ListAPIKeys)
 					keysGroup.POST("/keys", api.CreateAPIKey)
-					keysGroup.PUT("/keys/:key_id", api.UpdateAPIKey)
-					keysGroup.POST("/keys/:key_id/rotate", api.RotateAPIKey)
-					keysGroup.DELETE("/keys/:key_id", api.DeleteAPIKey)
+					keysGroup.PUT("/keys/:key_id", middleware.ValidateUUIDParam("key_id"), api.UpdateAPIKey)
+					keysGroup.POST("/keys/:key_id/rotate", middleware.ValidateUUIDParam("key_id"), api.RotateAPIKey)
+					keysGroup.DELETE("/keys/:key_id", middleware.ValidateUUIDParam("key_id"), api.DeleteAPIKey)
 				}
 
 				// === WEBHOOKS (Admin operations) ===
@@ -235,9 +244,9 @@ func main() {
 				{
 					webhooksGroup.GET("/webhooks", api.ListWebhooks)
 					webhooksGroup.POST("/webhooks", api.CreateWebhook)
-					webhooksGroup.GET("/webhooks/:webhook_id", api.GetWebhook)
-					webhooksGroup.PUT("/webhooks/:webhook_id", api.UpdateWebhook)
-					webhooksGroup.DELETE("/webhooks/:webhook_id", api.DeleteWebhook)
+					webhooksGroup.GET("/webhooks/:webhook_id", middleware.ValidateUUIDParam("webhook_id"), api.GetWebhook)
+					webhooksGroup.PUT("/webhooks/:webhook_id", middleware.ValidateUUIDParam("webhook_id"), api.UpdateWebhook)
+					webhooksGroup.DELETE("/webhooks/:webhook_id", middleware.ValidateUUIDParam("webhook_id"), api.DeleteWebhook)
 				}
 			}
 		}
@@ -270,9 +279,12 @@ func main() {
 	v1.GET("/mcp/oauth/callback", oauthServer.OIDCCallback)
 	v1.POST("/mcp/oauth/token", oauthServer.Token)
 
+	// === RATE LIMITING FOR AUTH (Simple IP-based) ===
+	authRateLimit := middleware.SimpleRateLimit(10, time.Minute) // 10 requests per minute per IP
+
 	// === AUTH OIDC (public) ===
-	v1.GET("/auth/oidc/login", api.LoginPocketID)
-	v1.GET("/auth/oidc/callback", api.CallbackPocketID)
+	v1.GET("/auth/oidc/login", authRateLimit, api.LoginPocketID)
+	v1.GET("/auth/oidc/callback", authRateLimit, api.CallbackPocketID)
 
 	// === STATIC FILES (PROD) ===
 	if os.Getenv("HORNERO_ENV") == "production" {

@@ -2,9 +2,11 @@ package api
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 
 	"hornerodb/internal/config"
+	"hornerodb/internal/middleware"
 	"hornerodb/internal/services/auth"
 
 	"github.com/gin-gonic/gin"
@@ -51,7 +53,6 @@ func LoginPocketID(c *gin.Context) {
 	}
 
 	// Load config to get Public URL if available, or default to localhost
-	// In a real scenario, this should come from a configured PUBLIC_URL
 	cfg, _ := config.Load()
 	baseURL := "http://localhost:5173"
 	if cfg.Server.PublicURL != "" {
@@ -63,13 +64,37 @@ func LoginPocketID(c *gin.Context) {
 		redirectURI = baseURL + "/callback"
 	}
 
+	// SECURITY: Validate redirect URL to prevent open redirect attacks
+	// Build allowed domains list from config
+	allowedDomains := []string{}
+	if cfg.Server.PublicURL != "" {
+		// Extract domain from PublicURL
+		publicURL := cfg.Server.PublicURL
+		if strings.HasPrefix(publicURL, "http://") {
+			publicURL = publicURL[7:]
+		} else if strings.HasPrefix(publicURL, "https://") {
+			publicURL = publicURL[8:]
+		}
+		if idx := strings.IndexAny(publicURL, "/?#"); idx != -1 {
+			publicURL = publicURL[:idx]
+		}
+		allowedDomains = append(allowedDomains, publicURL)
+	}
+	// Always allow localhost for development
+	allowedDomains = append(allowedDomains, "localhost", "localhost:5173", "127.0.0.1", "127.0.0.1:5173")
+
+	if !IsValidRedirectURL(redirectURI, allowedDomains) {
+		c.JSON(400, gin.H{"error": "invalid redirect URL"})
+		return
+	}
+
 	state := auth.GenerateState()
 	codeVerifier := auth.GenerateCodeVerifier()
 	loginURL := oidcAuth.GetLoginURL(state, codeVerifier)
 
-	c.SetCookie("oidc_state", state, 3600, "/", "", false, true)
-	c.SetCookie("oidc_redirect", redirectURI, 3600, "/", "", false, true)
-	c.SetCookie("oidc_code_verifier", codeVerifier, 3600, "/", "", false, false)
+	middleware.SetSecureCookie(c, "oidc_state", state, 3600, true)
+	middleware.SetSecureCookie(c, "oidc_redirect", redirectURI, 3600, false)
+	middleware.SetSecureCookie(c, "oidc_code_verifier", codeVerifier, 3600, true)
 
 	c.Redirect(http.StatusFound, loginURL)
 }
@@ -93,6 +118,28 @@ func CallbackPocketID(c *gin.Context) {
 		redirectURL = redirectURI
 	}
 
+	// SECURITY: Validate redirect URL again to prevent open redirect attacks
+	cfg, _ := config.Load()
+	allowedDomains := []string{}
+	if cfg.Server.PublicURL != "" {
+		publicURL := cfg.Server.PublicURL
+		if strings.HasPrefix(publicURL, "http://") {
+			publicURL = publicURL[7:]
+		} else if strings.HasPrefix(publicURL, "https://") {
+			publicURL = publicURL[8:]
+		}
+		if idx := strings.IndexAny(publicURL, "/?#"); idx != -1 {
+			publicURL = publicURL[:idx]
+		}
+		allowedDomains = append(allowedDomains, publicURL)
+	}
+	allowedDomains = append(allowedDomains, "localhost", "localhost:5173", "127.0.0.1", "127.0.0.1:5173")
+
+	if !IsValidRedirectURL(redirectURL, allowedDomains) {
+		c.JSON(400, gin.H{"error": "invalid redirect URL"})
+		return
+	}
+
 	codeVerifier, _ := c.Cookie("oidc_code_verifier")
 
 	if err := oidcAuth.HandleCallbackAndRedirect(c, jwtSecret, redirectURL, codeVerifier); err != nil {
@@ -102,6 +149,6 @@ func CallbackPocketID(c *gin.Context) {
 }
 
 func Logout(c *gin.Context) {
-	c.SetCookie("token", "", -1, "/", "", false, true)
+	middleware.ClearCookie(c, "token")
 	c.JSON(200, gin.H{"message": "logged out"})
 }

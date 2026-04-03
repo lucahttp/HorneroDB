@@ -81,8 +81,7 @@ func (c *PocketIDClient) CreateUser(email, firstName, lastName string) (*PocketI
 	defer resp.Body.Close()
 
 	bodyBytes, _ := io.ReadAll(resp.Body)
-	// Debug: Print full response check for setup links
-	fmt.Printf("DEBUG: Create User Response Body: %s\n", string(bodyBytes))
+	// SECURITY: Response may contain sensitive user data - do not log
 
 	if resp.StatusCode != 201 && resp.StatusCode != 200 {
 		return nil, fmt.Errorf("failed to create user, status: %d, body: %s", resp.StatusCode, string(bodyBytes))
@@ -98,13 +97,10 @@ func (c *PocketIDClient) CreateUser(email, firstName, lastName string) (*PocketI
 
 // ListUsers queries users from PocketID
 func (c *PocketIDClient) ListUsers(search string) ([]PocketIDUser, error) {
-	fmt.Println("DEBUG: PocketID ListUsers called with search:", search)
-
 	url := c.BaseURL + "/api/users"
 	if search != "" {
 		url += "?search=" + search
 	}
-	fmt.Println("DEBUG: Fetching", url)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -124,7 +120,7 @@ func (c *PocketIDClient) ListUsers(search string) ([]PocketIDUser, error) {
 	defer resp.Body.Close()
 
 	bodyBytes, _ := io.ReadAll(resp.Body)
-	fmt.Printf("DEBUG: PocketID Users Response (%d): %s\n", resp.StatusCode, string(bodyBytes))
+	// SECURITY: Response contains user data - do not log full body
 
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("failed to list users, status: %d", resp.StatusCode)

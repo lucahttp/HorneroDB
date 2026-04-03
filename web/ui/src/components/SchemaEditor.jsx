@@ -164,7 +164,7 @@ export function SchemaEditor({ tables, workspaceId, onEditTable, onCreateTable, 
   }
 
   return (
-    <div className="erd-canvas-wrap" style={{ position: 'relative' }}>
+    <div id="schema-canvas" className="erd-canvas-wrap" style={{ position: 'relative' }}>
       <svg
         ref={svgRef}
         width={maxX}
@@ -220,6 +220,7 @@ export function SchemaEditor({ tables, workspaceId, onEditTable, onCreateTable, 
           return (
             <g
               key={table.id}
+              className="table-node"
               transform={`translate(${pos.x}, ${pos.y})`}
               style={{ cursor: dragging?.tableId === table.id ? 'grabbing' : 'grab' }}
               onMouseDown={(e) => onMouseDown(e, table.id)}
@@ -387,6 +388,7 @@ export function SchemaEditor({ tables, workspaceId, onEditTable, onCreateTable, 
         )}
 
         <button
+          id="add-table-btn"
           className="btn btn-primary btn-sm"
           onClick={() => setShowCreateForm(v => !v)}
           style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', boxShadow: '3px 3px 0 var(--border-color)' }}

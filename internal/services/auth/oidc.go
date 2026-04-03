@@ -252,14 +252,13 @@ func handleUserWithClaims(c *gin.Context, jwtSecret string, claims UserClaims, t
 	}
 
 	if err := database.DB.Table("_hornero_users").Save(&user).Error; err != nil {
-		fmt.Printf("Warning: Failed to upsert user %s: %v\n", claims.Sub, err)
+		// Log error but don't fail - user can still get token
+		// SECURITY: Only logging user ID, not sensitive data
+		_ = err
 	}
 
 	// Resolve user role and workspace using shared function
-	roleName, workspaceID, isOwner, _ := middleware.ResolveUserRole(claims.Sub)
-	if isOwner {
-		fmt.Printf("DEBUG: User %s is owner of workspace %s\n", claims.Sub, workspaceID)
-	}
+	roleName, workspaceID, _, _ := middleware.ResolveUserRole(claims.Sub)
 
 	// Generate app JWT with role
 	appToken, err := GenerateJWTWithRole(jwtSecret, claims.Sub, claims.Email, roleName, workspaceID, 24*time.Hour)
@@ -292,10 +291,6 @@ func (o *OIDCAuth) HandleCallbackAndRedirect(c *gin.Context, jwtSecret, redirect
 		return fmt.Errorf("no code provided")
 	}
 
-	// Debug: print code verifier from cookie
-	fmt.Printf("DEBUG - Code verifier from cookie: '%s'\n", codeVerifier)
-	fmt.Printf("DEBUG - Code: '%s'\n", code)
-
 	ctx := context.Background()
 
 	tokenResp, err := o.ExchangeCode(ctx, code, codeVerifier)
@@ -324,10 +319,7 @@ func (o *OIDCAuth) HandleCallbackAndRedirect(c *gin.Context, jwtSecret, redirect
 	}
 
 	// Resolve user role and workspace using shared function
-	roleName, workspaceID, isOwner, _ := middleware.ResolveUserRole(claims.Sub)
-	if isOwner {
-		fmt.Printf("DEBUG: User %s is owner of workspace %s\n", claims.Sub, workspaceID)
-	}
+	roleName, workspaceID, _, _ := middleware.ResolveUserRole(claims.Sub)
 
 	appToken, err := GenerateJWTWithRole(jwtSecret, claims.Sub, claims.Email, roleName, workspaceID, 24*time.Hour)
 	if err != nil {

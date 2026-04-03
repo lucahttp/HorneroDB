@@ -262,3 +262,42 @@ func WorkspaceSecurity() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// SimpleRateLimit returns a simple IP-based rate limiter for specific routes
+// maxRequests: maximum requests allowed per window
+// window: time window for the limit (e.g., time.Minute)
+func SimpleRateLimit(maxRequests int, window time.Duration) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ip := c.ClientIP()
+
+		limiter.Lock()
+		defer limiter.Unlock()
+
+		v, exists := limiter.visitors[ip]
+		if !exists {
+			limiter.visitors[ip] = &visitor{time.Now(), 1}
+			c.Next()
+			return
+		}
+
+		// Reset if window passed
+		if time.Since(v.lastSeen) > window {
+			v.count = 1
+			v.lastSeen = time.Now()
+			c.Next()
+			return
+		}
+
+		v.count++
+		v.lastSeen = time.Now()
+
+		if v.count > maxRequests {
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+				"error": "Too many requests. Please try again later.",
+			})
+			return
+		}
+
+		c.Next()
+	}
+}

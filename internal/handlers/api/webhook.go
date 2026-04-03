@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/url"
 
@@ -210,9 +211,13 @@ func validateWebhookURL(rawURL string) error {
 		return errors.New("localhost URLs are not allowed")
 	}
 
-	// Block private IP ranges
-	ip := net.ParseIP(host)
-	if ip != nil {
+	// Block private IP ranges by checking the actual IP (DNS rebinding protection)
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return fmt.Errorf("failed to resolve hostname: %w", err)
+	}
+
+	for _, ip := range ips {
 		// Check private ranges
 		privateRanges := []string{
 			"10.0.0.0/8",

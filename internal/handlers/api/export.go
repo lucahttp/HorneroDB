@@ -123,9 +123,12 @@ func ImportWorkspace(c *gin.Context) {
 				return fmt.Errorf("invalid table slug: %s", newTable.Slug)
 			}
 
-			// Generate the physical SQL table
-			physicalTableName := "data_" + newWorkspaceID.String() + "_" + newTable.Slug
-			createSQL := "CREATE TABLE \"" + physicalTableName + "\" (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by VARCHAR(255), updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP)"
+			// Generate the physical SQL table with proper quoting
+			physicalTableName, err := ValidateAndQuoteTableName(newWorkspaceID.String(), newTable.Slug)
+			if err != nil {
+				return err
+			}
+			createSQL := fmt.Sprintf("CREATE TABLE %s (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, created_by VARCHAR(255), updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP)", physicalTableName)
 			if err := tx.Exec(createSQL).Error; err != nil {
 				return err
 			}
@@ -167,13 +170,22 @@ func ImportWorkspace(c *gin.Context) {
 			}
 
 			// Physical Alter Table — reuse GetColumnSQL to stay in sync with column.go type map
-			physicalTableName := "data_" + newWorkspaceID.String() + "_" + tableSlug
+			physicalTableName, err := ValidateAndQuoteTableName(newWorkspaceID.String(), tableSlug)
+			if err != nil {
+				return err
+			}
+
+			quotedColumn, err := ValidateAndQuoteColumn(col.Slug)
+			if err != nil {
+				return err
+			}
+
 			pgType := GetColumnSQL(col.FieldType)
 			if pgType == "" {
 				pgType = "TEXT" // fallback for unknown types on import
 			}
 
-			alterSQL := "ALTER TABLE \"" + physicalTableName + "\" ADD COLUMN \"" + col.Slug + "\" " + pgType
+			alterSQL := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", physicalTableName, quotedColumn, pgType)
 			if err := tx.Exec(alterSQL).Error; err != nil {
 				return err
 			}

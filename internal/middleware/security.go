@@ -1,6 +1,9 @@
 package middleware
 
 import (
+	"os"
+	"strings"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -16,12 +19,21 @@ func SecurityHeaders() gin.HandlerFunc {
 		// Enable XSS filtering in browsers
 		c.Writer.Header().Set("X-XSS-Protection", "1; mode=block")
 
-		// Strict-Transport-Security (HSTS) - only if we could detect HTTPS reliably
-		// For now, let's assume the reverse proxy handles this, or set it if we want to be safe
-		// c.Writer.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-
 		// Referrer policy
 		c.Writer.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+
+		// Strict-Transport-Security (HSTS) - enable in production
+		// Check if we're in production or if the request is HTTPS
+		isProd := os.Getenv("NODE_ENV") == "production" || os.Getenv("ENV") == "production" || os.Getenv("HORNERO_ENV") == "production"
+		isHTTPS := c.Request.TLS != nil || strings.HasPrefix(c.Request.Header.Get("X-Forwarded-Proto"), "https")
+		if isProd || isHTTPS {
+			c.Writer.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+
+		// Content-Security-Policy - basic restrictive policy
+		// Allows scripts/styles from same origin, images from same origin and data URIs
+		csp := "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self';"
+		c.Writer.Header().Set("Content-Security-Policy", csp)
 
 		c.Next()
 	}

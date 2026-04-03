@@ -129,14 +129,28 @@ func UpdateRole(c *gin.Context) {
 		return
 	}
 
-	var input map[string]interface{}
+	var input struct {
+		Name        string        `json:"name"`
+		Description string        `json:"description"`
+		Permissions metadata.JSON `json:"permissions"`
+	}
 
 	if err := c.ShouldBindJSON(&input); err != nil {
 		response.ValidationError(c, "Invalid role data")
 		return
 	}
 
-	if permissions, ok := input["permissions"]; ok {
+	// Build update map with only provided fields
+	updates := make(map[string]interface{})
+	if input.Name != "" {
+		updates["name"] = input.Name
+	}
+	if input.Description != "" {
+		updates["description"] = input.Description
+	}
+
+	// Handle permissions merge separately
+	if input.Permissions != nil {
 		var existingRole metadata.Role
 		if err := database.DB.Table("_hornero_roles").First(&existingRole, "id = ?", roleID).Error; err != nil {
 			response.NotFoundError(c, "role")
@@ -153,8 +167,8 @@ func UpdateRole(c *gin.Context) {
 			mergedPerms = make(map[string]interface{})
 		}
 
-		newPerms, ok := permissions.(map[string]interface{})
-		if ok {
+		var newPerms map[string]interface{}
+		if err := json.Unmarshal(input.Permissions, &newPerms); err == nil {
 			mergedPerms = deepMerge(mergedPerms, newPerms)
 		}
 
@@ -163,10 +177,15 @@ func UpdateRole(c *gin.Context) {
 			response.ValidationError(c, "invalid permissions format")
 			return
 		}
-		input["permissions"] = metadata.JSON(permissionsJSON)
+		updates["permissions"] = metadata.JSON(permissionsJSON)
 	}
 
-	result := database.DB.Table("_hornero_roles").Where("id = ?", roleID).Updates(input)
+	if len(updates) == 0 {
+		response.ValidationError(c, "No fields to update")
+		return
+	}
+
+	result := database.DB.Table("_hornero_roles").Where("id = ?", roleID).Updates(updates)
 	if result.Error != nil {
 		slog.Error("failed to update role",
 			"error", result.Error,
