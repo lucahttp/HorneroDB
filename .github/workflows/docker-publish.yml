@@ -30,7 +30,7 @@ jobs:
         type=ref,event=pr
         type=semver,pattern={{version}}
         type=semver,pattern={{major}}.{{minor}}
-        type=raw,value=latest,enable={{github.ref == 'refs/heads/main'}}
+        type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
     secrets:
       registry-auths: |
         - registry: docker.io
