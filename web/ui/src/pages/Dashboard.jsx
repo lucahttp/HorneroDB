@@ -27,6 +27,8 @@ export default function Dashboard() {
   const [showCreate, setShowCreate] = useState(false)
   const [newName, setNewName] = useState('')
   const [creating, setCreating] = useState(false)
+  const [templates, setTemplates] = useState([])
+  const [selectedTemplate, setSelectedTemplate] = useState(null)
 
   // Fetch workspaces and user permissions
   useEffect(() => {
@@ -35,7 +37,7 @@ export default function Dashboard() {
       .then(res => setWorkspaces(Array.isArray(res.data.data) ? res.data.data : []))
       .catch((err) => {
         setWorkspaces([])
-        notify(t('error_fetching_workspaces') || 'Error fetching workspaces', 'error')
+        notify(t('error_fetching_workspaces'), 'error')
       })
       .finally(() => setLoading(false))
 
@@ -49,6 +51,16 @@ export default function Dashboard() {
       .catch(() => {
         setCanCreateWorkspaces(false)
       })
+
+    // Fetch templates
+    axios.get(`${API_URL}/templates`)
+      .then(res => {
+        setTemplates(Array.isArray(res.data.data) ? res.data.data : [])
+      })
+      .catch((err) => {
+        console.error('Error fetching templates:', err)
+        setTemplates([])
+      })
   }, [])
 
   const handleCreate = async () => {
@@ -61,17 +73,30 @@ export default function Dashboard() {
 
     setCreating(true)
     try {
-      await axios.post(`${API_URL}/workspaces`, {
-        name: newName,
-        slug: newName.toLowerCase().replace(/\s+/g, '-'),
-        owner_id: ownerId
-      })
+      if (selectedTemplate) {
+        // Fetch template data and import it under the new name
+        const tplRes = await axios.get(`${API_URL}/templates/${selectedTemplate.filename}`)
+        const dump = tplRes.data.data
+        // Override workspace name/slug with user input
+        dump.workspace.name = newName
+        dump.workspace.slug = newName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+        dump.workspace.owner_id = ownerId
+        await axios.post(`${API_URL}/workspaces/import`, dump)
+      } else {
+        await axios.post(`${API_URL}/workspaces`, {
+          name: newName,
+          slug: newName.toLowerCase().replace(/\s+/g, '-'),
+          owner_id: ownerId
+        })
+      }
       setShowCreate(false)
       setNewName('')
+      setSelectedTemplate(null)
       const res = await axios.get(`${API_URL}/workspaces`)
       setWorkspaces(Array.isArray(res.data.data) ? res.data.data : [])
     } catch (err) {
       console.error('Workspace Create Error:', err)
+      notify(t('error_create_workspace'), 'error')
     } finally {
       setCreating(false)
     }
@@ -83,7 +108,7 @@ export default function Dashboard() {
 
     const ownerId = user?.id || user?.user_id
     if (!ownerId) {
-      notify(t('error_import_workspace') || 'User ID missing', 'error')
+      notify(t('error_import_workspace'), 'error')
       return
     }
 
@@ -94,12 +119,12 @@ export default function Dashboard() {
         setLoading(true)
         await axios.post(`${API_URL}/workspaces/import`, jsonDump)
         
-        notify(t('workspace_imported') || 'Workspace imported successfully', 'success')
+        notify(t('workspace_imported'), 'success')
         const res = await axios.get(`${API_URL}/workspaces`)
         setWorkspaces(Array.isArray(res.data.data) ? res.data.data : [])
       } catch (err) {
         console.error('Import Workspace Error:', err)
-        notify(t('error_import_workspace') || 'Error importing workspace', 'error')
+        notify(t('error_import_workspace'), 'error')
       } finally {
         if (importInputRef.current) importInputRef.current.value = ''
         setLoading(false)
@@ -173,17 +198,17 @@ export default function Dashboard() {
                 variant="secondary" 
                 onClick={() => importInputRef.current?.click()} 
                 disabled={!canCreateWorkspaces}
-                title={!canCreateWorkspaces ? t('admin_only_feature') || 'Solo administradores pueden importar workspaces' : ''}
+                title={!canCreateWorkspaces ? t('admin_only_feature') : ''}
                 data-tour="import-workspace"
                 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', opacity: canCreateWorkspaces ? 1 : 0.5 }}
               >
                 <svg width="1.25rem" height="1.25rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                <span className="hidden sm:inline">{t('import_workspace') || 'Import'}</span>
+                <span className="hidden sm:inline">{t('import_workspace')}</span>
               </Button>
               <Button 
                 onClick={() => setShowCreate(true)} 
                 disabled={!canCreateWorkspaces}
-                title={!canCreateWorkspaces ? t('admin_only_feature') || 'Solo administradores pueden crear workspaces' : ''}
+                title={!canCreateWorkspaces ? t('admin_only_feature') : ''}
                 data-tour="create-workspace"
                 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', opacity: canCreateWorkspaces ? 1 : 0.5 }}
               >
@@ -205,7 +230,7 @@ export default function Dashboard() {
               <Button 
                 onClick={() => setShowCreate(true)}
                 disabled={!canCreateWorkspaces}
-                title={!canCreateWorkspaces ? t('admin_only_feature') || 'Solo administradores pueden crear workspaces' : ''}
+                title={!canCreateWorkspaces ? t('admin_only_feature') : ''}
                 style={{ opacity: canCreateWorkspaces ? 1 : 0.5 }}
               >
                 {t('create_workspace_button')}
@@ -261,9 +286,17 @@ export default function Dashboard() {
                       }}>
                         {ws.name?.charAt(0)?.toUpperCase() || '📁'}
                       </div>
-                      <div>
-                        <div style={{ fontWeight: 800, fontSize: '1.0625rem' }}>{ws.name}</div>
-                        <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      <div style={{ minWidth: 0, flex: 1, paddingRight: '2.5rem' }}>
+                        <div 
+                          style={{ fontWeight: 800, fontSize: '1.0625rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                          title={ws.name}
+                        >
+                          {ws.name}
+                        </div>
+                        <div 
+                          style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                          title={`@${ws.slug}`}
+                        >
                           @{ws.slug}
                         </div>
                       </div>
@@ -286,7 +319,7 @@ export default function Dashboard() {
                 </motion.div>
               ))}
 
-              <div
+                <div
                 className="card border-dashed"
                 onClick={() => setShowCreate(true)}
                 style={{
@@ -309,11 +342,11 @@ export default function Dashboard() {
       </div>
 
       {showCreate && (
-        <div className="modal-overlay" onClick={() => setShowCreate(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => { setShowCreate(false); setSelectedTemplate(null); setNewName(''); }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '560px' }}>
             <div className="modal-header">
               <h3 className="modal-title">{t('new_workspace_title')}</h3>
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowCreate(false)} style={{ borderRadius: '8px' }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => { setShowCreate(false); setSelectedTemplate(null); setNewName(''); }} style={{ borderRadius: '8px' }}>
                 <Xmark width="1.25rem" height="1.25rem" />
               </button>
             </div>
@@ -337,9 +370,55 @@ export default function Dashboard() {
                   autoFocus
                 />
               </div>
+
+              {templates.length > 0 && (
+                <div style={{ marginTop: '1.25rem' }}>
+                  <label className="form-label" style={{ marginBottom: '0.75rem', display: 'block' }}>
+                    {t('template_label')}
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '0.625rem' }}>
+                    <div
+                      onClick={() => setSelectedTemplate(null)}
+                      style={{
+                        padding: '0.75rem',
+                        borderRadius: '10px',
+                        border: `2px solid ${!selectedTemplate ? 'var(--primary)' : 'var(--border)'}`,
+                        background: !selectedTemplate ? 'var(--primary-light)' : 'var(--bg-subtle)',
+                        cursor: 'pointer',
+                        textAlign: 'center',
+                        fontSize: '0.8125rem',
+                        transition: 'all 0.15s ease'
+                      }}
+                    >
+                      <div style={{ fontSize: '1.5rem', marginBottom: '0.25rem' }}>⬜</div>
+                      <div style={{ fontWeight: 600 }}>{t('blank_workspace')}</div>
+                    </div>
+                    {templates.map(tpl => (
+                      <div
+                        key={tpl.filename}
+                        onClick={() => setSelectedTemplate(tpl)}
+                        style={{
+                          padding: '0.75rem',
+                          borderRadius: '10px',
+                          border: `2px solid ${selectedTemplate?.filename === tpl.filename ? 'var(--primary)' : 'var(--border)'}`,
+                          background: selectedTemplate?.filename === tpl.filename ? 'var(--primary-light)' : 'var(--bg-subtle)',
+                          cursor: 'pointer',
+                          textAlign: 'center',
+                          fontSize: '0.8125rem',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <div style={{ fontSize: '1.5rem', marginBottom: '0.25rem' }}>{tpl.icon}</div>
+                        <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>{tpl.name}</div>
+                        <div style={{ color: 'var(--text-muted)', fontSize: '0.75rem', lineHeight: 1.3 }}>{tpl.description}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="modal-footer">
-              <Button variant="secondary" onClick={() => { setShowCreate(false); setNewName(''); }}>{t('cancel')}</Button>
+              <Button variant="secondary" onClick={() => { setShowCreate(false); setSelectedTemplate(null); setNewName(''); }}>{t('cancel')}</Button>
               <Button onClick={handleCreate} loading={creating} disabled={!newName.trim()}>{t('create')}</Button>
             </div>
           </div>

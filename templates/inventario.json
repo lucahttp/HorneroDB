@@ -1,0 +1,173 @@
+{
+  "_template": {
+    "name": "Inventario",
+    "description": "Control de stock, productos y proveedores para negocios con inventario físico",
+    "icon": "📦",
+    "category": "operations"
+  },
+  "workspace": {
+    "name": "Inventario",
+    "slug": "inventario",
+    "settings": {}
+  },
+  "tables": [
+    {
+      "id": "11111111-0002-0002-0002-000000000001",
+      "workspace_id": "00000000-0000-0000-0000-000000000000",
+      "name": "Productos",
+      "slug": "productos",
+      "metadata": {}
+    },
+    {
+      "id": "11111111-0002-0002-0002-000000000002",
+      "workspace_id": "00000000-0000-0000-0000-000000000000",
+      "name": "Proveedores",
+      "slug": "proveedores",
+      "metadata": {}
+    },
+    {
+      "id": "11111111-0002-0002-0002-000000000003",
+      "workspace_id": "00000000-0000-0000-0000-000000000000",
+      "name": "Movimientos",
+      "slug": "movimientos",
+      "metadata": {}
+    }
+  ],
+  "columns": [
+    {
+      "id": "22222222-0002-0002-0002-000000000001",
+      "table_id": "11111111-0002-0002-0002-000000000001",
+      "name": "Nombre",
+      "slug": "nombre",
+      "field_type": "text",
+      "meta": { "required": true },
+      "order_index": 0
+    },
+    {
+      "id": "22222222-0002-0002-0002-000000000002",
+      "table_id": "11111111-0002-0002-0002-000000000001",
+      "name": "SKU",
+      "slug": "sku",
+      "field_type": "text",
+      "meta": { "unique": true },
+      "order_index": 1
+    },
+    {
+      "id": "22222222-0002-0002-0002-000000000003",
+      "table_id": "11111111-0002-0002-0002-000000000001",
+      "name": "Categoría",
+      "slug": "categoria",
+      "field_type": "select",
+      "meta": { "options": ["Electrónica", "Ropa", "Alimentos", "Herramientas", "Otro"] },
+      "order_index": 2
+    },
+    {
+      "id": "22222222-0002-0002-0002-000000000004",
+      "table_id": "11111111-0002-0002-0002-000000000001",
+      "name": "Stock",
+      "slug": "stock",
+      "field_type": "number",
+      "meta": {},
+      "order_index": 3
+    },
+    {
+      "id": "22222222-0002-0002-0002-000000000005",
+      "table_id": "11111111-0002-0002-0002-000000000001",
+      "name": "Precio",
+      "slug": "precio",
+      "field_type": "number",
+      "meta": {},
+      "order_index": 4
+    },
+    {
+      "id": "22222222-0002-0002-0002-000000000006",
+      "table_id": "11111111-0002-0002-0002-000000000002",
+      "name": "Nombre",
+      "slug": "nombre",
+      "field_type": "text",
+      "meta": { "required": true },
+      "order_index": 0
+    },
+    {
+      "id": "22222222-0002-0002-0002-000000000007",
+      "table_id": "11111111-0002-0002-0002-000000000002",
+      "name": "Email",
+      "slug": "email",
+      "field_type": "email",
+      "meta": {},
+      "order_index": 1
+    },
+    {
+      "id": "22222222-0002-0002-0002-000000000008",
+      "table_id": "11111111-0002-0002-0002-000000000002",
+      "name": "Teléfono",
+      "slug": "telefono",
+      "field_type": "text",
+      "meta": {},
+      "order_index": 2
+    },
+    {
+      "id": "22222222-0002-0002-0002-000000000009",
+      "table_id": "11111111-0002-0002-0002-000000000003",
+      "name": "Tipo",
+      "slug": "tipo",
+      "field_type": "select",
+      "meta": { "options": ["Entrada", "Salida", "Ajuste"] },
+      "order_index": 0
+    },
+    {
+      "id": "22222222-0002-0002-0002-000000000010",
+      "table_id": "11111111-0002-0002-0002-000000000003",
+      "name": "Cantidad",
+      "slug": "cantidad",
+      "field_type": "number",
+      "meta": { "required": true },
+      "order_index": 1
+    },
+    {
+      "id": "22222222-0002-0002-0002-000000000011",
+      "table_id": "11111111-0002-0002-0002-000000000003",
+      "name": "Fecha",
+      "slug": "fecha",
+      "field_type": "date",
+      "meta": {},
+      "order_index": 2
+    },
+    {
+      "id": "22222222-0002-0002-0002-000000000012",
+      "table_id": "11111111-0002-0002-0002-000000000003",
+      "name": "Notas",
+      "slug": "notas",
+      "field_type": "text",
+      "meta": {},
+      "order_index": 3
+    }
+  ],
+  "roles": [
+    {
+      "id": "33333333-0002-0002-0002-000000000001",
+      "workspace_id": "00000000-0000-0000-0000-000000000000",
+      "name": "admin",
+      "description": "Acceso completo",
+      "permissions": {
+        "__system__": { "tables": "manage", "roles": "manage", "api_keys": "manage" },
+        "productos": { "create": "all", "read": "all", "update": "all", "delete": "all" },
+        "proveedores": { "create": "all", "read": "all", "update": "all", "delete": "all" },
+        "movimientos": { "create": "all", "read": "all", "update": "all", "delete": "all" }
+      },
+      "is_default": false
+    },
+    {
+      "id": "33333333-0002-0002-0002-000000000002",
+      "workspace_id": "00000000-0000-0000-0000-000000000000",
+      "name": "Operador",
+      "description": "Puede registrar movimientos y consultar stock",
+      "permissions": {
+        "productos": { "create": "none", "read": "all", "update": "none", "delete": "none" },
+        "proveedores": { "create": "none", "read": "all", "update": "none", "delete": "none" },
+        "movimientos": { "create": "all", "read": "all", "update": "own", "delete": "none" }
+      },
+      "is_default": true
+    }
+  ]
+}

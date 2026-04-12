@@ -1,0 +1,155 @@
+{
+  "_template": {
+    "name": "CRM Simple",
+    "description": "Gestión de clientes, contactos y seguimiento de oportunidades comerciales",
+    "icon": "👥",
+    "category": "sales"
+  },
+  "workspace": {
+    "name": "CRM Simple",
+    "slug": "crm-simple",
+    "settings": {}
+  },
+  "tables": [
+    {
+      "id": "11111111-0001-0001-0001-000000000001",
+      "workspace_id": "00000000-0000-0000-0000-000000000000",
+      "name": "Clientes",
+      "slug": "clientes",
+      "metadata": {}
+    },
+    {
+      "id": "11111111-0001-0001-0001-000000000002",
+      "workspace_id": "00000000-0000-0000-0000-000000000000",
+      "name": "Contactos",
+      "slug": "contactos",
+      "metadata": {}
+    },
+    {
+      "id": "11111111-0001-0001-0001-000000000003",
+      "workspace_id": "00000000-0000-0000-0000-000000000000",
+      "name": "Oportunidades",
+      "slug": "oportunidades",
+      "metadata": {}
+    }
+  ],
+  "columns": [
+    {
+      "id": "22222222-0001-0001-0001-000000000001",
+      "table_id": "11111111-0001-0001-0001-000000000001",
+      "name": "Nombre",
+      "slug": "nombre",
+      "field_type": "text",
+      "meta": { "required": true },
+      "order_index": 0
+    },
+    {
+      "id": "22222222-0001-0001-0001-000000000002",
+      "table_id": "11111111-0001-0001-0001-000000000001",
+      "name": "Industria",
+      "slug": "industria",
+      "field_type": "select",
+      "meta": { "options": ["Tecnología", "Retail", "Salud", "Educación", "Otro"] },
+      "order_index": 1
+    },
+    {
+      "id": "22222222-0001-0001-0001-000000000003",
+      "table_id": "11111111-0001-0001-0001-000000000001",
+      "name": "Sitio Web",
+      "slug": "sitio_web",
+      "field_type": "url",
+      "meta": {},
+      "order_index": 2
+    },
+    {
+      "id": "22222222-0001-0001-0001-000000000004",
+      "table_id": "11111111-0001-0001-0001-000000000002",
+      "name": "Nombre",
+      "slug": "nombre",
+      "field_type": "text",
+      "meta": { "required": true },
+      "order_index": 0
+    },
+    {
+      "id": "22222222-0001-0001-0001-000000000005",
+      "table_id": "11111111-0001-0001-0001-000000000002",
+      "name": "Email",
+      "slug": "email",
+      "field_type": "email",
+      "meta": {},
+      "order_index": 1
+    },
+    {
+      "id": "22222222-0001-0001-0001-000000000006",
+      "table_id": "11111111-0001-0001-0001-000000000002",
+      "name": "Teléfono",
+      "slug": "telefono",
+      "field_type": "text",
+      "meta": {},
+      "order_index": 2
+    },
+    {
+      "id": "22222222-0001-0001-0001-000000000007",
+      "table_id": "11111111-0001-0001-0001-000000000003",
+      "name": "Título",
+      "slug": "titulo",
+      "field_type": "text",
+      "meta": { "required": true },
+      "order_index": 0
+    },
+    {
+      "id": "22222222-0001-0001-0001-000000000008",
+      "table_id": "11111111-0001-0001-0001-000000000003",
+      "name": "Estado",
+      "slug": "estado",
+      "field_type": "select",
+      "meta": { "options": ["Prospecto", "Propuesta", "Negociación", "Ganado", "Perdido"] },
+      "order_index": 1
+    },
+    {
+      "id": "22222222-0001-0001-0001-000000000009",
+      "table_id": "11111111-0001-0001-0001-000000000003",
+      "name": "Valor",
+      "slug": "valor",
+      "field_type": "number",
+      "meta": {},
+      "order_index": 2
+    },
+    {
+      "id": "22222222-0001-0001-0001-000000000010",
+      "table_id": "11111111-0001-0001-0001-000000000003",
+      "name": "Fecha de Cierre",
+      "slug": "fecha_cierre",
+      "field_type": "date",
+      "meta": {},
+      "order_index": 3
+    }
+  ],
+  "roles": [
+    {
+      "id": "33333333-0001-0001-0001-000000000001",
+      "workspace_id": "00000000-0000-0000-0000-000000000000",
+      "name": "admin",
+      "description": "Acceso completo",
+      "permissions": {
+        "__system__": { "tables": "manage", "roles": "manage", "api_keys": "manage", "webhooks": "manage" },
+        "clientes": { "create": "all", "read": "all", "update": "all", "delete": "all" },
+        "contactos": { "create": "all", "read": "all", "update": "all", "delete": "all" },
+        "oportunidades": { "create": "all", "read": "all", "update": "all", "delete": "all" }
+      },
+      "is_default": false
+    },
+    {
+      "id": "33333333-0001-0001-0001-000000000002",
+      "workspace_id": "00000000-0000-0000-0000-000000000000",
+      "name": "Vendedor",
+      "description": "Puede ver y editar sus propios registros",
+      "permissions": {
+        "clientes": { "create": "all", "read": "all", "update": "own", "delete": "none" },
+        "contactos": { "create": "all", "read": "all", "update": "own", "delete": "none" },
+        "oportunidades": { "create": "all", "read": "all", "update": "own", "delete": "none" }
+      },
+      "is_default": true
+    }
+  ]
+}

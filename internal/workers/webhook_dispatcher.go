@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 // WebhookPayload represents an MS Graph API-style webhook event payload
@@ -148,7 +149,9 @@ func processOutboxEvents() {
 	// This ensures only one instance processes each event, even with multiple servers
 	var events []metadata.WebhookOutboxEvent
 
-	err := database.DB.Transaction(func(tx *gorm.DB) error {
+	// Use a silent session to avoid polluting logs with polling queries when nothing is found
+	silentDB := database.DB.Session(&gorm.Session{Logger: database.DB.Logger.LogMode(logger.Silent)})
+	err := silentDB.Transaction(func(tx *gorm.DB) error {
 		// Fetch and lock pending events in a single atomic operation
 		// SKIP LOCKED prevents blocking on events being processed by other instances
 		return tx.Raw(`

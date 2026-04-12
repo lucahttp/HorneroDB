@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"hornerodb/internal/database"
@@ -54,10 +55,16 @@ func ExportWorkspace(c *gin.Context) {
 		return
 	}
 
-	// 3. Get Columns
-	if err := database.DB.Where("workspace_id = ?", wsUUID).Find(&dump.Columns).Error; err != nil {
-		response.DatabaseError(c, err, "fetching columns for export")
-		return
+	// 3. Get Columns — columns are keyed by table_id, not workspace_id
+	tableIDs := make([]interface{}, len(dump.Tables))
+	for i, t := range dump.Tables {
+		tableIDs[i] = t.ID
+	}
+	if len(tableIDs) > 0 {
+		if err := database.DB.Where("table_id IN ?", tableIDs).Find(&dump.Columns).Error; err != nil {
+			response.DatabaseError(c, err, "fetching columns for export")
+			return
+		}
 	}
 
 	// 4. Get Roles (includes Permissions JSON)
@@ -199,6 +206,8 @@ func ImportWorkspace(c *gin.Context) {
 			newRole := role
 			newRole.ID = uuid.New()
 			newRole.WorkspaceID = newWorkspaceID
+			// Normalize role name to lowercase so WorkspaceAuth can match it
+			newRole.Name = strings.ToLower(newRole.Name)
 
 			// Extract and reconstruct the permission json mapping just in case
 			var perm map[string]interface{}
@@ -211,9 +220,21 @@ func ImportWorkspace(c *gin.Context) {
 				return err
 			}
 
-			if role.Name == "admin" || role.Name == "Admin" {
+			if newRole.Name == "admin" {
 				adminRoleID = newRole.ID
 				hasAdminRole = true
+			}
+		}
+
+		// 4b. Assign admin role to the importing user
+		if hasAdminRole {
+			userRoleAssignment := metadata.UserRole{
+				WorkspaceID: newWorkspaceID,
+				UserID:      userID,
+				RoleID:      adminRoleID,
+			}
+			if err := tx.Table("_hornero_user_roles").Create(&userRoleAssignment).Error; err != nil {
+				return err
 			}
 		}
 

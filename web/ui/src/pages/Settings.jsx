@@ -29,6 +29,7 @@ export default function Settings() {
   const [rateLimit, setRateLimit] = useState(60)
   const [allowedOrigins, setAllowedOrigins] = useState('')
   const [savingGeneral, setSavingGeneral] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [tables, setTables] = useState([])
 
   const [showCreateRole, setShowCreateRole] = useState(false)
@@ -110,14 +111,33 @@ export default function Settings() {
       await axios.put(`${API_URL}/workspaces/${workspaceId}`, {
         settings: newSettings
       })
-      notify(t('settings_saved') || 'Settings saved', 'success')
+      notify(t('settings_saved'), 'success')
       const wsRes = await axios.get(`${API_URL}/workspaces/${workspaceId}`)
       setWorkspace(wsRes.data.data)
     } catch (err) {
       console.error(err)
-      notify(t('error_save_settings') || 'Error fetching', 'error')
+      notify(t('error_save_settings'), 'error')
     }
     setSavingGeneral(false)
+  }
+
+  const handleExportWorkspace = async () => {
+    setExporting(true)
+    try {
+      const res = await axios.get(`${API_URL}/workspaces/${workspaceId}/export`)
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(res.data.data, null, 2))
+      const downloadAnchorNode = document.createElement('a')
+      downloadAnchorNode.setAttribute("href", dataStr)
+      downloadAnchorNode.setAttribute("download", `workspace_${workspace?.slug || workspaceId}_export.json`)
+      document.body.appendChild(downloadAnchorNode)
+      downloadAnchorNode.click()
+      downloadAnchorNode.remove()
+      notify(t('workspace_exported'), 'success')
+    } catch (err) {
+      console.error(err)
+      notify(t('error_export_workspace'), 'error')
+    }
+    setExporting(false)
   }
 
   const handleCreateRole = async () => {
@@ -125,7 +145,7 @@ export default function Settings() {
     try {
       const resp = await axios.post(`${API_URL}/workspaces/${workspaceId}/roles`, {
         name: newRoleName,
-        description: 'Nuevo rol',
+        description: t('new_role'),
         permissions: {}
       })
       setShowCreateRole(false)
@@ -203,26 +223,26 @@ export default function Settings() {
         allowed_origins: originsArray,
         allowed_referers: referersArray
       })
-      notify(t('api_key_updated') || 'API key updated', 'success')
+      notify(t('api_key_updated'), 'success')
       loadData()
       setSelectedKey(null)
     } catch (err) {
       console.error(err)
-      notify(t('error_update_api_key') || 'Error updating API key', 'error')
+      notify(t('error_update_api_key'), 'error')
     }
     setSavingKey(false)
   }
 
   const handleRotateKey = async (keyId, keyName) => {
-    if (!confirm(t('confirm_rotate_key', { name: keyName }) || `¿Seguro que quieres regenerar la API key "${keyName}"? La clave anterior dejará de funcionar.`)) return;
+    if (!confirm(t('confirm_rotate_key', { name: keyName }))) return;
     try {
       const res = await axios.post(`${API_URL}/workspaces/${workspaceId}/keys/${keyId}/rotate`)
       setRotatedKeyData(res.data.data)
       loadData()
-      notify(t('api_key_rotated') || 'API key regenerated', 'success')
+      notify(t('api_key_rotated'), 'success')
     } catch (err) {
       console.error(err)
-      notify(t('error_rotate_api_key') || 'Error regenerating API key', 'error')
+      notify(t('error_rotate_api_key'), 'error')
     }
   }
 
@@ -253,7 +273,7 @@ export default function Settings() {
               onClick={() => setActiveSection('general')}
               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
             >
-              <SettingsIcon width="1rem" height="1rem" /> {t('general') || 'General'}
+              <SettingsIcon width="1rem" height="1rem" /> {t('general')}
             </button>
             <button
               className={`tab ${activeSection === 'users' ? 'active' : ''}`}
@@ -284,10 +304,10 @@ export default function Settings() {
             </div>
           ) : activeSection === 'general' ? (
             <div className="card" style={{ maxWidth: '600px' }}>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '1rem' }}>{t('workspace_security') || 'Workspace Security'}</h2>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '1rem' }}>{t('workspace_security')}</h2>
 
               <div className="form-group">
-                <label className="form-label">{t('rate_limit') || 'Rate Limit (Requests per minute per user)'}</label>
+                <label className="form-label">{t('rate_limit')}</label>
                 <input
                   type="number"
                   className="form-input"
@@ -295,11 +315,11 @@ export default function Settings() {
                   onChange={e => setRateLimit(e.target.value)}
                   min="0"
                 />
-                <p className="form-hint" style={{ marginTop: '0.25rem' }}>{t('rate_limit_hint') || 'Set to 0 to disable. Useful for protecting public endpoints.'}</p>
+                <p className="form-hint" style={{ marginTop: '0.25rem' }}>{t('rate_limit_hint')}</p>
               </div>
 
               <div className="form-group" style={{ marginTop: '1.5rem' }}>
-                <label className="form-label">{t('allowed_origins') || 'Allowed Origins (CORS)'}</label>
+                <label className="form-label">{t('allowed_origins')}</label>
                 <textarea
                   className="form-input"
                   value={allowedOrigins}
@@ -308,12 +328,66 @@ export default function Settings() {
                   rows={3}
                   style={{ fontFamily: 'var(--font-mono)' }}
                 />
-                <p className="form-hint" style={{ marginTop: '0.25rem' }}>{t('allowed_origins_hint') || 'Comma separated domains. Use * to allow all (not recommended context). Empty allows any Origin without enforcing.'}</p>
+                <p className="form-hint" style={{ marginTop: '0.25rem' }}>{t('allowed_origins_hint')}</p>
               </div>
 
               <Button onClick={handleSaveGeneral} loading={savingGeneral} style={{ marginTop: '1rem' }}>
-                {t('save_changes') || 'Save Changes'}
+                {t('save_changes')}
               </Button>
+
+              <div style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border-light)' }}>
+                <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>{t('export_workspace')}</h3>
+                <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem', fontSize: '0.875rem' }}>
+                  {t('export_workspace_hint')}
+                </p>
+                <Button variant="secondary" onClick={handleExportWorkspace} loading={exporting} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <svg width="1.25rem" height="1.25rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                  {t('export_button')}
+                </Button>
+              </div>
+
+              <div style={{ marginTop: '2.5rem', paddingTop: '1.5rem', borderTop: 'var(--border-thick) solid var(--border-subtle)' }}>
+                <h3 style={{ fontSize: '1.125rem', fontWeight: 800, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <svg width="1.2rem" height="1.2rem" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12c0 1.657-4.03 3-9 3s-9-1.343-9-3 4.03-3 9-3 9 1.343 9 3z"></path><path d="M3 12v6c0 1.657 4.03 3 9 3s9-1.343 9-3v-6"></path><path d="M21 7c0 1.657-4.03 3-9 3s-9-1.343-9-3 4.03-3 9-3 9 1.343 9 3z"></path></svg>
+                  {t('language_stats')}
+                </h3>
+                <div className="table-container" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--border-light)' }}>
+                  <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse' }}>
+                    <thead style={{ background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-light)' }}>
+                      <tr>
+                        <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: 700 }}>{t('rank')}</th>
+                        <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: 700 }}>{t('language')}</th>
+                        <th style={{ padding: '0.75rem', textAlign: 'right', fontWeight: 700 }}>{t('internet_users')}</th>
+                        <th style={{ padding: '0.75rem', textAlign: 'right', fontWeight: 700 }}>%</th>
+                      </tr>
+                    </thead>
+                    <tbody style={{ color: 'var(--text-secondary)' }}>
+                      {[
+                        { r: 1, l: 'English', u: '1,186,451,052', p: '25.9%' },
+                        { r: 2, l: 'Chinese', u: '888,453,068', p: '19.4%' },
+                        { r: 3, l: 'Spanish', u: '363,684,593', p: '7.9%' },
+                        { r: 4, l: 'Arabic', u: '237,418,349', p: '5.2%' },
+                        { r: 5, l: 'Indonesian', u: '198,029,815', p: '4.3%' },
+                        { r: 6, l: 'Portuguese', u: '171,750,818', p: '3.7%' },
+                        { r: 7, l: 'French', u: '144,695,288', p: '3.3%' },
+                        { r: 8, l: 'Japanese', u: '118,626,672', p: '2.6%' },
+                        { r: 9, l: 'Russian', u: '116,353,942', p: '2.5%' },
+                        { r: 10, l: 'German', u: '92,525,427', p: '2.0%' }
+                      ].map((item, i) => (
+                        <tr key={i} style={{ borderBottom: i === 9 ? 'none' : '1px solid var(--border-subtle)', background: i % 2 === 0 ? 'transparent' : 'var(--bg-elevated-subtle)' }}>
+                          <td style={{ padding: '0.65rem 0.75rem' }}>{item.r}</td>
+                          <td style={{ padding: '0.65rem 0.75rem', fontWeight: 600, color: 'var(--text)' }}>{item.l}</td>
+                          <td style={{ padding: '0.65rem 0.75rem', textAlign: 'right' }}>{item.u}</td>
+                          <td style={{ padding: '0.65rem 0.75rem', textAlign: 'right' }}>{item.p}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                  {t('source')}: <a href="https://en.wikipedia.org/wiki/Languages_used_on_the_Internet#Internet_users_by_language" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', textDecoration: 'none' }}>Wikipedia</a>
+                </p>
+              </div>
             </div>
           ) : activeSection === 'users' ? (
             <SettingsUsers workspaceId={workspaceId} roles={roles} notify={notify} />
@@ -357,7 +431,7 @@ export default function Settings() {
                           variant={selectedRoleId === role.id ? 'primary' : 'secondary'}
                           onClick={(e) => { e.stopPropagation(); setSelectedRoleId(role.id); }}
                         >
-                          {selectedRoleId === role.id ? t('selected') || 'Seleccionado' : t('select') || 'Seleccionar'}
+                          {selectedRoleId === role.id ? t('selected') : t('select')}
                         </Button>
                       </div>
                     </div>
@@ -445,14 +519,14 @@ export default function Settings() {
                         <button
                           onClick={() => handleRotateKey(key.id, key.name)}
                           className="btn btn-ghost btn-sm"
-                          title={t('rotate_key') || 'Regenerate API Key'}
+                          title={t('rotate_key')}
                         >
                           <svg width="1rem" height="1rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                         </button>
                         <button
                           onClick={() => openKeySettings(key)}
                           className="btn btn-ghost btn-sm"
-                          title={t('edit_key_settings') || 'Edit settings'}
+                          title={t('edit_key_settings')}
                         >
                           <SettingsIcon width="1rem" height="1rem" />
                         </button>
@@ -473,7 +547,7 @@ export default function Settings() {
                 <div className="card" style={{ marginTop: '1rem', padding: '1.5rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
                     <h3 style={{ fontSize: '1.125rem', fontWeight: 700 }}>
-                      {t('edit_key_settings') || 'API Key Settings'}
+                      {t('edit_key_settings')}
                     </h3>
                     <button onClick={closeKeySettings} className="btn btn-ghost btn-sm">
                       <Xmark width="1rem" height="1rem" />
@@ -497,7 +571,7 @@ export default function Settings() {
                         value={editingKeyRole}
                         onChange={e => setEditingKeyRole(e.target.value)}
                       >
-                        <option value="">{t('select_role') || 'Sin rol'}</option>
+                        <option value="">{t('select_role')}</option>
                         {roles.map(r => (
                           <option key={r.id} value={r.id}>{r.name}</option>
                         ))}
@@ -507,7 +581,7 @@ export default function Settings() {
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
                     <div className="form-group">
-                      <label className="form-label">{t('rate_limit_per_minute')} & {t('rate_limit_per_hour', 'per hour')}</label>
+                      <label className="form-label">{t('rate_limit_per_minute')} & {t('rate_limit_per_hour')}</label>
                       <div style={{ display: 'flex', gap: '0.5rem' }}>
                         <input
                           type="number"
@@ -581,14 +655,14 @@ export default function Settings() {
         <div className="modal-overlay" onClick={() => setRotatedKeyData(null)}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
             <div className="modal-header">
-              <h3 className="modal-title">{t('api_key_rotated') || 'New API Key'}</h3>
+              <h3 className="modal-title">{t('api_key_rotated')}</h3>
               <button className="btn btn-ghost btn-sm" onClick={() => setRotatedKeyData(null)}>
                 <Xmark width="1rem" height="1rem" />
               </button>
             </div>
             <div className="modal-body">
               <div className="form-group">
-                <label className="form-label">{t('copy_key_warning') || 'Please copy your new API key now.'}</label>
+                <label className="form-label">{t('copy_key_warning')}</label>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <input
                     type="text"
@@ -598,7 +672,7 @@ export default function Settings() {
                   />
                   <Button variant="secondary" onClick={() => {
                     navigator.clipboard.writeText(rotatedKeyData.new_key)
-                    notify(t('copied') || 'Copied to clipboard', 'success')
+                    notify(t('copied'), 'success')
                   }}>
                     <ClipboardCheck width="1rem" height="1rem" />
                   </Button>
@@ -606,7 +680,7 @@ export default function Settings() {
               </div>
             </div>
             <div className="modal-footer">
-              <Button onClick={() => setRotatedKeyData(null)}>{t('close') || 'Close'}</Button>
+              <Button onClick={() => setRotatedKeyData(null)}>{t('close')}</Button>
             </div>
           </div>
         </div>
@@ -616,14 +690,14 @@ export default function Settings() {
         <div className="modal-overlay" onClick={() => setCreatedKeyModal(null)}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '520px' }}>
             <div className="modal-header">
-              <h3 className="modal-title">{t('api_key_created_title') || '🔑 API Key creada'}</h3>
+              <h3 className="modal-title">{t('api_key_created_title')}</h3>
               <button className="btn btn-ghost btn-sm" onClick={() => setCreatedKeyModal(null)}>
                 <Xmark width="1rem" height="1rem" />
               </button>
             </div>
             <div className="modal-body">
               <p style={{ marginBottom: '1rem', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-                {t('copy_key_warning') || 'Copiá la clave ahora.'}
+                {t('copy_key_warning')}
               </p>
               <div className="form-group">
                 <label className="form-label">{createdKeyModal.name}</label>
@@ -637,7 +711,7 @@ export default function Settings() {
                   />
                   <Button variant="secondary" onClick={() => {
                     navigator.clipboard.writeText(createdKeyModal.key)
-                    notify(t('copied') || 'Copiado al portapapeles', 'success')
+                    notify(t('copied'), 'success')
                   }}>
                     <ClipboardCheck width="1rem" height="1rem" />
                   </Button>
@@ -645,7 +719,7 @@ export default function Settings() {
               </div>
             </div>
             <div className="modal-footer">
-              <Button onClick={() => setCreatedKeyModal(null)}>{t('close') || 'Cerrar'}</Button>
+              <Button onClick={() => setCreatedKeyModal(null)}>{t('close')}</Button>
             </div>
           </div>
         </div>
@@ -679,7 +753,7 @@ export default function Settings() {
                   value={newKeyRole}
                   onChange={e => setNewKeyRole(e.target.value)}
                 >
-                  <option value="">{t('select_role') || 'Sin rol'}</option>
+                  <option value="">{t('select_role')}</option>
                   {roles.map(r => (
                     <option key={r.id} value={r.id}>{r.name}</option>
                   ))}

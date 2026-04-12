@@ -137,6 +137,8 @@ func main() {
 		userRoutes.Use(middleware.RequireUserSession())
 		userRoutes.GET("/workspaces", api.ListWorkspaces)
 		userRoutes.GET("/users/:user_id/recovery-qr", api.GetUserRecoveryQR)
+		userRoutes.GET("/templates", api.ListTemplates)
+		userRoutes.GET("/templates/:name", api.GetTemplate)
 
 		// Instance admin only routes for workspace creation
 		instanceAdminRoutes := protected.Group("")

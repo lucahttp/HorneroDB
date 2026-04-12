@@ -299,7 +299,7 @@ export function DataTable({
         >
           {val ? (
             <span className="relation-chip">{String(val).slice(0, 8)}</span>
-          ) : `+ Seleccionar ${col.name}`}
+          ) : t('select_relation', { name: col.name })}
         </button>
       )
     }
@@ -510,7 +510,7 @@ export function DataTable({
 
                   {newColType === 'relation' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem', padding: '0.75rem', background: 'var(--bg-surface)', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
-                      <label style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Tabla Destino</label>
+                      <label style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>{t('target_table')}</label>
                       <select
                         className="form-select"
                         style={{ height: 'auto', padding: '0.375rem 0.5rem' }}
@@ -523,13 +523,13 @@ export function DataTable({
                           }
                         }}
                       >
-                        <option value="">Seleccionar tabla...</option>
+                        <option value="">{t('select_table_placeholder')}</option>
                         {tables.map(t => (
                           <option key={t.id} value={t.slug}>{t.name}</option>
                         ))}
                       </select>
 
-                      <label style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginTop: '0.25rem' }}>Columna a Mostrar</label>
+                      <label style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)', marginTop: '0.25rem' }}>{t('display_column')}</label>
                       <select
                         className="form-select"
                         style={{ height: 'auto', padding: '0.375rem 0.5rem' }}
@@ -537,7 +537,7 @@ export function DataTable({
                         onChange={(e) => setNewColDisplayColumn(e.target.value)}
                         disabled={!newColTargetTable}
                       >
-                        <option value="">Seleccionar columna...</option>
+                        <option value="">{t('select_column_placeholder')}</option>
                         {tables.find(t => t.slug === newColTargetTable)?.columns?.map(c => (
                           <option key={c.id} value={c.slug}>{c.name}</option>
                         ))}

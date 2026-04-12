@@ -128,7 +128,7 @@ export function PermissionMatrix({
                   <td style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <Globe width="1rem" height="1rem" /> 
                     <span className="hidden sm:inline">{t('all_tables')}</span>
-                    <span className="sm:hidden">{t('all') || 'Todas'}</span>
+                    <span className="sm:hidden">{t('all')}</span>
                   </td>
                   {OPERATIONS.map(action => (
                     <td key={action}>
@@ -184,9 +184,9 @@ export function PermissionMatrix({
                                 style={{ padding: '0.125rem 0.375rem', fontSize: '0.7rem', width: '100%', justifyContent: 'space-between' }}
                                 onClick={() => toggleColumns(table.slug, action)}
                               >
-                                <span>Columns</span>
+                                <span>{t('columns')}</span>
                                 <span style={{ opacity: 0.6, fontSize: '0.65rem' }}>
-                                  {selectedCols.length === 0 ? 'All' : `${selectedCols.length}/${table.columns.length}`}
+                                  {selectedCols.length === 0 ? t('all') : `${selectedCols.length}/${table.columns.length}`}
                                 </span>
                               </button>
 
@@ -200,7 +200,7 @@ export function PermissionMatrix({
                                   minWidth: '180px'
                                 }}>
                                   <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid var(--border)', paddingBottom: '0.375rem' }}>
-                                    Allowed Columns
+                                    {t('allowed_columns')}
                                   </div>
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', maxHeight: '150px', overflowY: 'auto' }}>
                                     {table.columns.map(col => {
@@ -238,7 +238,7 @@ export function PermissionMatrix({
                                     style={{ marginTop: '0.25rem', fontSize: '0.75rem', padding: '0.25rem', width: '100%', justifyContent: 'center' }}
                                     onClick={() => toggleColumns(table.slug, action)}
                                   >
-                                    Done
+                                    {t('done')}
                                   </button>
                                 </div>
                               )}

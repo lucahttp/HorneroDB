@@ -1,10 +1,12 @@
 import { useState, useRef, forwardRef, useImperativeHandle } from 'react'
+import { useTranslation } from 'react-i18next'
 import axios from 'axios'
 import { Xmark } from 'iconoir-react'
 import { API_URL } from '../constants'
 import { Button } from './index.jsx'
 
 export const CsvImportWizard = forwardRef(({ workspaceId, table, columns, onImportComplete }, ref) => {
+  const { t } = useTranslation()
   const [csvWizard, setCsvWizard] = useState(null)
   const csvFileRef = useRef(null)
 
@@ -103,7 +105,7 @@ export const CsvImportWizard = forwardRef(({ workspaceId, table, columns, onImpo
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '680px', maxHeight: '85vh', overflowY: 'auto' }}>
             <div className="modal-header">
               <h3 className="modal-title">
-                {csvWizard.step === 2 ? 'Mapear Columnas CSV' : csvWizard.step === 3 ? 'Importar Datos' : 'Importar CSV'}
+                {csvWizard.step === 2 ? t('csv_map_columns') : csvWizard.step === 3 ? t('csv_import_data') : t('csv_import')}
               </h3>
               {!csvWizard.importing && (
                 <button className="btn btn-ghost btn-sm" onClick={() => setCsvWizard(null)}>
@@ -115,7 +117,7 @@ export const CsvImportWizard = forwardRef(({ workspaceId, table, columns, onImpo
             {csvWizard.step === 2 && (
               <div className="modal-body">
                 <p style={{ marginBottom: '1rem', color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-                  Asigná cada columna del CSV a una columna de la tabla, o ignorala.
+                  {t('csv_map_hint')}
                 </p>
                 <div style={{ display: 'grid', gap: '0.75rem' }}>
                   {csvWizard.headers.map(h => (
@@ -129,7 +131,7 @@ export const CsvImportWizard = forwardRef(({ workspaceId, table, columns, onImpo
                         value={csvWizard.mapping[h]}
                         onChange={e => setCsvWizard(prev => ({ ...prev, mapping: { ...prev.mapping, [h]: e.target.value } }))}
                       >
-                        <option value="__ignore__">— Ignorar —</option>
+                        <option value="__ignore__">{t('csv_ignore')}</option>
                         {columns.map(c => (
                           <option key={c.slug} value={c.slug}>{c.name} ({c.slug})</option>
                         ))}
@@ -138,7 +140,7 @@ export const CsvImportWizard = forwardRef(({ workspaceId, table, columns, onImpo
                   ))}
                 </div>
                 <p style={{ marginTop: '1rem', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
-                  {csvWizard.rows.length} filas detectadas
+                  {t('csv_rows_detected', { count: csvWizard.rows.length })}
                 </p>
               </div>
             )}
@@ -148,17 +150,17 @@ export const CsvImportWizard = forwardRef(({ workspaceId, table, columns, onImpo
                 {csvWizard.importing ? (
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', padding: '2rem 0' }}>
                     <div className="loading-spinner" />
-                    <p>Importando {csvWizard.rows.length} registros...</p>
+                    <p>{t('csv_importing', { count: csvWizard.rows.length })}</p>
                   </div>
                 ) : (
                   <div>
                     <p style={{ marginBottom: '1rem' }}>
-                      ✅ {csvWizard.results?.filter(r => r.ok).length} importados &nbsp;·&nbsp;
-                      ❌ {csvWizard.results?.filter(r => !r.ok).length} errores
+                      ✅ {t('csv_imported', { count: csvWizard.results?.filter(r => r.ok).length })} &nbsp;·&nbsp;
+                      ❌ {t('csv_errors', { count: csvWizard.results?.filter(r => !r.ok).length })}
                     </p>
                     {csvWizard.results?.filter(r => !r.ok).map(r => (
                       <div key={r.row} style={{ padding: '0.5rem 0.75rem', background: 'var(--danger-bg, #fee2e2)', borderRadius: '6px', fontSize: '0.8125rem', marginBottom: '0.5rem', color: 'var(--danger, #dc2626)' }}>
-                        Fila {r.row}: {r.error}
+                        {t('csv_row_error', { row: r.row })}: {r.error}
                       </div>
                     ))}
                   </div>
@@ -169,14 +171,14 @@ export const CsvImportWizard = forwardRef(({ workspaceId, table, columns, onImpo
             <div className="modal-footer">
               {csvWizard.step === 2 && (
                 <>
-                  <Button variant="secondary" onClick={() => setCsvWizard(null)}>Cancelar</Button>
+                  <Button variant="secondary" onClick={() => setCsvWizard(null)}>{t('cancel')}</Button>
                   <Button onClick={handleCSVImport} disabled={!csvWizard.rows.length}>
-                    Importar {csvWizard.rows.length} registros
+                    {t('csv_import_records', { count: csvWizard.rows.length })}
                   </Button>
                 </>
               )}
               {csvWizard.step === 3 && !csvWizard.importing && (
-                <Button onClick={() => setCsvWizard(null)}>Cerrar</Button>
+                <Button onClick={() => setCsvWizard(null)}>{t('close')}</Button>
               )}
             </div>
           </div>

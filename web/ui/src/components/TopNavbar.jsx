@@ -27,8 +27,8 @@ export default function TopNavbar({ workspaceId }) {
   }, [])
 
   const links = workspaceId ? [
-    { id: 'data', label: t('data') || 'Data', icon: <Table2Columns width="1rem" height="1rem" />, path: `/workspace/${workspaceId}` },
-    { id: 'settings', label: t('settings') || 'Settings', icon: <SettingsIcon width="1rem" height="1rem" />, path: `/workspace/${workspaceId}/settings` },
+    { id: 'data', label: t('data'), icon: <Table2Columns width="1rem" height="1rem" />, path: `/workspace/${workspaceId}` },
+    { id: 'settings', label: t('settings'), icon: <SettingsIcon width="1rem" height="1rem" />, path: `/workspace/${workspaceId}/settings` },
   ] : []
 
   return (
@@ -83,7 +83,7 @@ export default function TopNavbar({ workspaceId }) {
               onClick={() => navigate('/admin/instance')}
               className="btn btn-ghost btn-sm"
               style={{ padding: '0.375rem 0.5rem' }}
-              title={t('instance_admin') || 'Admin de Instancia'}
+              title={t('instance_admin')}
             >
               <Shield width="1rem" height="1rem" />
             </button>
@@ -92,7 +92,7 @@ export default function TopNavbar({ workspaceId }) {
           <div className="avatar" style={{ width: '1.85rem', height: '1.85rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {user?.email?.charAt(0).toUpperCase() || 'U'}
           </div>
-          <button onClick={logout} className="btn btn-ghost btn-sm" style={{ padding: '0.375rem 0.5rem' }} title={t('logout') || 'Logout'}>
+          <button onClick={logout} className="btn btn-ghost btn-sm" style={{ padding: '0.375rem 0.5rem' }} title={t('logout')}>
             <LogOut width="1rem" height="1rem" />
           </button>
         </div>
@@ -140,7 +140,7 @@ export default function TopNavbar({ workspaceId }) {
           
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              {t('language') || 'Language'}
+              {t('language')}
             </label>
             <LanguageSelector />
           </div>
@@ -156,7 +156,7 @@ export default function TopNavbar({ workspaceId }) {
               style={{ justifyContent: 'center', gap: '0.5rem', width: '100%' }}
             >
               <Shield width="1.1rem" height="1.1rem" />
-              {t('instance_admin') || 'Admin de Instancia'}
+              {t('instance_admin')}
             </button>
           )}
 
@@ -166,7 +166,7 @@ export default function TopNavbar({ workspaceId }) {
             style={{ justifyContent: 'center', gap: '0.5rem', width: '100%' }}
           >
             <LogOut width="1.1rem" height="1.1rem" />
-            {t('logout') || 'Logout'}
+            {t('logout')}
           </button>
         </div>
       )}

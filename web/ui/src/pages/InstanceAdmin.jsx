@@ -38,7 +38,7 @@ export default function InstanceAdmin() {
       const res = await axios.get(`${API_URL}/admin/users`)
       setUsers(res.data.data || [])
     } catch (err) {
-      notify(t('error_loading_users') || 'Error cargando usuarios', 'error')
+      notify(t('error_loading_users'), 'error')
     } finally {
       setLoading(false)
     }
@@ -59,12 +59,12 @@ export default function InstanceAdmin() {
 
       notify(
         !currentValue
-          ? (t('permissions_granted') || 'Permisos concedidos')
-          : (t('permissions_revoked') || 'Permisos revocados'),
+          ? (t('permissions_granted'))
+          : (t('permissions_revoked')),
         'success'
       )
     } catch (err) {
-      notify(t('error_updating_permissions') || 'Error actualizando permisos', 'error')
+      notify(t('error_updating_permissions'), 'error')
     }
   }
 
@@ -82,10 +82,10 @@ export default function InstanceAdmin() {
         <TopNavbar />
         <div style={{ maxWidth: '960px', margin: '0 auto', padding: '3rem 2rem', textAlign: 'center' }}>
           <h1 style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>
-            {t('access_denied') || 'Acceso denegado'}
+            {t('access_denied')}
           </h1>
           <p style={{ color: 'var(--text-secondary)' }}>
-            {t('admin_only_page') || 'Esta página es solo para administradores de instancia'}
+            {t('admin_only_page')}
           </p>
         </div>
       </div>
@@ -99,10 +99,10 @@ export default function InstanceAdmin() {
       <div style={{ maxWidth: '960px', margin: '0 auto', padding: '3rem 2rem' }}>
         <div style={{ marginBottom: '2rem' }}>
           <h1 style={{ fontSize: '2rem', fontWeight: 900, marginBottom: '0.5rem' }}>
-            {t('instance_admin_title') || 'Administración de Instancia'}
+            {t('instance_admin_title')}
           </h1>
           <p style={{ color: 'var(--text-secondary)' }}>
-            {t('instance_admin_subtitle') || 'Gestiona los permisos globales de los usuarios'}
+            {t('instance_admin_subtitle')}
           </p>
         </div>
 
@@ -115,7 +115,7 @@ export default function InstanceAdmin() {
             alignItems: 'center'
           }}>
             <h2 style={{ fontSize: '1.125rem', fontWeight: 600 }}>
-              {t('users_list') || 'Usuarios'}
+              {t('users_list')}
               <span style={{
                 marginLeft: '0.5rem',
                 padding: '0.25rem 0.5rem',
@@ -131,7 +131,7 @@ export default function InstanceAdmin() {
 
           {users.length === 0 ? (
             <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
-              {t('no_users_found') || 'No se encontraron usuarios'}
+              {t('no_users_found')}
             </div>
           ) : (
             <div style={{ maxHeight: '600px', overflow: 'auto' }}>
@@ -177,7 +177,7 @@ export default function InstanceAdmin() {
                             fontSize: '0.75rem',
                             color: 'var(--primary)'
                           }}>
-                            ({t('you') || 'Vos'})
+                            ({t('you')})
                           </span>
                         )}
                       </div>
@@ -195,12 +195,12 @@ export default function InstanceAdmin() {
                         color: u.can_create_workspaces ? 'var(--success)' : 'var(--text-secondary)'
                       }}>
                         {u.can_create_workspaces
-                          ? (t('can_create_workspaces') || 'Puede crear workspaces')
-                          : (t('cannot_create_workspaces') || 'No puede crear workspaces')
+                          ? (t('can_create_workspaces'))
+                          : (t('cannot_create_workspaces'))
                         }
                       </div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                        {t('last_login') || 'Último login'}: {u.last_login_at ? new Date(u.last_login_at).toLocaleDateString() : 'Nunca'}
+                        {t('last_login')}: {u.last_login_at ? new Date(u.last_login_at).toLocaleDateString() : 'Nunca'}
                       </div>
                     </div>
 
@@ -213,12 +213,12 @@ export default function InstanceAdmin() {
                       {u.can_create_workspaces ? (
                         <>
                           <Xmark width="16" height="16" />
-                          {t('revoke') || 'Revocar'}
+                          {t('revoke')}
                         </>
                       ) : (
                         <>
                           <CheckCircle width="16" height="16" />
-                          {t('grant') || 'Conceder'}
+                          {t('grant')}
                         </>
                       )}
                     </Button>
@@ -237,7 +237,7 @@ export default function InstanceAdmin() {
           fontSize: '0.875rem',
           color: 'var(--text-secondary)'
         }}>
-          <strong>{t('note') || 'Nota'}:</strong> {t('instance_admin_note') || 'Los usuarios con permiso "Puede crear workspaces" pueden crear nuevos workspaces y serán automáticamente asignados como owners de esos workspaces.'}
+          <strong>{t('note')}:</strong> {t('instance_admin_note')}
         </div>
       </div>
     </div>

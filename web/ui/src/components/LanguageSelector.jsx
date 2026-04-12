@@ -31,6 +31,17 @@ export function LanguageSelector() {
             >
                 <option value="es">Español</option>
                 <option value="en">English</option>
+                <option value="pt">Português</option>
+                <option value="it">Italiano</option>
+                <option value="de">Deutsch</option>
+                <option value="ru">Русский</option>
+                <option value="ar">العربية</option>
+                <option value="zh">中文 (简体)</option>
+                <option value="ja">日本語</option>
+                <option value="id">Bahasa Indonesia</option>
+                <option value="fr">Français</option>
+                <option value="qu">Runasimi (Quechua)</option>
+                <option value="gn">Avañe'ẽ (Guaraní)</option>
             </select>
         </div>
     )

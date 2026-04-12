@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import axios from 'axios'
 import { Xmark, NavArrowLeft, NavArrowRight, Search } from 'iconoir-react'
 import { Button } from './index.jsx'
@@ -12,6 +13,7 @@ export function RelationPicker({
   onClose,
   initialValue
 }) {
+  const { t } = useTranslation()
   const [records, setRecords] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -31,7 +33,7 @@ export function RelationPicker({
       setRecords(resp.data.data || [])
     } catch (err) {
       console.error(err)
-      setError('Error al cargar registros')
+      setError(t('error_loading_records'))
     }
     setLoading(false)
   }
@@ -41,7 +43,7 @@ export function RelationPicker({
       loadRecords()
     } else {
       setLoading(false)
-      setError('Configuración de relación incompleta (falta tabla destino)')
+      setError(t('relation_config_incomplete'))
     }
   }, [targetTableSlug, search])
 
@@ -49,7 +51,7 @@ export function RelationPicker({
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
         <div className="modal-header" style={{ background: 'var(--bg-elevated)', borderBottom: '1.5px solid var(--border-light)' }}>
-          <h3 className="modal-title">Seleccionar Registro</h3>
+          <h3 className="modal-title">{t('select_record')}</h3>
           <button className="btn btn-ghost btn-sm" onClick={onClose}>
             <Xmark width="1.25rem" height="1.25rem" />
           </button>
@@ -66,7 +68,7 @@ export function RelationPicker({
               type="text"
               className="form-input"
               style={{ paddingLeft: '2.5rem' }}
-              placeholder={`Buscar en ${targetTableSlug}...`}
+              placeholder={t('search_in', { table: targetTableSlug })}
               value={search}
               onChange={e => setSearch(e.target.value)}
               autoFocus
@@ -81,7 +83,7 @@ export function RelationPicker({
             ) : error ? (
               <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--danger)' }}>{error}</div>
             ) : records.length === 0 ? (
-              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>No se encontraron registros</div>
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>{t('no_records_found')}</div>
             ) : (
               <table className="table" style={{ border: 'none' }}>
                 <tbody>
@@ -105,8 +107,8 @@ export function RelationPicker({
         </div>
 
         <div className="modal-footer" style={{ borderTop: 'none', background: 'transparent' }}>
-          <Button variant="secondary" onClick={onClose}>Cancelar</Button>
-          <Button variant="danger" onClick={() => onSelect(null, null)}>Limpiar Selección</Button>
+          <Button variant="secondary" onClick={onClose}>{t('cancel')}</Button>
+          <Button variant="danger" onClick={() => onSelect(null, null)}>{t('clear_selection')}</Button>
         </div>
       </div>
     </div>

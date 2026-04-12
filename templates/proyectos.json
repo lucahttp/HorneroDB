@@ -1,0 +1,173 @@
+{
+  "_template": {
+    "name": "Gestión de Proyectos",
+    "description": "Seguimiento de proyectos, tareas y equipo con estados y prioridades",
+    "icon": "🗂️",
+    "category": "productivity"
+  },
+  "workspace": {
+    "name": "Proyectos",
+    "slug": "proyectos",
+    "settings": {}
+  },
+  "tables": [
+    {
+      "id": "11111111-0003-0003-0003-000000000001",
+      "workspace_id": "00000000-0000-0000-0000-000000000000",
+      "name": "Proyectos",
+      "slug": "proyectos",
+      "metadata": {}
+    },
+    {
+      "id": "11111111-0003-0003-0003-000000000002",
+      "workspace_id": "00000000-0000-0000-0000-000000000000",
+      "name": "Tareas",
+      "slug": "tareas",
+      "metadata": {}
+    },
+    {
+      "id": "11111111-0003-0003-0003-000000000003",
+      "workspace_id": "00000000-0000-0000-0000-000000000000",
+      "name": "Equipo",
+      "slug": "equipo",
+      "metadata": {}
+    }
+  ],
+  "columns": [
+    {
+      "id": "22222222-0003-0003-0003-000000000001",
+      "table_id": "11111111-0003-0003-0003-000000000001",
+      "name": "Nombre",
+      "slug": "nombre",
+      "field_type": "text",
+      "meta": { "required": true },
+      "order_index": 0
+    },
+    {
+      "id": "22222222-0003-0003-0003-000000000002",
+      "table_id": "11111111-0003-0003-0003-000000000001",
+      "name": "Estado",
+      "slug": "estado",
+      "field_type": "select",
+      "meta": { "options": ["Planeado", "En Progreso", "En Revisión", "Completado", "Cancelado"] },
+      "order_index": 1
+    },
+    {
+      "id": "22222222-0003-0003-0003-000000000003",
+      "table_id": "11111111-0003-0003-0003-000000000001",
+      "name": "Fecha Inicio",
+      "slug": "fecha_inicio",
+      "field_type": "date",
+      "meta": {},
+      "order_index": 2
+    },
+    {
+      "id": "22222222-0003-0003-0003-000000000004",
+      "table_id": "11111111-0003-0003-0003-000000000001",
+      "name": "Fecha Fin",
+      "slug": "fecha_fin",
+      "field_type": "date",
+      "meta": {},
+      "order_index": 3
+    },
+    {
+      "id": "22222222-0003-0003-0003-000000000005",
+      "table_id": "11111111-0003-0003-0003-000000000001",
+      "name": "Descripción",
+      "slug": "descripcion",
+      "field_type": "text",
+      "meta": {},
+      "order_index": 4
+    },
+    {
+      "id": "22222222-0003-0003-0003-000000000006",
+      "table_id": "11111111-0003-0003-0003-000000000002",
+      "name": "Título",
+      "slug": "titulo",
+      "field_type": "text",
+      "meta": { "required": true },
+      "order_index": 0
+    },
+    {
+      "id": "22222222-0003-0003-0003-000000000007",
+      "table_id": "11111111-0003-0003-0003-000000000002",
+      "name": "Estado",
+      "slug": "estado",
+      "field_type": "select",
+      "meta": { "options": ["Pendiente", "En Progreso", "Bloqueado", "Hecho"] },
+      "order_index": 1
+    },
+    {
+      "id": "22222222-0003-0003-0003-000000000008",
+      "table_id": "11111111-0003-0003-0003-000000000002",
+      "name": "Prioridad",
+      "slug": "prioridad",
+      "field_type": "select",
+      "meta": { "options": ["Baja", "Media", "Alta", "Urgente"] },
+      "order_index": 2
+    },
+    {
+      "id": "22222222-0003-0003-0003-000000000009",
+      "table_id": "11111111-0003-0003-0003-000000000002",
+      "name": "Vencimiento",
+      "slug": "vencimiento",
+      "field_type": "date",
+      "meta": {},
+      "order_index": 3
+    },
+    {
+      "id": "22222222-0003-0003-0003-000000000010",
+      "table_id": "11111111-0003-0003-0003-000000000003",
+      "name": "Nombre",
+      "slug": "nombre",
+      "field_type": "text",
+      "meta": { "required": true },
+      "order_index": 0
+    },
+    {
+      "id": "22222222-0003-0003-0003-000000000011",
+      "table_id": "11111111-0003-0003-0003-000000000003",
+      "name": "Email",
+      "slug": "email",
+      "field_type": "email",
+      "meta": {},
+      "order_index": 1
+    },
+    {
+      "id": "22222222-0003-0003-0003-000000000012",
+      "table_id": "11111111-0003-0003-0003-000000000003",
+      "name": "Rol",
+      "slug": "rol",
+      "field_type": "select",
+      "meta": { "options": ["Developer", "Designer", "PM", "QA", "DevOps"] },
+      "order_index": 2
+    }
+  ],
+  "roles": [
+    {
+      "id": "33333333-0003-0003-0003-000000000001",
+      "workspace_id": "00000000-0000-0000-0000-000000000000",
+      "name": "admin",
+      "description": "Acceso completo a proyectos y configuración",
+      "permissions": {
+        "__system__": { "tables": "manage", "roles": "manage", "api_keys": "manage" },
+        "proyectos": { "create": "all", "read": "all", "update": "all", "delete": "all" },
+        "tareas": { "create": "all", "read": "all", "update": "all", "delete": "all" },
+        "equipo": { "create": "all", "read": "all", "update": "all", "delete": "all" }
+      },
+      "is_default": false
+    },
+    {
+      "id": "33333333-0003-0003-0003-000000000002",
+      "workspace_id": "00000000-0000-0000-0000-000000000000",
+      "name": "Miembro",
+      "description": "Puede ver proyectos y gestionar sus tareas",
+      "permissions": {
+        "proyectos": { "create": "none", "read": "all", "update": "none", "delete": "none" },
+        "tareas": { "create": "all", "read": "all", "update": "own", "delete": "none" },
+        "equipo": { "create": "none", "read": "all", "update": "none", "delete": "none" }
+      },
+      "is_default": true
+    }
+  ]
+}

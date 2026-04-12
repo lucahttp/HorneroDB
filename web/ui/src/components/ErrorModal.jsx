@@ -105,7 +105,7 @@ export function ErrorModal() {
                     margin: 0,
                     marginTop: '0.125rem'
                   }}>
-                    {error.response?.status ? `Error ${error.response.status}` : 'Error desconocido'}
+                    {error.response?.status ? `Error ${error.response.status}` : t('unknown_error')}
                   </p>
                 </div>
               </div>
@@ -143,7 +143,7 @@ export function ErrorModal() {
                   color: 'var(--text-secondary)',
                   marginBottom: '0.5rem'
                 }}>
-                  Detalles Técnicos
+                  {t('technical_details')}
                 </label>
                 <div style={{ position: 'relative' }}>
                   <pre style={{
@@ -164,7 +164,7 @@ export function ErrorModal() {
 
               {error.config?.url && (
                 <div style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
-                  <span style={{ fontWeight: 600 }}>Endpoint:</span> {error.config.method?.toUpperCase()} {error.config.url}
+                  <span style={{ fontWeight: 600 }}>{t('endpoint')}:</span> {error.config.method?.toUpperCase()} {error.config.url}
                 </div>
               )}
             </div>

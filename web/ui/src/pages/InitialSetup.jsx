@@ -48,7 +48,7 @@ export default function InitialSetup() {
       setNeedsSetup(true)
     } catch (err) {
       console.error('Error checking setup status:', err)
-      notify(t('error_checking_setup') || 'Error verificando estado de configuración', 'error')
+      notify(t('error_checking_setup'), 'error')
     } finally {
       setLoading(false)
     }
@@ -58,27 +58,27 @@ export default function InitialSetup() {
     e.preventDefault()
     
     if (!instanceName.trim()) {
-      notify(t('instance_name_required') || 'El nombre de la instancia es requerido', 'error')
+      notify(t('instance_name_required'), 'error')
       return
     }
 
     // Validar rate limit
     const rateLimitValue = parseInt(defaultRateLimit)
     if (isNaN(rateLimitValue) || rateLimitValue < 10 || rateLimitValue > 10000) {
-      notify(t('invalid_rate_limit') || 'El rate limit debe estar entre 10 y 10000', 'error')
+      notify(t('invalid_rate_limit'), 'error')
       return
     }
 
     // Validar max workspaces
     const maxWsValue = parseInt(maxWorkspaces)
     if (isNaN(maxWsValue) || maxWsValue < 1 || maxWsValue > 100) {
-      notify(t('invalid_max_workspaces') || 'El máximo de workspaces debe estar entre 1 y 100', 'error')
+      notify(t('invalid_max_workspaces'), 'error')
       return
     }
 
     // Validar PocketID URL si está habilitado
     if (pocketIDEnabled && !pocketIDURL.trim()) {
-      notify(t('pocketid_url_required') || 'La URL de PocketID es requerida cuando está habilitado', 'error')
+      notify(t('pocketid_url_required'), 'error')
       return
     }
 
@@ -94,7 +94,7 @@ export default function InitialSetup() {
         max_workspaces: maxWsValue
       })
       
-      notify(t('setup_completed') || '¡Configuración completada! Ahora sos administrador de la instancia.', 'success')
+      notify(t('setup_completed'), 'success')
       
       // Esperar un momento y redirigir
       setTimeout(() => {
@@ -102,7 +102,7 @@ export default function InitialSetup() {
       }, 1500)
     } catch (err) {
       console.error('Error completing setup:', err)
-      const msg = err.response?.data?.error?.message || t('error_completing_setup') || 'Error completando configuración'
+      const msg = err.response?.data?.error?.message || t('error_completing_setup')
       notify(msg, 'error')
     } finally {
       setIsSubmitting(false)
@@ -159,11 +159,11 @@ export default function InitialSetup() {
           </div>
           
           <h1 style={{ fontSize: '1.75rem', fontWeight: 800, marginBottom: '0.5rem' }}>
-            {t('initial_setup_title') || 'Configuración Inicial'}
+            {t('initial_setup_title')}
           </h1>
           
           <p style={{ color: 'var(--text-secondary)', fontSize: '1rem' }}>
-            {t('initial_setup_subtitle') || 'Configurá tu instancia de HorneroDB y convertite en el primer administrador'}
+            {t('initial_setup_subtitle')}
           </p>
         </div>
 
@@ -179,7 +179,7 @@ export default function InitialSetup() {
           <Shield width="24" height="24" color="var(--success)" />
           <div>
             <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>
-              {t('you_will_become_admin') || 'Vas a ser el primer administrador'}
+              {t('you_will_become_admin')}
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
               {user?.email}
@@ -195,13 +195,13 @@ export default function InitialSetup() {
               fontWeight: 500,
               fontSize: '0.875rem'
             }}>
-              {t('instance_name_label') || 'Nombre de la Instancia *'}
+              {t('instance_name_label')}
             </label>
             <input
               type="text"
               value={instanceName}
               onChange={(e) => setInstanceName(e.target.value)}
-              placeholder={t('instance_name_placeholder') || 'Mi Empresa'}
+              placeholder={t('instance_name_placeholder')}
               style={{
                 width: '100%',
                 padding: '0.75rem 1rem',
@@ -217,7 +217,7 @@ export default function InitialSetup() {
               color: 'var(--text-secondary)', 
               marginTop: '0.5rem' 
             }}>
-              {t('instance_name_help') || 'Este nombre se mostrará en la interfaz y en notificaciones'}
+              {t('instance_name_help')}
             </p>
           </div>
 
@@ -228,7 +228,7 @@ export default function InitialSetup() {
               fontWeight: 500,
               fontSize: '0.875rem'
             }}>
-              {t('contact_email_label') || 'Email de Contacto'}
+              {t('contact_email_label')}
             </label>
             <input
               type="email"
@@ -249,7 +249,7 @@ export default function InitialSetup() {
               color: 'var(--text-secondary)', 
               marginTop: '0.5rem' 
             }}>
-              {t('contact_email_help') || 'Email de contacto para notificaciones importantes de la instancia'}
+              {t('contact_email_help')}
             </p>
           </div>
 
@@ -279,7 +279,7 @@ export default function InitialSetup() {
                   cursor: 'pointer'
                 }}
               >
-                {t('pocketid_enabled') || 'Habilitar PocketID SSO'}
+                {t('pocketid_enabled')}
               </label>
             </div>
             
@@ -291,7 +291,7 @@ export default function InitialSetup() {
                   fontWeight: 500,
                   fontSize: '0.875rem'
                 }}>
-                  {t('pocketid_url_label') || 'URL de PocketID *'}
+                  {t('pocketid_url_label')}
                 </label>
                 <input
                   type="url"
@@ -313,7 +313,7 @@ export default function InitialSetup() {
                   color: 'var(--text-secondary)', 
                   marginTop: '0.5rem' 
                 }}>
-                  {t('pocketid_url_help') || 'URL de tu servidor PocketID para autenticación SSO'}
+                  {t('pocketid_url_help')}
                 </p>
               </div>
             )}
@@ -334,7 +334,7 @@ export default function InitialSetup() {
               alignItems: 'center',
               gap: '0.5rem'
             }}>
-              {t('rate_limits_section') || 'Límites y Configuración'}
+              {t('rate_limits_section')}
             </h3>
             
             <div style={{ display: 'grid', gap: '1rem' }}>
@@ -345,7 +345,7 @@ export default function InitialSetup() {
                   fontWeight: 500,
                   fontSize: '0.875rem'
                 }}>
-                  {t('default_rate_limit_label') || 'Rate Limit por defecto (req/min)'}
+                  {t('default_rate_limit_label')}
                 </label>
                 <input
                   type="number"
@@ -367,7 +367,7 @@ export default function InitialSetup() {
                   color: 'var(--text-secondary)', 
                   marginTop: '0.5rem' 
                 }}>
-                  {t('default_rate_limit_help') || 'Límite de requests por minuto por usuario (default: 60)'}
+                  {t('default_rate_limit_help')}
                 </p>
               </div>
 
@@ -378,7 +378,7 @@ export default function InitialSetup() {
                   fontWeight: 500,
                   fontSize: '0.875rem'
                 }}>
-                  {t('max_workspaces_label') || 'Máximo de Workspaces por usuario'}
+                  {t('max_workspaces_label')}
                 </label>
                 <input
                   type="number"
@@ -400,7 +400,7 @@ export default function InitialSetup() {
                   color: 'var(--text-secondary)', 
                   marginTop: '0.5rem' 
                 }}>
-                  {t('max_workspaces_help') || 'Cantidad máxima de workspaces que puede crear un usuario (default: 10)'}
+                  {t('max_workspaces_help')}
                 </p>
               </div>
             </div>
@@ -422,12 +422,12 @@ export default function InitialSetup() {
             {isSubmitting ? (
               <>
                 <div className="loading-spinner" style={{ width: '20px', height: '20px' }} />
-                {t('completing') || 'Completando...'}
+                {t('completing')}
               </>
             ) : (
               <>
                 <CheckCircle width="20" height="20" />
-                {t('complete_setup') || 'Completar Configuración'}
+                {t('complete_setup')}
               </>
             )}
           </Button>
@@ -441,11 +441,11 @@ export default function InitialSetup() {
           fontSize: '0.875rem',
           color: 'var(--text-secondary)'
         }}>
-          <strong>{t('what_this_means') || '¿Qué significa esto?'}:</strong>
+          <strong>{t('what_this_means')}:</strong>
           <ul style={{ marginTop: '0.5rem', marginLeft: '1rem', lineHeight: 1.6 }}>
-            <li>{t('setup_bullet_1') || 'Podrás crear nuevos workspaces'}</li>
-            <li>{t('setup_bullet_2') || 'Podrás gestionar permisos de otros usuarios'}</li>
-            <li>{t('setup_bullet_3') || 'Tendrás acceso completo a la administración de la instancia'}</li>
+            <li>{t('setup_bullet_1')}</li>
+            <li>{t('setup_bullet_2')}</li>
+            <li>{t('setup_bullet_3')}</li>
           </ul>
         </div>
       </div>

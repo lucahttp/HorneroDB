@@ -64,9 +64,9 @@ export default function TableView() {
       if (err.response) {
         console.error('Response status:', err.response.status)
         console.error('Response data:', err.response.data)
-        notify(`${t('error_loading_data') || 'Error loading data'}: ${err.response.status}`, 'error')
+        notify(`${t('error_loading_data')}: ${err.response.status}`, 'error')
       } else {
-        notify(t('error_loading_data') || 'Error loading data', 'error')
+        notify(t('error_loading_data'), 'error')
       }
     }
     setLoading(false)
@@ -89,7 +89,7 @@ export default function TableView() {
       link.parentNode.removeChild(link)
     } catch (err) {
       console.error(err)
-      notify(t('error_export_schema') || 'Error exporting schema', 'error')
+      notify(t('error_export_schema'), 'error')
     }
   }
 
@@ -221,16 +221,16 @@ export default function TableView() {
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
               <Button size="sm" variant="secondary" onClick={handleExportSchema} style={{ gap: '0.5rem', display: 'flex', alignItems: 'center', padding: '0.375rem 0.625rem' }}>
                 <svg width="1.1rem" height="1.1rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                <span className="hidden sm:inline">{t('export_schema') || 'Export Schema'}</span>
+                <span className="hidden sm:inline">{t('export_schema')}</span>
               </Button>
 
               <Button size="sm" variant="secondary" onClick={handleOpenCSVImport} style={{ gap: '0.5rem', display: 'flex', alignItems: 'center', padding: '0.375rem 0.625rem' }}>
                 <svg width="1.1rem" height="1.1rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l4-4m0 0l4 4m-4-4v12" /></svg>
-                <span className="hidden sm:inline">Import CSV</span>
+                <span className="hidden sm:inline">{t('import_csv')}</span>
               </Button>
               <Button size="sm" variant="secondary" onClick={handleExportCSV} style={{ gap: '0.5rem', display: 'flex', alignItems: 'center', padding: '0.375rem 0.625rem' }}>
                 <svg width="1.1rem" height="1.1rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                <span className="hidden sm:inline">Export CSV</span>
+                <span className="hidden sm:inline">{t('export_csv')}</span>
               </Button>
             </div>
           </div>

@@ -92,11 +92,11 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
                 setQrUrl(res.data.data.url || '')
                 setShowQrModal(true)
             } else {
-                notify(t('error_qr_code') || 'No se pudo obtener el QR', 'error')
+                notify(t('error_qr_code'), 'error')
             }
         } catch (err) {
             console.error(err)
-            const msg = err.response?.data?.error?.message || t('error_qr_code') || 'Error obteniendo QR'
+            const msg = err.response?.data?.error?.message || t('error_qr_code')
             notify(msg, 'error')
         }
     }
@@ -130,7 +130,7 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
                         <thead>
                             <tr style={{ borderBottom: '1px solid var(--border-color)', background: 'var(--bg-surface)' }}>
                                 <th style={{ textAlign: 'left', padding: '1rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{t('name')}</th>
-                                <th style={{ textAlign: 'left', padding: '1rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Email</th>
+                                <th style={{ textAlign: 'left', padding: '1rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{t('email_col')}</th>
                                 <th style={{ textAlign: 'left', padding: '1rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{t('role_label')}</th>
                                 <th style={{ textAlign: 'right', padding: '1rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}></th>
                             </tr>
@@ -159,7 +159,7 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
                                         <button
                                             className="btn btn-ghost btn-sm"
                                             onClick={() => handleShowQR()}
-                                            title={t('show_qr') || 'Ver QR'}
+                                            title={t('show_qr')}
                                             style={{ marginRight: '0.5rem' }}
                                         >
                                             <QrCode width="1rem" height="1rem" />
@@ -218,7 +218,7 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
                             value={selectedRole}
                             onChange={e => setSelectedRole(e.target.value)}
                         >
-                            <option value="">{t('select_role') || 'Seleccionar...'}</option>
+                            <option value="">{t('select_role')}</option>
                             {roles.map(r => (
                                 <option key={r.id} value={r.id}>{r.name}</option>
                             ))}
@@ -232,14 +232,14 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
                 <Modal
                     isOpen={showQrModal}
                     onClose={() => setShowQrModal(false)}
-                    title={t('qr_code_title') || 'Login QR Code'}
+                    title={t('qr_code_title')}
                     footer={
-                        <Button onClick={() => setShowQrModal(false)}>{t('close') || 'Cerrar'}</Button>
+                        <Button onClick={() => setShowQrModal(false)}>{t('close')}</Button>
                     }
                 >
                     <div style={{ textAlign: 'center', padding: '1rem' }}>
                         <p style={{ marginBottom: '1rem', color: 'var(--text-secondary)' }}>
-                            {t('qr_code_desc') || 'Escanea este código para acceder rápidamente al portal de login.'}
+                            {t('qr_code_desc')}
                         </p>
                         {qrCodeData && (
                             <img
@@ -266,14 +266,14 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
                                 />
                                 <Button variant="secondary" onClick={() => {
                                     navigator.clipboard.writeText(qrUrl)
-                                    if (notify) notify(t('copied') || 'Copied to clipboard', 'success')
+                                    if (notify) notify(t('copied'), 'success')
                                 }}>
-                                    {t('copy') || 'Copiar'}
+                                    {t('copy')}
                                 </Button>
                             </div>
                         )}
                         <p style={{ marginTop: '1rem', fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                            {t('qr_code_note') || 'El usuario también recibirá las instrucciones por email si es la primera vez que ingresa.'}
+                            {t('qr_code_note')}
                         </p>
                     </div>
                 </Modal>
