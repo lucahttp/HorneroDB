@@ -209,3 +209,4 @@ pocketid-tree.json
 
 server
 main
+*.local.sh

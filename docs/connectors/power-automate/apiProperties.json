@@ -1,51 +1,50 @@
 {
-    "properties": {
-        "connectionParameters": {
-            "oauthSetting": {
-                "type": "oauthSetting",
-                "oAuthSettings": {
-                    "identityProvider": "oauth2",
-                    "clientId": "your-pocketid-client-id",
-                    "scopes": [
-                        "openid",
-                        "profile",
-                        "email"
-                    ],
-                    "redirectUrl": "https://global.consent.azure-apim.net/redirect",
-                    "propagateClientToProvider": false,
-                    "customParameters": {
-                        "authorizationUrl": {
-                            "value": "https://{YOUR_POCKETID_HOST}/authorize"
-                        },
-                        "tokenUrl": {
-                            "value": "https://{YOUR_POCKETID_HOST}/api/oidc/token"
-                        },
-                        "refreshUrl": {
-                            "value": "https://{YOUR_POCKETID_HOST}/api/oidc/token"
-                        }
-                    }
-                }
+  "properties": {
+    "connectionParameters": {
+      "token": {
+        "type": "oauthSetting",
+        "oAuthSettings": {
+          "identityProvider": "oauth2",
+          "clientId": "ccc604c4-bf60-47b2-b15f-51bade5d73e8",
+          "scopes": [
+            "openid",
+            "profile",
+            "email",
+            "offline_access"
+          ],
+          "redirectMode": "GlobalPerConnector",
+          "redirectUrl": "https://global.consent.azure-apim.net/redirect/hornerodb-5f93584b834d31dcd5-5fd6ab545bf332b196",
+          "properties": {
+            "IsFirstParty": "False",
+            "IsOnbehalfofLoginSupported": false
+          },
+          "customParameters": {
+            "AuthorizationUrl": {
+              "value": "https://pocketid-sso.pelucasistemas.com.ar/authorize"
+            },
+            "TokenUrl": {
+              "value": "https://pocketid-sso.pelucasistemas.com.ar/api/oidc/token"
+            },
+            "RefreshUrl": {
+              "value": "https://pocketid-sso.pelucasistemas.com.ar/api/oidc/token"
             }
+          }
         },
-        "iconBrandColor": "#ff6600",
-        "scriptOperations": [
-            "ListRecords",
-            "CreateRecord",
-            "UpdateRecord",
-            "DeleteRecord",
-            "ListWorkspaces",
-            "ListTables"
-        ],
-        "capabilities": [],
-        "policyTemplateInstances": [
-            {
-                "templateId": "setheader",
-                "title": "API Key Override (Optional)",
-                "parameters": {
-                    "headerName": "Authorization",
-                    "headerValue": "Bearer @connectionParameters('api_key')"
-                }
-            }
-        ]
-    }
+        "uiDefinition": {
+          "displayName": "Conexi\u00F3n de OAuth",
+          "description": "Conexi\u00F3n de OAuth",
+          "constraints": {
+            "required": "true",
+            "hidden": "false"
+          }
+        }
+      }
+    },
+    "iconBrandColor": "#007ee5",
+    "capabilities": [],
+    "scriptOperations": [],
+    "publisher": "",
+    "stackOwner": "",
+    "policyTemplateInstances": []
+  }
 }
