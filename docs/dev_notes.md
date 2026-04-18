@@ -2,6 +2,8 @@
 ### UI Development commands recommendation
 
 export HORNERO_ENV=development && go run cmd/server/main.go
+$env:HORNERO_ENV="development" && go run cmd/server/main.go
+
 cd web/ui && npm run dev && cd ../..  
 
 ### useful command for "PROD BUILD" development (compiles and runs)

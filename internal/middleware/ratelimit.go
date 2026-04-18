@@ -195,9 +195,11 @@ func WorkspaceSecurity() gin.HandlerFunc {
 			reqOrigin := c.GetHeader("Origin")
 			if reqOrigin != "" {
 				originAllowed := false
+				reqOriginTrimmed := strings.TrimRight(reqOrigin, "/")
 				for _, o := range allowedOrigins {
 					if oStr, ok := o.(string); ok {
-						if oStr == "*" || oStr == reqOrigin {
+						oStrTrimmed := strings.TrimRight(oStr, "/")
+						if oStrTrimmed == "*" || oStrTrimmed == reqOriginTrimmed {
 							originAllowed = true
 							break
 						}

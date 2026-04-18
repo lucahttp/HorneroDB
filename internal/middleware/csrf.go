@@ -18,6 +18,14 @@ func CSRFProtection(allowedOrigins []string) gin.HandlerFunc {
 			return
 		}
 
+		// Skip CSRF protection for API Key authentication
+		// API Keys are not susceptible to CSRF as they are not automatically attached like cookies
+		authHeader := c.Request.Header.Get("Authorization")
+		if strings.HasPrefix(strings.ToLower(authHeader), "bearer key_") {
+			c.Next()
+			return
+		}
+
 		// Skip if no allowed origins configured
 		if len(allowedOrigins) == 0 {
 			c.Next()

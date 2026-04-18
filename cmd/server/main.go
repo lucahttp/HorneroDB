@@ -88,22 +88,63 @@ func main() {
 	r.Use(middleware.CSRFProtection(csrfOrigins))
 
 	// Standard CORS configuration using gin-contrib/cors
-	// SECURITY: By default, only allow same-origin requests from AdminURL
-	// For multi-origin setups, set CORS_ORIGINS env variable
-	corsOrigins := cfg.Server.CORSOrigins
-	if len(corsOrigins) == 0 {
-		// Default: only allow requests from the admin URL (same-origin policy)
-		corsOrigins = []string{cfg.Server.AdminURL}
-	}
-
+	// We allow all origins at the CORS level, and defer actual access control
+	// to our specific middlewares (GlobalOriginEnforcer and WorkspaceSecurity)
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     corsOrigins,
+		AllowOriginFunc: func(origin string) bool {
+			return true
+		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Content-Length", "Accept-Encoding", "X-CSRF-Token", "Authorization", "X-Workspace-ID"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
+
+	// Global Origin Enforcer middleware
+	// Protects global API routes from Cross-Origin data leaks (e.g. /api/v1/auth/me)
+	// while allowing workspace routes to do their own dynamic validation.
+	r.Use(func(c *gin.Context) {
+		origin := c.Request.Header.Get("Origin")
+		if origin == "" {
+			c.Next()
+			return
+		}
+
+		authHeader := c.Request.Header.Get("Authorization")
+		if strings.HasPrefix(strings.ToLower(authHeader), "bearer key_") {
+			// API keys handle their own origin/referer restrictions later in WorkspaceSecurity
+			c.Next()
+			return
+		}
+
+		// Skip check for workspace routes (WorkspaceSecurity will handle it)
+		path := c.Request.URL.Path
+		if strings.HasPrefix(path, "/api/v1/workspaces/") {
+			parts := strings.Split(path, "/")
+			// Ensure it's not the root /workspaces list (which is global), but a specific workspace like /workspaces/:id
+			if len(parts) >= 5 && parts[4] != "" && parts[4] != "import" {
+				c.Next()
+				return
+			}
+		}
+
+		// For all other global routes, enforce global admin origins
+		cfg, _ := config.Load()
+		globalOrigins := cfg.Server.CORSOrigins
+		if len(globalOrigins) == 0 {
+			globalOrigins = []string{cfg.Server.AdminURL}
+		}
+
+		for _, allowed := range globalOrigins {
+			if strings.EqualFold(origin, allowed) {
+				c.Next()
+				return
+			}
+		}
+
+		c.AbortWithStatusJSON(403, gin.H{"error": "Global Origin Access Denied"})
+	})
 
 	// Disable automatic redirects to prevent static file trailing slash 301 loops
 	r.RedirectTrailingSlash = false

@@ -12,6 +12,12 @@ import (
 
 func WorkspaceAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Skip CORS preflight requests
+		if c.Request.Method == "OPTIONS" {
+			c.Next()
+			return
+		}
+
 		// Get workspace ID from URL
 		workspaceIDStr := c.Param("workspace_id")
 		if workspaceIDStr == "" {
