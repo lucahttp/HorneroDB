@@ -1,0 +1,9 @@
+# Only the HorneroDB block source goes into the build context for the thin image.
+# Everything else (the Typebot app) is already in the base image.
+hornerodb-block
+Dockerfile.hornerodb-thin
+.dockerignore-thin
+build.sh
+README.md
+docker-compose.yml
+Dockerfile.hornerodb-builder

@@ -1,18 +1,24 @@
 #!/usr/bin/env bash
-# Build the custom typebot-builder image that ships the HorneroDB forge block.
+# Build the custom typebot-builder image that ships the HorneroDB forge block,
+# and save it to a .tar file you can scp to the server.
 #
 # Layout expected in the current working directory:
 #   ./typebot.io/                 ← clone of github.com/baptisteArno/typebot.io
-#   ./hornerodb/docs/connectors/typebot/  ← THIS folder's sibling
+#   ./hornerodb/docs/connectors/typebot/  ← this repo's connector
 #
-# Or use TYPEBOT_SRC / HORNERODB_SRC env vars to point elsewhere.
+# Override locations with TYPEBOT_SRC / HORNERODB_SRC env vars.
+#
+# Usage: ./build.sh [output-tar]
+# Default output-tar: typebot-builder-hornerodb.tar (in cwd)
 set -euo pipefail
 
 SCOPE="${SCOPE:-builder}"
 TAG="${TAG:-typebot-builder-hornerodb:latest}"
+OUTPUT_TAR="${1:-typebot-builder-hornerodb.tar}"
 
 TYPEBOT_SRC="${TYPEBOT_SRC:-$PWD/typebot.io}"
 HORNERODB_SRC="${HORNERODB_SRC:-$PWD/hornerodb}"
+DOCKERFILE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [ ! -d "$TYPEBOT_SRC" ]; then
   echo "❌ Typebot source not found at $TYPEBOT_SRC"
@@ -25,26 +31,16 @@ if [ ! -d "$HORNERODB_SRC/docs/connectors/typebot/src" ]; then
   exit 1
 fi
 
-DOCKERFILE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-echo "▶ Building $TAG"
-echo "  typebot src:  $TYPEBOT_SRC"
-echo "  hornerodb src: $HORNERODB_SRC"
-echo "  scope:         $SCOPE"
-echo
-
-# Copy the HorneroDB forge block into the Typebot monorepo so the COPY
-# instruction in the Dockerfile can find it at a deterministic path.
+echo "▶ Injecting HorneroDB block into the monorepo"
 DEST="$TYPEBOT_SRC/packages/forge/blocks/hornerodb"
-mkdir -p "$DEST"
 rm -rf "$DEST"
 cp -R "$HORNERODB_SRC/docs/connectors/typebot" "$DEST"
 
-# We build from the typebot.io root so the Dockerfile can COPY . over the
-# monorepo. The Dockerfile references docs/connectors/typebot/ at its own
-# context — we resolve that by symlinking the block from inside the build
-# context.
-ln -sfn "$DEST" "$TYPEBOT_SRC/docs-connectors-typebot-symlink" 2>/dev/null || true
+echo
+echo "▶ Building $TAG (this takes 5-10 minutes and ~2 GB RAM)"
+echo "  typebot src:  $TYPEBOT_SRC"
+echo "  scope:         $SCOPE"
+echo
 
 docker build \
   -f "$DOCKERFILE_DIR/Dockerfile.hornerodb-builder" \
@@ -53,5 +49,11 @@ docker build \
   "$TYPEBOT_SRC"
 
 echo
-echo "✅ Built image: $TAG"
-echo "   Run: docker run --rm $TAG"
+echo "▶ Saving image to $OUTPUT_TAR (~1.5 GB)"
+docker save "$TAG" -o "$OUTPUT_TAR"
+
+echo
+echo "✅ Listo."
+echo "   Para deployar en el server:"
+echo "     scp $OUTPUT_TAR ubuntu@<ip>:~/"
+echo "     ssh ubuntu@<ip> 'docker load -i ~/$OUTPUT_TAR'"

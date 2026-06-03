@@ -1,0 +1,44 @@
+# Thin HorneroDB-augmented Typebot image.
+#
+# Strategy: start from the OFFICIAL `baptistearno/typebot-builder:latest`
+# (which is already a Next.js standalone bundle with all forge blocks baked in)
+# and drop the HorneroDB block into the same path the build pipeline would
+# have used, so the runtime discovers it on next request.
+#
+# Why this is the lowest-maintenance path:
+#   - No 5-10 min `nx build` of the entire monorepo
+#   - No 2 GB RAM needed at build time
+#   - Tracking the upstream is a one-line bump: change TYPEBOT_IMAGE
+#   - Updates to upstream Typebot: pull new image → rerun this build (≈30s)
+#   - Updates to the HorneroDB block: edit ../src → rerun this build (≈30s)
+#
+# Tradeoff: the block must be ESM-clean and import from `@typebot.io/forge`
+# exactly like the official blocks. The block we ship already is (see
+# /Users/luca/hornerodb/docs/connectors/typebot/src/ — modeled on nocodb).
+
+ARG TYPEBOT_IMAGE=baptistearno/typebot-builder:latest
+FROM ${TYPEBOT_IMAGE}
+
+USER root
+
+# Drop the HorneroDB forge block into the same path the monorepo build would
+# have used. The Next.js standalone output uses node:fs resolution from the
+# app root, so as long as the package.json name matches (@typebot.io/hornerodb-
+# block) and the file layout mirrors the official blocks, the runtime
+# discovers it.
+ARG BLOCK_DEST=/app/apps/builder/.next/standalone/packages/forge/blocks/hornerodb
+COPY --chown=node:node ./hornerodb-block ${BLOCK_DEST}
+
+# Next.js standalone traces imports at build time, so the HorneroDB block
+# wasn't in the trace. We add a symlink from the app's node_modules to our
+# block so any code that does `import("@typebot.io/hornerodb-block")` finds
+# it. In standalone, all workspace deps are flat-linked under
+# .next/standalone/node_modules.
+ARG STANDALONE_NM=/app/apps/builder/.next/standalone/node_modules
+RUN if [ -d "${STANDALONE_NM}" ]; then \
+      ln -sfn ../../packages/forge/blocks/hornerodb \
+        ${STANDALONE_NM}/@typebot.io/hornerodb-block && \
+      chown -h node:node ${STANDALONE_NM}/@typebot.io/hornerodb-block; \
+    fi
+
+USER node
