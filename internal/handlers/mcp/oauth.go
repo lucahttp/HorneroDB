@@ -95,9 +95,10 @@ func (o *OAuthServer) Discovery(c *gin.Context) {
 		"token_endpoint":                        base + "/api/v1/mcp/oauth/token",
 		"registration_endpoint":                 base + "/api/v1/mcp/oauth/register",
 		"response_types_supported":              []string{"code"},
-		"grant_types_supported":                 []string{"authorization_code"},
+		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 		"code_challenge_methods_supported":      []string{"S256"},
 		"token_endpoint_auth_methods_supported": []string{"none", "client_secret_post"},
+		"scopes_supported":                      []string{"mcp:read", "mcp:write", "mcp:admin"},
 	})
 }
 
@@ -245,13 +246,20 @@ func (o *OAuthServer) OIDCCallback(c *gin.Context) {
 
 // Token exchanges a short-lived MCP authorization code for a HorneroDB JWT.
 // The MCP client posts here after receiving the code from the redirect.
+// Also supports grant_type=refresh_token for renewing the session without re-login.
 func (o *OAuthServer) Token(c *gin.Context) {
 	grantType := c.PostForm("grant_type")
-	if grantType != "authorization_code" {
+	switch grantType {
+	case "authorization_code":
+		o.handleAuthorizationCodeGrant(c)
+	case "refresh_token":
+		o.handleRefreshTokenGrant(c)
+	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported grant_type"})
-		return
 	}
+}
 
+func (o *OAuthServer) handleAuthorizationCodeGrant(c *gin.Context) {
 	code := c.PostForm("code")
 	clientID := c.PostForm("client_id")
 
@@ -266,13 +274,56 @@ func (o *OAuthServer) Token(c *gin.Context) {
 	}
 
 	appJWT := jwtEntry.ClientID // we stored the jwt in ClientID field
+	refresh := randomToken(32)
+	oauthCodes[refresh+"_rt"] = &oauthCode{
+		ClientID:    appJWT, // refresh tokens map to a JWT
+		RedirectURI: "",
+		ExpiresAt:   time.Now().Add(30 * 24 * time.Hour),
+	}
 	delete(oauthCodes, code)
 	delete(oauthCodes, code+"_jwt")
 	oauthCodesMu.Unlock()
 
 	c.JSON(http.StatusOK, gin.H{
-		"access_token": appJWT,
-		"token_type":   "Bearer",
-		"expires_in":   86400,
+		"access_token":  appJWT,
+		"token_type":    "Bearer",
+		"expires_in":    86400,
+		"refresh_token": refresh,
+		"scope":         "mcp:read mcp:write",
+	})
+}
+
+func (o *OAuthServer) handleRefreshTokenGrant(c *gin.Context) {
+	refresh := c.PostForm("refresh_token")
+	if refresh == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "refresh_token is required"})
+		return
+	}
+
+	oauthCodesMu.Lock()
+	entry, exists := oauthCodes[refresh+"_rt"]
+	if !exists || time.Now().After(entry.ExpiresAt) {
+		oauthCodesMu.Unlock()
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid or expired refresh_token"})
+		return
+	}
+
+	appJWT := entry.ClientID
+	// Rotate refresh token (best practice: one-time use)
+	newRefresh := randomToken(32)
+	oauthCodes[newRefresh+"_rt"] = &oauthCode{
+		ClientID:    appJWT,
+		RedirectURI: "",
+		ExpiresAt:   time.Now().Add(30 * 24 * time.Hour),
+	}
+	delete(oauthCodes, refresh+"_rt")
+	oauthCodesMu.Unlock()
+
+	c.JSON(http.StatusOK, gin.H{
+		"access_token":  appJWT,
+		"token_type":    "Bearer",
+		"expires_in":    86400,
+		"refresh_token": newRefresh,
+		"scope":         "mcp:read mcp:write",
 	})
 }

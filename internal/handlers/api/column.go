@@ -1,6 +1,8 @@
 package api
 
 import (
+	"encoding/json"
+	"fmt"
 	"hornerodb/internal/database"
 	"hornerodb/internal/middleware"
 	"hornerodb/internal/models/metadata"
@@ -83,6 +85,42 @@ func CreateColumn(c *gin.Context) {
 		return
 	}
 
+	// Parse meta once to validate structured fields (choices, cardinality)
+	var metaMap map[string]interface{}
+	if len(input.Meta) > 0 {
+		if err := json.Unmarshal(input.Meta, &metaMap); err != nil {
+			response.ValidationError(c, "invalid meta: must be a JSON object")
+			return
+		}
+	}
+
+	// Normalize + default cardinality for select and relation
+	if input.FieldType == "select" || input.FieldType == "relation" {
+		cardinality, _ := metaMap["cardinality"].(string)
+		if cardinality == "" {
+			cardinality = "one"
+		}
+		if cardinality != "one" && cardinality != "many" {
+			response.ValidationError(c, "invalid cardinality: must be 'one' or 'many'")
+			return
+		}
+		metaMap["cardinality"] = cardinality
+	}
+
+	// Validate choices for select columns
+	if input.FieldType == "select" {
+		if err := validateSelectChoices(metaMap); err != nil {
+			response.ValidationError(c, err.Error())
+			return
+		}
+	}
+
+	// Re-marshal meta with normalized fields
+	if metaMap != nil {
+		normalized, _ := json.Marshal(metaMap)
+		input.Meta = normalized
+	}
+
 	tblID, err := uuid.Parse(tableID)
 	if err != nil {
 		response.ValidationError(c, "invalid table_id format")
@@ -125,7 +163,7 @@ func CreateColumn(c *gin.Context) {
 	}
 
 	// Add column to physical table
-	colSQL := GetColumnSQL(input.FieldType)
+	colSQL := GetColumnSQL(input.FieldType, input.Meta)
 	if colSQL != "" {
 		// Validate table name for safety
 		safeTableName, err := ValidateTableName(workspaceID, table.Slug)
@@ -159,7 +197,20 @@ func CreateColumn(c *gin.Context) {
 	response.Created(c, column)
 }
 
-func GetColumnSQL(fieldType string) string {
+// GetColumnSQL returns the physical SQL type for a given field type.
+// For "select" and "relation", cardinality is read from meta to decide
+// between scalar and array storage.
+func GetColumnSQL(fieldType string, meta metadata.JSON) string {
+	many := false
+	if len(meta) > 0 {
+		var m map[string]interface{}
+		if json.Unmarshal(meta, &m) == nil {
+			if c, _ := m["cardinality"].(string); c == "many" {
+				many = true
+			}
+		}
+	}
+
 	switch fieldType {
 	case "text":
 		return "VARCHAR(255)"
@@ -182,14 +233,59 @@ func GetColumnSQL(fieldType string) string {
 	case "attachment":
 		return "JSONB"
 	case "select":
+		if many {
+			return "VARCHAR(100)[]"
+		}
 		return "VARCHAR(100)"
 	case "relation":
+		if many {
+			return "UUID[]"
+		}
 		return "UUID"
 	case "json":
 		return "JSONB"
 	default:
 		return ""
 	}
+}
+
+// validateSelectChoices enforces the shape of meta.choices for a select column.
+// Required format: [{"value": "todo", "label": "To Do", "color": "#..."}]
+// If choices is present, every entry must have a non-empty "value".
+// If absent, the column stays as a free-form VARCHAR (backward compatible).
+func validateSelectChoices(meta map[string]interface{}) error {
+	if meta == nil {
+		return nil
+	}
+	raw, exists := meta["choices"]
+	if !exists || raw == nil {
+		return nil // backward compat: allow legacy select without choices
+	}
+
+	choices, ok := raw.([]interface{})
+	if !ok {
+		return fmt.Errorf("invalid choices: must be an array")
+	}
+	if len(choices) == 0 {
+		return fmt.Errorf("invalid choices: array must not be empty (omit the field to allow free-form text)")
+	}
+
+	seen := make(map[string]bool, len(choices))
+	for i, item := range choices {
+		entry, ok := item.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("invalid choices[%d]: must be an object", i)
+		}
+		value, _ := entry["value"].(string)
+		if value == "" {
+			return fmt.Errorf("invalid choices[%d]: 'value' is required", i)
+		}
+		if seen[value] {
+			return fmt.Errorf("invalid choices[%d]: duplicate value %q", i, value)
+		}
+		seen[value] = true
+	}
+	return nil
 }
 
 // ValidFieldTypes contiene todos los tipos de campo permitidos

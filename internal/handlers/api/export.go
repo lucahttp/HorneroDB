@@ -187,7 +187,7 @@ func ImportWorkspace(c *gin.Context) {
 				return err
 			}
 
-			pgType := GetColumnSQL(col.FieldType)
+			pgType := GetColumnSQL(col.FieldType, col.Meta)
 			if pgType == "" {
 				pgType = "TEXT" // fallback for unknown types on import
 			}

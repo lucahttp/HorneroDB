@@ -331,6 +331,94 @@ Delete a record.
 5. Client uses JWT for subsequent requests
 ```
 
+**Refresh tokens:** `/api/v1/mcp/oauth/token` also accepts `grant_type=refresh_token`. Refresh tokens are valid for 30 days, rotated on use, and return a new access token + refresh token pair without re-prompting the user.
+
+**Scopes:** `mcp:read`, `mcp:write`, `mcp:admin` (advertised in `/.well-known/oauth-authorization-server`).
+
+---
+
+## Connecting to Microsoft Copilot Studio
+
+HorneroDB is a first-class MCP server for Copilot Studio. The recommended setup uses the **MCP onboarding wizard** (no Teams Developer Portal registration needed).
+
+### Prerequisites
+
+- A public HTTPS URL for your HorneroDB instance (e.g. `https://api.example.com`)
+- The instance must be reachable from Microsoft 365 (no IP allowlists blocking Microsoft's ranges)
+- A Power Platform environment with **generative orchestration** enabled
+- Admin access in [Copilot Studio](https://web.powerva.microsoft.com/) and the [Power Platform admin center](https://admin.powerplatform.microsoft.com/)
+
+### Transport
+
+HorneroDB exposes **two** MCP transports on the same instance:
+
+| Transport | Endpoint | Spec | Used by |
+|---|---|---|---|
+| **Streamable HTTP** (preferred) | `POST /api/v1/mcp/stream` | MCP 2025-03-26 | Copilot Studio (after Aug 2025) |
+| **SSE** (legacy) | `GET /api/v1/mcp/sse` + `POST /api/v1/mcp/message?sessionId=…` | MCP 2024-11-05 | Claude Desktop, Cursor, VS Code Cline |
+
+When the wizard asks for a **Server URL**, use:
+```
+https://api.example.com/api/v1/mcp/stream
+```
+
+### Option A — Onboarding wizard with Dynamic Discovery (recommended)
+
+1. Open your agent in **Copilot Studio** → **Tools** → **Add a tool** → **New tool** → **Model Context Protocol**.
+2. Fill in:
+   - **Server name:** `HorneroDB`
+   - **Server description:** A clear one-liner about what data the agent can access
+   - **Server URL:** `https://api.example.com/api/v1/mcp/stream`
+3. For **Authentication type**, choose `OAuth 2.0` and then **Dynamic discovery**.
+4. Click **Create**. Copilot Studio will:
+   - Fetch `https://api.example.com/.well-known/oauth-authorization-server`
+   - Register a client via `POST /api/v1/mcp/oauth/register` (RFC 7591)
+   - Open the PocketID login in a popup
+   - Exchange the auth code at `POST /api/v1/mcp/oauth/token`
+5. After the user signs in, all 15 HorneroDB tools appear as actions in your agent.
+
+### Option B — Custom connector via Power Apps (alternative)
+
+If you need to ship HorneroDB as a managed connector in a solution, use the OpenAPI schema:
+
+1. Go to [Power Apps](https://make.powerapps.com/) → **Custom connectors** → **New custom connector** → **Import OpenAPI file**.
+2. Import from `https://api.example.com/api/v1/mcp/schema.yaml` (or download it via `curl`).
+3. Set the host to your public URL, choose **OAuth 2.0** as auth, and import.
+4. The schema declares `x-ms-agentic-protocol: mcp-streamable-1.0`, which tells Copilot Studio to use the streamable transport.
+
+### DLP (Data Loss Prevention) policies
+
+Copilot Studio applies Power Platform DLP policies to MCP connectors. After you add HorneroDB to an agent, ask a tenant admin to:
+
+1. Go to [Power Platform admin center](https://admin.powerplatform.microsoft.com/) → **Policies** → **Data policies**.
+2. Either:
+   - Add HorneroDB to the **Business** data group (so the agent can call its tools), or
+   - Create a custom connector classification that allows read/write to HorneroDB tables.
+3. Re-publish the agent for the DLP change to take effect.
+
+### Tools available to the agent
+
+Every tool returned by `tools/list` becomes an action in Copilot Studio. The agent's generative orchestrator picks tools based on the user's intent. Names and descriptions in HorneroDB are in Spanish today — for an English-first agent, consider updating tool descriptions in `internal/handlers/mcp/server.go`.
+
+### Resources (knowledge sources)
+
+HorneroDB also exposes MCP **resources** that Copilot Studio can ingest as read-only knowledge:
+
+- `table://<workspace_id>/<table_slug>` — schema (columns) of a table
+- `table://<workspace_id>/<table_slug>/data` — first 100 rows
+
+Copilot Studio currently consumes resources alongside tools, allowing the agent to ground answers in your database schema and a recent sample of records.
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Wizard says "Unable to reach server" | Public URL not reachable from MS | Check DNS, TLS cert, and that firewall allows MS ranges |
+| "Discovery failed" | Missing or broken `/.well-known/oauth-authorization-server` | `curl` that URL; should return JSON with `authorization_endpoint` and `token_endpoint` |
+| "redirect_uri mismatch" during login | HorneroDB OAuth rejects unknown redirect URIs | Pre-register `https://*.powerva.microsoft.com/*` or enable `MCP_ALLOW_DYNAMIC_REDIRECT=true` |
+| Tools don't appear in the agent | Generative orchestration off | Enable **Generative AI | Generative orchestration** in the agent settings |
+| Tools return "access denied" | The authenticated PocketID user has no role in any workspace | Assign a role to the user in HorneroDB admin first |
+
 ---
 
 ## Security Best Practices

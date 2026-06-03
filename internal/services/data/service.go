@@ -3,6 +3,7 @@ package data
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -88,6 +89,10 @@ func (s *Service) CreateRecord(ctx RequestContext, input map[string]interface{})
 		input = s.filterInputColumns(input, writableColumns)
 	}
 
+	if err := s.validateTypedFields(ctx, input); err != nil {
+		return nil, err
+	}
+
 	if _, ok := input["id"]; !ok {
 		input["id"] = uuid.New()
 	}
@@ -135,6 +140,10 @@ func (s *Service) UpdateRecord(ctx RequestContext, recordID string, input map[st
 	writableColumns, _ := s.permSvc.GetColumnsForOperation(ctx.WsID, ctx.RoleName, ctx.Table.Slug, "update")
 	if writableColumns != nil {
 		input = s.filterInputColumns(input, writableColumns)
+	}
+
+	if err := s.validateTypedFields(ctx, input); err != nil {
+		return err
 	}
 
 	dbQuery := database.DB.Table(ctx.TableName).Where("id = ?", recordID)
@@ -212,6 +221,8 @@ func (s *Service) expandRecords(workspaceID uuid.UUID, tableID uuid.UUID, record
 
 		targetTableSlug, _ := meta["target_table"].(string)
 		displayCol, _ := meta["display_column"].(string)
+		cardinality, _ := meta["cardinality"].(string)
+		isMany := cardinality == "many"
 
 		if targetTableSlug == "" || displayCol == "" {
 			continue
@@ -219,10 +230,22 @@ func (s *Service) expandRecords(workspaceID uuid.UUID, tableID uuid.UUID, record
 
 		ids := make(map[string]bool)
 		for _, rec := range records {
-			if val, ok := rec[col.Slug]; ok && val != nil {
-				if idStr, ok := val.(string); ok && idStr != "" {
-					ids[idStr] = true
+			val, ok := rec[col.Slug]
+			if !ok || val == nil {
+				continue
+			}
+			if isMany {
+				if arr, ok := val.([]interface{}); ok {
+					for _, item := range arr {
+						if idStr, ok := item.(string); ok && idStr != "" {
+							ids[idStr] = true
+						}
+					}
 				}
+				continue
+			}
+			if idStr, ok := val.(string); ok && idStr != "" {
+				ids[idStr] = true
 			}
 		}
 		if len(ids) == 0 {
@@ -255,13 +278,147 @@ func (s *Service) expandRecords(workspaceID uuid.UUID, tableID uuid.UUID, record
 			if rec["expand"] == nil {
 				rec["expand"] = make(map[string]interface{})
 			}
-			if expand, ok := rec["expand"].(map[string]interface{}); ok {
-				if val, ok := rec[col.Slug].(string); ok {
-					expand[col.Slug] = lookup[val]
+			expand, ok := rec["expand"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if isMany {
+				arr, _ := rec[col.Slug].([]interface{})
+				resolved := make([]interface{}, 0, len(arr))
+				for _, item := range arr {
+					if idStr, ok := item.(string); ok {
+						resolved = append(resolved, lookup[idStr])
+					}
 				}
+				expand[col.Slug] = resolved
+				continue
+			}
+			if val, ok := rec[col.Slug].(string); ok {
+				expand[col.Slug] = lookup[val]
 			}
 		}
 	}
+}
+
+// validateTypedFields enforces column-level constraints that cannot be expressed
+// purely at the SQL layer: select choices and cardinality shape (one vs many).
+// Relation UUIDs are NOT validated for existence here — that would couple writes
+// to read access on the target table and is left to the frontend/expand step.
+func (s *Service) validateTypedFields(ctx RequestContext, input map[string]interface{}) error {
+	columns, err := s.loadTableColumns(ctx.Table.ID)
+	if err != nil {
+		return err
+	}
+
+	for _, col := range columns {
+		val, present := input[col.Slug]
+		if !present || val == nil {
+			continue
+		}
+
+		switch col.FieldType {
+		case "select":
+			if err := validateSelectValue(col, val); err != nil {
+				return err
+			}
+		case "relation":
+			if err := validateRelationShape(col, val); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Service) loadTableColumns(tableID uuid.UUID) ([]metadata.Column, error) {
+	var cols []metadata.Column
+	if err := database.DB.Table("_hornero_columns").Where("table_id = ?", tableID).Find(&cols).Error; err != nil {
+		return nil, err
+	}
+	return cols, nil
+}
+
+func validateSelectValue(col metadata.Column, val interface{}) error {
+	// meta may be nil / empty for legacy select columns — accept anything.
+	var meta map[string]interface{}
+	if len(col.Meta) > 0 {
+		_ = json.Unmarshal(col.Meta, &meta)
+	}
+	if meta == nil {
+		return nil
+	}
+	raw, exists := meta["choices"]
+	if !exists || raw == nil {
+		return nil
+	}
+
+	choices, ok := raw.([]interface{})
+	if !ok || len(choices) == 0 {
+		return nil
+	}
+	allowed := make(map[string]bool, len(choices))
+	for _, item := range choices {
+		if entry, ok := item.(map[string]interface{}); ok {
+			if v, _ := entry["value"].(string); v != "" {
+				allowed[v] = true
+			}
+		}
+	}
+
+	cardinality, _ := meta["cardinality"].(string)
+	if cardinality != "many" {
+		cardinality = "one"
+	}
+
+	if cardinality == "many" {
+		arr, ok := val.([]interface{})
+		if !ok {
+			return fmt.Errorf("column %q expects an array of choices", col.Slug)
+		}
+		for _, item := range arr {
+			s, ok := item.(string)
+			if !ok {
+				return fmt.Errorf("column %q: every choice must be a string", col.Slug)
+			}
+			if !allowed[s] {
+				return fmt.Errorf("column %q: value %q is not in choices", col.Slug, s)
+			}
+		}
+		return nil
+	}
+
+	// cardinality == "one"
+	s, ok := val.(string)
+	if !ok {
+		return fmt.Errorf("column %q: expected a string choice", col.Slug)
+	}
+	if !allowed[s] {
+		return fmt.Errorf("column %q: value %q is not in choices", col.Slug, s)
+	}
+	return nil
+}
+
+func validateRelationShape(col metadata.Column, val interface{}) error {
+	var meta map[string]interface{}
+	if len(col.Meta) > 0 {
+		_ = json.Unmarshal(col.Meta, &meta)
+	}
+	cardinality := "one"
+	if meta != nil {
+		if c, _ := meta["cardinality"].(string); c == "many" {
+			cardinality = "many"
+		}
+	}
+	if cardinality == "many" {
+		if _, ok := val.([]interface{}); !ok {
+			return fmt.Errorf("column %q expects an array of relation ids", col.Slug)
+		}
+		return nil
+	}
+	if _, ok := val.(string); !ok {
+		return fmt.Errorf("column %q expects a single relation id (string)", col.Slug)
+	}
+	return nil
 }
 
 func (s *Service) filterRecordColumns(record map[string]interface{}, allowedColumns []string) {

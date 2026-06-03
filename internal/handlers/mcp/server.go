@@ -321,6 +321,18 @@ func (s *Server) HandleRequestWithContext(ctx ToolContext, req MCPRequest) MCPRe
 		return s.handleToolsList(req)
 	case "tools/call":
 		return s.handleToolCallWithContext(ctx, req)
+	case "resources/list":
+		if !ctx.IsAuthenticated() {
+			return MCPResponse{JSONRPC: "2.0", ID: req.ID, Error: &MCPError{Code: -32001, Message: "Authentication required"}}
+		}
+		return s.handleResourcesList(req)
+	case "resources/read":
+		if !ctx.IsAuthenticated() {
+			return MCPResponse{JSONRPC: "2.0", ID: req.ID, Error: &MCPError{Code: -32001, Message: "Authentication required"}}
+		}
+		return s.handleResourcesRead(ctx, req)
+	case "ping":
+		return MCPResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]interface{}{}}
 	default:
 		return MCPResponse{
 			JSONRPC: "2.0",
@@ -335,14 +347,14 @@ func (s *Server) handleInitialize(req MCPRequest) MCPResponse {
 		JSONRPC: "2.0",
 		ID:      req.ID,
 		Result: map[string]interface{}{
-			"protocolVersion": "2024-11-05",
+			"protocolVersion": "2025-03-26",
 			"capabilities": map[string]interface{}{
-				"tools":     true,
-				"resources": false,
+				"tools":     map[string]interface{}{"listChanged": true},
+				"resources": map[string]interface{}{"subscribe": false, "listChanged": false},
 			},
 			"serverInfo": map[string]string{
 				"name":    "hornerodb-mcp",
-				"version": "1.0.0",
+				"version": "1.1.0",
 			},
 		},
 	}

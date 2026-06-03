@@ -149,6 +149,8 @@ func main() {
 	// Disable automatic redirects to prevent static file trailing slash 301 loops
 	r.RedirectTrailingSlash = false
 	r.RedirectFixedPath = false
+	// Return 405 (not 404) for wrong methods on known routes — better hint for MCP clients
+	r.HandleMethodNotAllowed = true
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
@@ -169,6 +171,11 @@ func main() {
 	}
 
 	// Protected routes - require auth (JWT or API Key)
+
+	// Initialize the MCP server once so both the protected (sse/stream/message) and the public
+	// (OpenAPI schema) routes can attach handlers to the same instance.
+	mcpServer := mcp.New(data.NewService(), permission.NewService())
+
 	protected := v1.Group("")
 	protected.Use(middleware.AuthRequired(cfg.Auth.JWTSecret))
 	{
@@ -300,13 +307,18 @@ func main() {
 		userRoutes.GET("/auth/qr", api.GetSystemLoginQR)
 
 		// === MCP (Model Context Protocol) ===
-		// Initialize services for MCP with proper security
-		dataService := data.NewService()
-		permService := permission.NewService()
-		mcpServer := mcp.New(dataService, permService)
+		// Initialize services for MCP with proper security.
+		// The mcpServer is created at handler-registration scope (below) so the public schema
+		// endpoint can also reach it. Here we just register the protected routes.
 		protected.GET("/mcp/sse", mcpServer.HandleSSE)
 		protected.POST("/mcp/message", mcpServer.HandleMessage)
+		// Streamable HTTP transport (MCP 2025-03-26) — preferred by Copilot Studio
+		protected.POST("/mcp/stream", mcpServer.HandleStreamable)
 	}
+
+	// === MCP OpenAPI schema (public, for Power Apps custom connector import) ===
+	r.GET("/api/v1/mcp/schema.yaml", mcpServer.SchemaYAML)
+	r.GET("/api/v1/mcp/schema", mcpServer.SchemaYAML) // alias
 
 	// === MCP OAuth2 (Dynamic Client Registration per RFC 7591 / MCP spec) ===
 	// These endpoints are intentionally public so MCP clients can self-register and login.
