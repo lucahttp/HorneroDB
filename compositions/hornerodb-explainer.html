@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HorneroDB - Architecture Overview</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      background: #0D1B2A;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      overflow: hidden;
+    }
+    
+    /* Composition Container */
+    [data-composition-id="hornerodb-explainer"] {
+      position: relative;
+      width: 1920px;
+      height: 1080px;
+      background: linear-gradient(145deg, #0D1B2A 0%, #1B2D44 50%, #0D1B2A 100%);
+      overflow: hidden;
+    }
+    
+    /* Background Decorations */
+    .bg-grid {
+      position: absolute;
+      inset: 0;
+      background-image: 
+        linear-gradient(rgba(116, 140, 171, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(116, 140, 171, 0.03) 1px, transparent 1px);
+      background-size: 80px 80px;
+    }
+    
+    .bg-glow {
+      position: absolute;
+      width: 600px;
+      height: 600px;
+      border-radius: 50%;
+      filter: blur(120px);
+      opacity: 0.15;
+    }
+    
+    .bg-glow-1 {
+      top: -200px;
+      right: -100px;
+      background: #3E5C76;
+    }
+    
+    .bg-glow-2 {
+      bottom: -300px;
+      left: -200px;
+      background: #15616D;
+      opacity: 0.1;
+    }
+    
+    /* Scene Content Base */
+    .scene-content {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 120px 160px;
+      z-index: 10;
+    }
+    
+    /* Typography */
+    .title-hero {
+      font-size: 120px;
+      font-weight: 800;
+      color: #F0EBD8;
+      letter-spacing: -3px;
+      line-height: 1;
+    }
+    
+    .title-section {
+      font-size: 72px;
+      font-weight: 700;
+      color: #F0EBD8;
+      letter-spacing: -2px;
+      line-height: 1.1;
+    }
+    
+    .subtitle {
+      font-size: 32px;
+      font-weight: 400;
+      color: #748CAB;
+      margin-top: 24px;
+      max-width: 900px;
+    }
+    
+    .label {
+      font-size: 14px;
+      font-weight: 600;
+      color: #3E5C76;
+      text-transform: uppercase;
+      letter-spacing: 3px;
+      margin-bottom: 16px;
+    }
+    
+    .body-text {
+      font-size: 24px;
+      font-weight: 400;
+      color: #748CAB;
+      line-height: 1.6;
+      max-width: 800px;
+    }
+    
+    .accent-text {
+      color: #F0EBD8;
+    }
+    
+    .highlight {
+      color: #FF7D00;
+    }
+    
+    /* Cards */
+    .card {
+      background: rgba(27, 45, 68, 0.6);
+      border: 1px solid rgba(116, 140, 171, 0.2);
+      border-radius: 16px;
+      padding: 32px;
+      backdrop-filter: blur(10px);
+    }
+    
+    .card-title {
+      font-size: 24px;
+      font-weight: 600;
+      color: #F0EBD8;
+      margin-bottom: 12px;
+    }
+    
+    .card-desc {
+      font-size: 18px;
+      color: #748CAB;
+      line-height: 1.5;
+    }
+    
+    /* Grid Layouts */
+    .grid-2col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 40px;
+      margin-top: 48px;
+    }
+    
+    .grid-3col {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 32px;
+      margin-top: 48px;
+    }
+    
+    .grid-4col {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 24px;
+      margin-top: 48px;
+    }
+    
+    /* Arch Diagram */
+    .arch-diagram {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 48px;
+      margin-top: 64px;
+    }
+    
+    .arch-box {
+      background: rgba(27, 45, 68, 0.8);
+      border: 2px solid #3E5C76;
+      border-radius: 20px;
+      padding: 32px 48px;
+      text-align: center;
+      min-width: 200px;
+    }
+    
+    .arch-box-title {
+      font-size: 28px;
+      font-weight: 700;
+      color: #F0EBD8;
+      margin-bottom: 8px;
+    }
+    
+    .arch-box-desc {
+      font-size: 16px;
+      color: #748CAB;
+    }
+    
+    .arch-arrow {
+      font-size: 48px;
+      color: #3E5C76;
+    }
+    
+    /* Features List */
+    .feature-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 20px;
+      margin-bottom: 24px;
+    }
+    
+    .feature-icon {
+      width: 48px;
+      height: 48px;
+      background: linear-gradient(135deg, #FF7D00, #FF9F1C);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      flex-shrink: 0;
+    }
+    
+    .feature-content {
+      flex: 1;
+    }
+    
+    .feature-title {
+      font-size: 24px;
+      font-weight: 600;
+      color: #F0EBD8;
+      margin-bottom: 8px;
+    }
+    
+    .feature-desc {
+      font-size: 18px;
+      color: #748CAB;
+      line-height: 1.5;
+    }
+    
+    /* Security Badge */
+    .security-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(255, 125, 0, 0.1);
+      border: 1px solid rgba(255, 125, 0, 0.3);
+      border-radius: 100px;
+      padding: 12px 24px;
+      margin-bottom: 32px;
+    }
+    
+    .security-badge-text {
+      font-size: 16px;
+      font-weight: 600;
+      color: #FF7D00;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    
+    /* Comparison Table */
+    .comparison-row {
+      display: flex;
+      align-items: center;
+      padding: 20px 0;
+      border-bottom: 1px solid rgba(116, 140, 171, 0.1);
+    }
+    
+    .comparison-feature {
+      flex: 1;
+      font-size: 20px;
+      color: #748CAB;
+    }
+    
+    .comparison-hornero {
+      width: 180px;
+      font-size: 18px;
+      font-weight: 600;
+      color: #F0EBD8;
+      text-align: center;
+    }
+    
+    .comparison-other {
+      width: 180px;
+      font-size: 18px;
+      color: #3E5C76;
+      text-align: center;
+    }
+    
+    /* Logo */
+    .logo-mark {
+      width: 80px;
+      height: 80px;
+      background: linear-gradient(135deg, #FF7D00, #FF9F1C);
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
+      margin-bottom: 32px;
+    }
+    
+    /* Tag Line */
+    .tagline {
+      font-size: 28px;
+      color: #FF7D00;
+      font-weight: 500;
+      margin-top: 24px;
+    }
+  </style>
+</head>
+<body>
+  <div data-composition-id="hornerodb-explainer" data-width="1920" data-height="1080">
+    
+    <!-- SCENE 1: Title / Hook -->
+    <div class="scene" data-scene-id="s1" data-start="0" data-duration="6">
+      <div class="bg-grid"></div>
+      <div class="bg-glow bg-glow-1"></div>
+      
+      <div class="scene-content">
+        <div class="label">Open Source CRM / Database</div>
+        <h1 class="title-hero">HorneroDB</h1>
+        <p class="subtitle">Enterprise-grade security for your vibecoded apps. Built with Go, powered by PostgreSQL.</p>
+        <p class="tagline">Security shouldn't be locked behind an "Enterprise" plan.</p>
+        
+        <div class="grid-4col" style="margin-top: 64px;">
+          <div class="card">
+            <div class="card-title">SSO / OIDC</div>
+            <div class="card-desc">BYOIdP - Bring Your Own Identity Provider</div>
+          </div>
+          <div class="card">
+            <div class="card-title">Row-Level</div>
+            <div class="card-desc">Data filtered by owner or custom conditions</div>
+          </div>
+          <div class="card">
+            <div class="card-title">Column-Level</div>
+            <div class="card-desc">Control read/create/update/delete per field</div>
+          </div>
+          <div class="card">
+            <div class="card-title">MCP Server</div>
+            <div class="card-desc">AI assistants with full security context</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- SCENE 2: The Problem -->
+    <div class="scene" data-scene-id="s2" data-start="6" data-duration="5">
+      <div class="bg-grid"></div>
+      <div class="bg-glow bg-glow-2"></div>
+      
+      <div class="scene-content">
+        <div class="label">The Problem</div>
+        <h2 class="title-section">You vibecode an e-commerce.<br>But... <span class="highlight">what about the data?</span></h2>
+        
+        <div class="grid-2col" style="margin-top: 48px;">
+          <div class="card">
+            <div class="card-title">❌ Without HorneroDB</div>
+            <div class="card-desc" style="margin-top: 16px;">
+              <div class="feature-item">
+                <span style="color: #E5383B;">•</span>
+                <span>Who can see customer emails?</span>
+              </div>
+              <div class="feature-item">
+                <span style="color: #E5383B;">•</span>
+                <span>Can the public API access order history?</span>
+              </div>
+              <div class="feature-item">
+                <span style="color: #E5383B;">•</span>
+                <span>Can staff delete products?</span>
+              </div>
+              <div class="feature-item">
+                <span style="color: #E5383B;">•</span>
+                <span>Where does your AI agent have access?</span>
+              </div>
+            </div>
+          </div>
+          <div class="card" style="border-color: rgba(255, 125, 0, 0.3);">
+            <div class="card-title" style="color: #FF7D00;">✓ With HorneroDB</div>
+            <div class="card-desc" style="margin-top: 16px;">
+              <div class="feature-item">
+                <span style="color: #FF7D00;">•</span>
+                <span>Column permissions per operation</span>
+              </div>
+              <div class="feature-item">
+                <span style="color: #FF7D00;">•</span>
+                <span>Row filters by owner/context</span>
+              </div>
+              <div class="feature-item">
+                <span style="color: #FF7D00;">•</span>
+                <span>Role-based system permissions</span>
+              </div>
+              <div class="feature-item">
+                <span style="color: #FF7D00;">•</span>
+                <span>MCP with auth &amp; workspace isolation</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- SCENE 3: Architecture -->
+    <div class="scene" data-scene-id="s3" data-start="11" data-duration="6">
+      <div class="bg-grid"></div>
+      <div class="bg-glow bg-glow-1"></div>
+      
+      <div class="scene-content">
+        <div class="label">Architecture</div>
+        <h2 class="title-section">Simple yet <span class="highlight">powerful</span></h2>
+        
+        <div class="arch-diagram">
+          <div class="arch-box">
+            <div class="arch-box-title">Frontend</div>
+            <div class="arch-box-desc">React (optional)<br>Excel-like UI</div>
+          </div>
+          <span class="arch-arrow">→</span>
+          <div class="arch-box" style="border-color: #FF7D00;">
+            <div class="arch-box-title" style="color: #FF7D00;">HorneroDB</div>
+            <div class="arch-box-desc">Go + Gin<br>REST API + MCP</div>
+          </div>
+          <span class="arch-arrow">→</span>
+          <div class="arch-box">
+            <div class="arch-box-title">PostgreSQL</div>
+            <div class="arch-box-desc">Your data<br>Rich types</div>
+          </div>
+        </div>
+        
+        <div class="grid-3col" style="margin-top: 64px;">
+          <div class="card" style="text-align: center;">
+            <div class="card-title">Auth Providers</div>
+            <div class="card-desc">PocketID, EntraID,<br>Keycloak, any OIDC</div>
+          </div>
+          <div class="card" style="text-align: center;">
+            <div class="card-title">AI Integration</div>
+            <div class="card-desc">MCP Server with<br>workspace isolation</div>
+          </div>
+          <div class="card" style="text-align: center;">
+            <div class="card-title">Deploy Anywhere</div>
+            <div class="card-desc">Docker, K8s, Raspberry Pi,<br>or old shop computer</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- SCENE 4: Permission Engine -->
+    <div class="scene" data-scene-id="s4" data-start="17" data-duration="6">
+      <div class="bg-grid"></div>
+      <div class="bg-glow bg-glow-2"></div>
+      
+      <div class="scene-content">
+        <div class="security-badge">
+          <span>🔐</span>
+          <span class="security-badge-text">Granular Security Engine</span>
+        </div>
+        
+        <h2 class="title-section">Dataverse-style permissions<br><span class="highlight">without the Enterprise price</span></h2>
+        
+        <div class="grid-2col" style="margin-top: 48px;">
+          <div>
+            <h3 style="font-size: 28px; color: #F0EBD8; margin-bottom: 24px;">Table-Level Access</h3>
+            <div class="card">
+              <pre style="font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #748CAB; line-height: 1.8;">
+{
+  "appointments": {
+    "create": "all",
+    "read":   "all",
+    "update": "own",
+    "delete": "none"
+  }
+}</pre>
+            </div>
+          </div>
+          <div>
+            <h3 style="font-size: 28px; color: #F0EBD8; margin-bottom: 24px;">Column-Level by Operation</h3>
+            <div class="card">
+              <pre style="font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #748CAB; line-height: 1.8;">
+{
+  "customers": {
+    "columns": {
+      "read":   ["name", "email"],
+      "create": ["name", "email", "phone"],
+      "update": ["status"]
+    }
+  }
+}</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- SCENE 5: Developer Tools -->
+    <div class="scene" data-scene-id="s5" data-start="23" data-duration="5">
+      <div class="bg-grid"></div>
+      <div class="bg-glow bg-glow-1"></div>
+      
+      <div class="scene-content">
+        <div class="label">Developer Tools</div>
+        <h2 class="title-section">Built for the <span class="highlight">modern stack</span></h2>
+        
+        <div class="grid-3col" style="margin-top: 48px;">
+          <div class="card">
+            <div style="font-size: 48px; margin-bottom: 24px;">🤖</div>
+            <div class="card-title">Hornero MCP</div>
+            <div class="card-desc">AI assistants understand your backend, configure database, build UI automatically. Now with full auth, workspace isolation, and row/column security.</div>
+          </div>
+          <div class="card">
+            <div style="font-size: 48px; margin-bottom: 24px;">🔌</div>
+            <div class="card-title">OpenAPI Collection</div>
+            <div class="card-desc">Native support for n8n, PowerAutomate, and any REST client. Auto-generated docs, always in sync.</div>
+          </div>
+          <div class="card">
+            <div style="font-size: 48px; margin-bottom: 24px;">📦</div>
+            <div class="card-title">Templates</div>
+            <div class="card-desc">Booking systems, e-commerce, CRM - production-ready starting points.</div>
+          </div>
+        </div>
+        
+        <div class="grid-2col" style="margin-top: 32px;">
+          <div class="card">
+            <div class="card-title">🔑 API Keys with Restrictions</div>
+            <div class="card-desc">Rate limiting, allowed origins, per-key permissions. Safe for public-facing apps.</div>
+          </div>
+          <div class="card">
+            <div class="card-title">🪝 Webhooks with Outbox</div>
+            <div class="card-desc">Reliable delivery pattern. Never miss an event, even during outages.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- SCENE 6: Comparison & Closing -->
+    <div class="scene" data-scene-id="s6" data-start="28" data-duration="5">
+      <div class="bg-grid"></div>
+      <div class="bg-glow bg-glow-2"></div>
+      
+      <div class="scene-content">
+        <div class="label">Why HorneroDB</div>
+        <h2 class="title-section">vs. the <span class="highlight">alternatives</span></h2>
+        
+        <div style="margin-top: 48px; max-width: 1000px;">
+          <div class="comparison-row" style="border-bottom: 2px solid #3E5C76;">
+            <div class="comparison-feature" style="font-weight: 600; color: #F0EBD8;">Feature</div>
+            <div class="comparison-hornero" style="color: #FF7D00;">🐦 HorneroDB</div>
+            <div class="comparison-other">Others</div>
+          </div>
+          <div class="comparison-row">
+            <div class="comparison-feature">Permissions</div>
+            <div class="comparison-hornero">Row + Column</div>
+            <div class="comparison-other">Table only</div>
+          </div>
+          <div class="comparison-row">
+            <div class="comparison-feature">Security</div>
+            <div class="comparison-hornero">SSO + Passkeys (BYOIdP)</div>
+            <div class="comparison-other">Enterprise tier</div>
+          </div>
+          <div class="comparison-row">
+            <div class="comparison-feature">AI Integration</div>
+            <div class="comparison-hornero">MCP with full security</div>
+            <div class="comparison-other">Basic / None</div>
+          </div>
+          <div class="comparison-row">
+            <div class="comparison-feature">Cost</div>
+            <div class="comparison-hornero">Free / Open Source</div>
+            <div class="comparison-other">$$$ or locked features</div>
+          </div>
+        </div>
+        
+        <div style="margin-top: 64px; text-align: center;">
+          <p style="font-size: 32px; color: #F0EBD8; font-weight: 600;">Open Source. Self-Hosted. You own your data.</p>
+          <p style="font-size: 24px; color: #748CAB; margin-top: 16px;">github.com/lucahttp/HorneroDB</p>
+        </div>
+      </div>
+    </div>
+    
+    <style>
+      /* Scene visibility */
+      [data-scene-id] {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        pointer-events: none;
+      }
+      
+      /* GSAP animations for scenes */
+      .scene-anim {
+        animation: sceneIn 0.3s ease-out forwards;
+      }
+      
+      @keyframes sceneIn {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      
+      /* Ambient glow animation */
+      .bg-glow {
+        animation: glowPulse 8s ease-in-out infinite;
+      }
+      
+      @keyframes glowPulse {
+        0%, 100% { transform: scale(1); opacity: 0.15; }
+        50% { transform: scale(1.1); opacity: 0.2; }
+      }
+    </style>
+    
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script>
+      window.__timelines = window.__timelines || {};
+      
+      // Master timeline
+      const tl = gsap.timeline({ paused: true });
+      
+      // Scene durations
+      const s1Start = 0, s1Dur = 6;
+      const s2Start = 6, s2Dur = 5;
+      const s3Start = 11, s3Dur = 6;
+      const s4Start = 17, s4Dur = 6;
+      const s5Start = 23, s5Dur = 5;
+      const s6Start = 28, s6Dur = 5;
+      
+      // Scene 1: Title
+      const s1 = gsap.timeline({ paused: true });
+      s1.from("[data-scene-id='s1']", { opacity: 1, duration: 0.1 }, s1Start);
+      s1.from("[data-scene-id='s1'] .label", { y: 30, opacity: 0, duration: 0.5, ease: "power3.out" }, s1Start + 0.2);
+      s1.from("[data-scene-id='s1'] .title-hero", { y: 60, opacity: 0, duration: 0.7, ease: "power3.out" }, s1Start + 0.3);
+      s1.from("[data-scene-id='s1'] .subtitle", { y: 40, opacity: 0, duration: 0.5, ease: "power2.out" }, s1Start + 0.5);
+      s1.from("[data-scene-id='s1'] .tagline", { y: 30, opacity: 0, duration: 0.4, ease: "power2.out" }, s1Start + 0.7);
+      s1.from("[data-scene-id='s1'] .grid-4col .card", { y: 40, opacity: 0, duration: 0.5, stagger: 0.15, ease: "power2.out" }, s1Start + 0.9);
+      // Exit S1 at 5.8s
+      s1.to("[data-scene-id='s1']", { opacity: 0, y: -30, duration: 0.4, ease: "power2.in" }, s1Start + s1Dur - 0.4);
+      
+      // Scene 2: Problem
+      const s2 = gsap.timeline({ paused: true });
+      s2.from("[data-scene-id='s2']", { opacity: 1, duration: 0.1 }, s2Start);
+      s2.from("[data-scene-id='s2'] .label", { y: 30, opacity: 0, duration: 0.5, ease: "power3.out" }, s2Start + 0.2);
+      s2.from("[data-scene-id='s2'] .title-section", { y: 50, opacity: 0, duration: 0.6, ease: "power3.out" }, s2Start + 0.3);
+      s2.from("[data-scene-id='s2'] .grid-2col .card", { y: 40, opacity: 0, duration: 0.5, stagger: 0.2, ease: "power2.out" }, s2Start + 0.7);
+      // Exit S2
+      s2.to("[data-scene-id='s2']", { opacity: 0, y: -30, duration: 0.4, ease: "power2.in" }, s2Start + s2Dur - 0.4);
+      
+      // Scene 3: Architecture
+      const s3 = gsap.timeline({ paused: true });
+      s3.from("[data-scene-id='s3']", { opacity: 1, duration: 0.1 }, s3Start);
+      s3.from("[data-scene-id='s3'] .label", { y: 30, opacity: 0, duration: 0.5, ease: "power3.out" }, s3Start + 0.2);
+      s3.from("[data-scene-id='s3'] .title-section", { y: 50, opacity: 0, duration: 0.6, ease: "power3.out" }, s3Start + 0.3);
+      s3.from("[data-scene-id='s3'] .arch-diagram .arch-box", { scale: 0.8, opacity: 0, duration: 0.5, stagger: 0.2, ease: "back.out(1.5)" }, s3Start + 0.6);
+      s3.from("[data-scene-id='s3'] .arch-arrow", { opacity: 0, duration: 0.3, stagger: 0.15 }, s3Start + 0.9);
+      s3.from("[data-scene-id='s3'] .grid-3col .card", { y: 40, opacity: 0, duration: 0.5, stagger: 0.15, ease: "power2.out" }, s3Start + 1.2);
+      // Exit S3
+      s3.to("[data-scene-id='s3']", { opacity: 0, y: -30, duration: 0.4, ease: "power2.in" }, s3Start + s3Dur - 0.4);
+      
+      // Scene 4: Permission Engine
+      const s4 = gsap.timeline({ paused: true });
+      s4.from("[data-scene-id='s4']", { opacity: 1, duration: 0.1 }, s4Start);
+      s4.from("[data-scene-id='s4'] .security-badge", { scale: 0.9, opacity: 0, duration: 0.4, ease: "back.out(2)" }, s4Start + 0.2);
+      s4.from("[data-scene-id='s4'] .title-section", { y: 50, opacity: 0, duration: 0.6, ease: "power3.out" }, s4Start + 0.4);
+      s4.from("[data-scene-id='s4'] .grid-2col .card", { y: 40, opacity: 0, duration: 0.5, stagger: 0.25, ease: "power2.out" }, s4Start + 0.8);
+      // Exit S4
+      s4.to("[data-scene-id='s4']", { opacity: 0, y: -30, duration: 0.4, ease: "power2.in" }, s4Start + s4Dur - 0.4);
+      
+      // Scene 5: Developer Tools
+      const s5 = gsap.timeline({ paused: true });
+      s5.from("[data-scene-id='s5']", { opacity: 1, duration: 0.1 }, s5Start);
+      s5.from("[data-scene-id='s5'] .label", { y: 30, opacity: 0, duration: 0.5, ease: "power3.out" }, s5Start + 0.2);
+      s5.from("[data-scene-id='s5'] .title-section", { y: 50, opacity: 0, duration: 0.6, ease: "power3.out" }, s5Start + 0.3);
+      s5.from("[data-scene-id='s5'] .grid-3col .card", { y: 40, opacity: 0, duration: 0.5, stagger: 0.15, ease: "power2.out" }, s5Start + 0.6);
+      s5.from("[data-scene-id='s5'] .grid-2col .card", { y: 30, opacity: 0, duration: 0.4, stagger: 0.15, ease: "power2.out" }, s5Start + 1.1);
+      // Exit S5
+      s5.to("[data-scene-id='s5']", { opacity: 0, y: -30, duration: 0.4, ease: "power2.in" }, s5Start + s5Dur - 0.4);
+      
+      // Scene 6: Comparison & Closing
+      const s6 = gsap.timeline({ paused: true });
+      s6.from("[data-scene-id='s6']", { opacity: 1, duration: 0.1 }, s6Start);
+      s6.from("[data-scene-id='s6'] .label", { y: 30, opacity: 0, duration: 0.5, ease: "power3.out" }, s6Start + 0.2);
+      s6.from("[data-scene-id='s6'] .title-section", { y: 50, opacity: 0, duration: 0.6, ease: "power3.out" }, s6Start + 0.3);
+      s6.from("[data-scene-id='s6'] .comparison-row", { x: -30, opacity: 0, duration: 0.4, stagger: 0.1 }, s6Start + 0.6);
+      s6.from("[data-scene-id='s6'] .grid-2col, [data-scene-id='s6'] .arch-diagram, [data-scene-id='s6'] .grid-3col", { opacity: 0 }, s6Start + 1.0); // hide extras
+      
+      // Final fade to black
+      s6.to("[data-scene-id='s6']", { opacity: 0, duration: 1.0, ease: "power2.in" }, s6Start + s6Dur - 1.0);
+      
+      // Register timeline
+      window.__timelines["hornerodb-explainer"] = tl;
+      
+      // Add all sub-timelines
+      tl.add(s1, 0);
+      tl.add(s2, 0);
+      tl.add(s3, 0);
+      tl.add(s4, 0);
+      tl.add(s5, 0);
+      tl.add(s6, 0);
+    </script>
+  </div>
+</body>
+</html>
