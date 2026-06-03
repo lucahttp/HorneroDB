@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"os"
 
+	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
@@ -317,7 +320,7 @@ func (s *Server) mcpCreateColumn(ctx ToolContext, args map[string]interface{}) (
 		return nil, fmt.Errorf("invalid table reference: %v", err)
 	}
 
-	colSQL := api.GetColumnSQL(fieldType)
+	colSQL := api.GetColumnSQL(fieldType, col.Meta)
 	if colSQL != "" {
 		alterSQL := `ALTER TABLE "` + safeTableName + `" ADD COLUMN IF NOT EXISTS "` + slug + `" ` + colSQL
 		if err := database.DB.Exec(alterSQL).Error; err != nil {
@@ -447,6 +450,138 @@ func (s *Server) mcpDeleteRole(ctx ToolContext, args map[string]interface{}) (in
 
 	slog.Info("mcp: role deleted", "role_name", roleName, "user_id", ctx.UserID)
 	return map[string]interface{}{"message": "role deleted", "role_name": roleName}, nil
+}
+
+// ---------------------------------------------------------------------------
+// OpenAPI schema export (for Power Apps custom connector / Option 2 in Copilot Studio)
+// ---------------------------------------------------------------------------
+
+// SchemaYAML returns an OpenAPI 2.0 (Swagger) spec that Power Apps can import as a custom MCP connector.
+// The single POST endpoint advertises the x-ms-agentic-protocol: mcp-streamable-1.0 extension that
+// tells Copilot Studio this is an MCP server and which transport to use.
+func (s *Server) SchemaYAML(c *gin.Context) {
+	publicURL := os.Getenv("MCP_PUBLIC_URL")
+	baseURL := publicURL
+	if baseURL == "" {
+		scheme := "http"
+		if c.Request.TLS != nil {
+			scheme = "https"
+		}
+		if xfp := c.GetHeader("X-Forwarded-Proto"); xfp != "" {
+			scheme = xfp
+		}
+		baseURL = fmt.Sprintf("%s://%s", scheme, c.Request.Host)
+	}
+	// Trim trailing slash
+	for len(baseURL) > 0 && baseURL[len(baseURL)-1] == '/' {
+		baseURL = baseURL[:len(baseURL)-1]
+	}
+	host := extractHost(baseURL)
+
+	c.String(http.StatusOK, fmt.Sprintf(`swagger: '2.0'
+info:
+  title: HorneroDB
+  description: |
+    Database-as-a-service connector for HorneroDB exposed via the Model Context
+    Protocol (Streamable HTTP transport). Each tool published by this server
+    becomes an action in Microsoft Copilot Studio automatically.
+  version: 1.1.0
+host: %s
+basePath: /
+schemes:
+  - https
+  - http
+paths:
+  /api/v1/mcp/stream:
+    post:
+      summary: HorneroDB MCP server (Streamable HTTP transport)
+      description: |
+        JSON-RPC 2.0 endpoint for all MCP messages: initialize, tools/list,
+        tools/call, resources/list, resources/read, ping.
+      x-ms-agentic-protocol: mcp-streamable-1.0
+      x-ms-visibility: important
+      operationId: InvokeMCP
+      consumes:
+        - application/json
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            type: object
+      responses:
+        '200':
+          description: JSON-RPC response (single or batch)
+        '202':
+          description: Accepted (notification or empty body)
+        '401':
+          description: Unauthorized
+  /api/v1/mcp/sse:
+    get:
+      summary: HorneroDB MCP server (SSE transport, legacy)
+      description: Legacy Server-Sent Events transport for backward compatibility.
+      operationId: InvokeMCPSSE
+      responses:
+        '200':
+          description: SSE stream
+  /.well-known/oauth-authorization-server:
+    get:
+      summary: OAuth 2.0 Authorization Server Metadata (RFC 8414)
+      operationId: OAuthDiscovery
+      responses:
+        '200':
+          description: Metadata document
+  /api/v1/mcp/oauth/register:
+    post:
+      summary: Dynamic Client Registration (RFC 7591)
+      operationId: OAuthRegister
+      responses:
+        '201':
+          description: Client registered
+  /api/v1/mcp/oauth/authorize:
+    get:
+      summary: OAuth 2.0 authorization endpoint
+      operationId: OAuthAuthorize
+      responses:
+        '302':
+          description: Redirect to identity provider
+  /api/v1/mcp/oauth/token:
+    post:
+      summary: OAuth 2.0 token endpoint
+      operationId: OAuthToken
+      responses:
+        '200':
+          description: Access token
+securityDefinitions:
+  oauth2:
+    type: oauth2
+    flow: accessCode
+    authorizationUrl: %s/api/v1/mcp/oauth/authorize
+    tokenUrl: %s/api/v1/mcp/oauth/token
+    scopes:
+      mcp:read: Read access to MCP tools
+      mcp:write: Write access to MCP tools
+      mcp:admin: Administrative access to MCP tools
+security:
+  - oauth2:
+    - mcp:read
+`, host, baseURL, baseURL))
+}
+
+func extractHost(u string) string {
+	host := u
+	for _, p := range []string{"https://", "http://"} {
+		if len(host) >= len(p) && host[:len(p)] == p {
+			host = host[len(p):]
+			break
+		}
+	}
+	for i := 0; i < len(host); i++ {
+		if host[i] == '/' {
+			return host[:i]
+		}
+	}
+	return host
 }
 
 // ---------------------------------------------------------------------------
