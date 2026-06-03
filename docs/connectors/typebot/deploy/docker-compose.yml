@@ -1,0 +1,86 @@
+# Docker compose for self-hosted Typebot + HorneroDB with the HorneroDB
+# forge block baked in. Uses the custom image built by build.sh.
+#
+# Bring up:
+#   docker compose up -d
+#
+# Rebuild after changing the block:
+#   ../deploy/build.sh && docker compose up -d --force-recreate typebot-builder
+
+x-typebot-common: &typebot-common
+  restart: always
+  depends_on:
+    typebot-redis:
+      condition: service_healthy
+    typebot-db:
+      condition: service_healthy
+  networks:
+    - typebot-network
+  env_file: .env
+  environment:
+    REDIS_URL: redis://typebot-redis:6379
+
+services:
+  typebot-db:
+    image: postgres:16
+    restart: always
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=typebot
+      - POSTGRES_PASSWORD=typebot
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - typebot-network
+
+  typebot-redis:
+    image: redis:alpine
+    restart: always
+    command: --save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      start_period: 20s
+      interval: 30s
+      retries: 5
+      timeout: 3s
+    volumes:
+      - redis-data:/data
+    networks:
+      - typebot-network
+
+  typebot-builder:
+    <<: *typebot-common
+    # 👇 usa la imagen custom con el bloque de HorneroDB adentro
+    image: typebot-builder-hornerodb:latest
+    # si querés buildear acá mismo en vez de usar la imagen:
+    # build:
+    #   context: ../../typebot.io
+    #   dockerfile: ../hornerodb/docs/connectors/typebot/deploy/Dockerfile.hornerodb-builder
+    #   args:
+    #     SCOPE: builder
+    ports:
+      - "8080:3000"
+
+  typebot-viewer:
+    <<: *typebot-common
+    # el viewer NO necesita el bloque, pero usa la misma imagen custom
+    # para mantener una sola base. Si querés ahorrar espacio, podés cambiar
+    # a baptistearno/typebot-viewer:latest y sacarle el bloque (el viewer
+    # sólo ejecuta bots, no los edita).
+    image: typebot-builder-hornerodb:latest
+    environment:
+      - SCOPE=viewer
+    ports:
+      - "8081:3000"
+
+networks:
+  typebot-network:
+    driver: bridge
+
+volumes:
+  db-data:
+  redis-data:

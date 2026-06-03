@@ -89,6 +89,9 @@ build/Release
 node_modules/
 jspm_packages/
 
+# Temporary typebot.io reference clone (forge block development)
+.typebot-ref/
+
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
 
