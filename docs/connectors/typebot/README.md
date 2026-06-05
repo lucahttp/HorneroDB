@@ -71,14 +71,16 @@ This folder is a self-contained drop-in for the Typebot monorepo. To use it:
    ```bash
    git clone https://github.com/baptisteArno/typebot.io.git
    cd typebot.io
-   pnpm install
+   cp .env.dev.example .env
+   bun install
+   bunx nx run-many --target=db:push
+   docker compose -f docker-compose.dev.yml up -d
    ```
 
 2. Copy this whole folder into the Forge blocks directory:
 
    ```bash
-   cp -R /path/to/hornerodb/docs/connectors/typebot \
-        packages/forge/blocks/hornerodb
+   cp -R C:\Users\lucas\HorneroDB\docs\connectors\typebot packages/forge/blocks/hornerodb
    ```
 
 3. The new block uses the same workspace deps (`@typebot.io/forge`, `@typebot.io/lib`) as the other blocks — no new dependencies are needed. Just `pnpm install` again so Turborepo picks the package up.
