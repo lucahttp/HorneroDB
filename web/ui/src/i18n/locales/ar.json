@@ -310,6 +310,6 @@
     "field_relation": "علاقة",
     "field_json": "JSON",
     "field_file": "ملف",
-    "endpoint": "Endpoint",
+    "endpoint": "نقطة النهاية",
     "confirm_delete_column": "حذف العمود \"{{name}}\"؟ لا يمكن التراجع عن هذا الإجراء."
 }

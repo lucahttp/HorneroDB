@@ -172,8 +172,8 @@ func TestStandardPaginationFlow(t *testing.T) {
 		},
 		{
 			name:           "Large limit capped",
-			queryString:    "?limit=500&offset=0",
-			expectedLimit:  100, // capped at max
+			queryString:    "?limit=1500&offset=0",
+			expectedLimit:  1000, // capped at max limit
 			expectedOffset: 0,
 		},
 		{

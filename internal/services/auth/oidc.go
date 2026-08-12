@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -38,18 +39,18 @@ type LoginResult struct {
 func generateCodeVerifier() string {
 	b := make([]byte, 32)
 	rand.Read(b)
-	return base64.URLEncoding.EncodeToString(b)
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 func generateCodeChallenge(verifier string) string {
 	h := sha256.Sum256([]byte(verifier))
-	return base64.URLEncoding.EncodeToString(h[:])
+	return base64.RawURLEncoding.EncodeToString(h[:])
 }
 
 func GenerateCodeVerifier() string {
 	b := make([]byte, 32)
 	rand.Read(b)
-	return base64.URLEncoding.EncodeToString(b)
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 func NewPocketIDAuth(cfg *config.OIDCProvider) (*OIDCAuth, error) {
@@ -89,17 +90,16 @@ func (o *OIDCAuth) GetLoginURL(state, codeVerifier string) string {
 func (o *OIDCAuth) GetLoginURLWithRedirect(state, codeVerifier, redirectURI string) string {
 	codeChallenge := generateCodeChallenge(codeVerifier)
 
-	url := o.config.PublicURL + "/authorize?" +
-		"client_id=" + o.config.ClientID +
-		"&redirect_uri=" + redirectURI +
-		"&response_type=code" +
-		"&scope=openid+profile+email" +
-		"&state=" + state +
-		"&code_verifier=" + codeVerifier +
-		"&code_challenge=" + codeChallenge +
-		"&code_challenge_method=S256"
+	q := url.Values{}
+	q.Set("client_id", o.config.ClientID)
+	q.Set("redirect_uri", redirectURI)
+	q.Set("response_type", "code")
+	q.Set("scope", "openid profile email")
+	q.Set("state", state)
+	q.Set("code_challenge", codeChallenge)
+	q.Set("code_challenge_method", "S256")
 
-	return url
+	return o.config.PublicURL + "/authorize?" + q.Encode()
 }
 
 type TokenResponse struct {
@@ -111,21 +111,26 @@ type TokenResponse struct {
 }
 
 func (o *OIDCAuth) ExchangeCode(ctx context.Context, code, codeVerifier string) (*TokenResponse, error) {
-	var data *strings.Reader
+	return o.ExchangeCodeWithRedirect(ctx, code, codeVerifier, o.config.RedirectURL)
+}
+
+func (o *OIDCAuth) ExchangeCodeWithRedirect(ctx context.Context, code, codeVerifier, redirectURI string) (*TokenResponse, error) {
+	if redirectURI == "" {
+		redirectURI = o.config.RedirectURL
+	}
+
+	data := url.Values{}
+	data.Set("grant_type", "authorization_code")
+	data.Set("code", code)
+	data.Set("redirect_uri", redirectURI)
+	data.Set("client_id", o.config.ClientID)
+	data.Set("client_secret", o.config.ClientSecret)
 	if codeVerifier != "" {
-		data = strings.NewReader(fmt.Sprintf(
-			"grant_type=authorization_code&code=%s&redirect_uri=%s&client_id=%s&client_secret=%s&code_verifier=%s",
-			code, o.config.RedirectURL, o.config.ClientID, o.config.ClientSecret, codeVerifier,
-		))
-	} else {
-		data = strings.NewReader(fmt.Sprintf(
-			"grant_type=authorization_code&code=%s&redirect_uri=%s&client_id=%s&client_secret=%s",
-			code, o.config.RedirectURL, o.config.ClientID, o.config.ClientSecret,
-		))
+		data.Set("code_verifier", codeVerifier)
 	}
 
 	// We still use IssuerURL for internal container-to-container calls to fetch the token
-	req, err := http.NewRequestWithContext(ctx, "POST", o.config.IssuerURL+"/api/oidc/token", data)
+	req, err := http.NewRequestWithContext(ctx, "POST", o.config.IssuerURL+"/api/oidc/token", strings.NewReader(data.Encode()))
 	if err != nil {
 		return nil, err
 	}
@@ -138,11 +143,7 @@ func (o *OIDCAuth) ExchangeCode(ctx context.Context, code, codeVerifier string) 
 	}
 	defer resp.Body.Close()
 
-	// Debug: print response status (body contains sensitive tokens, don't log it)
 	body, _ := io.ReadAll(resp.Body)
-	// SECURITY: Never log token response body as it contains sensitive credentials
-	// fmt.Printf("DEBUG - Token response status: %d\n", resp.StatusCode)
-	// fmt.Printf("DEBUG - Token response body: %s\n", string(body))
 
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("token exchange failed with status %d: %s", resp.StatusCode, string(body))
@@ -330,11 +331,12 @@ func (o *OIDCAuth) HandleCallbackAndRedirect(c *gin.Context, jwtSecret, redirect
 	return nil
 }
 
-// ExchangeCodeForAppJWT exchanges an OIDC authorization code for a HorneroDB app JWT.
-// Unlike HandleCallbackAndRedirect, this does not write to gin.Context – it just returns
-// the signed token string so callers can process or forward it themselves.
 func (o *OIDCAuth) ExchangeCodeForAppJWT(ctx context.Context, code, codeVerifier, jwtSecret string) (string, error) {
-	tokenResp, err := o.ExchangeCode(ctx, code, codeVerifier)
+	return o.ExchangeCodeForAppJWTWithRedirect(ctx, code, codeVerifier, o.config.RedirectURL, jwtSecret)
+}
+
+func (o *OIDCAuth) ExchangeCodeForAppJWTWithRedirect(ctx context.Context, code, codeVerifier, redirectURI, jwtSecret string) (string, error) {
+	tokenResp, err := o.ExchangeCodeWithRedirect(ctx, code, codeVerifier, redirectURI)
 	if err != nil {
 		return "", fmt.Errorf("failed to exchange code: %w", err)
 	}

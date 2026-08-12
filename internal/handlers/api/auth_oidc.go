@@ -46,6 +46,32 @@ func GetJWTSecret() string {
 	return jwtSecret
 }
 
+func buildAllowedDomains(cfg *config.Config) []string {
+	allowedDomains := []string{"localhost", "127.0.0.1"}
+
+	urlsToExtract := []string{cfg.Server.PublicURL, cfg.Server.AdminURL}
+	urlsToExtract = append(urlsToExtract, cfg.Server.CORSOrigins...)
+
+	for _, u := range urlsToExtract {
+		if u == "" {
+			continue
+		}
+		domain := u
+		if strings.HasPrefix(domain, "http://") {
+			domain = domain[7:]
+		} else if strings.HasPrefix(domain, "https://") {
+			domain = domain[8:]
+		}
+		if idx := strings.IndexAny(domain, "/?#"); idx != -1 {
+			domain = domain[:idx]
+		}
+		if domain != "" {
+			allowedDomains = append(allowedDomains, domain)
+		}
+	}
+	return allowedDomains
+}
+
 func LoginPocketID(c *gin.Context) {
 	if oidcAuth == nil {
 		c.JSON(400, gin.H{"error": "PocketID is not configured"})
@@ -65,23 +91,7 @@ func LoginPocketID(c *gin.Context) {
 	}
 
 	// SECURITY: Validate redirect URL to prevent open redirect attacks
-	// Build allowed domains list from config
-	allowedDomains := []string{}
-	if cfg.Server.PublicURL != "" {
-		// Extract domain from PublicURL
-		publicURL := cfg.Server.PublicURL
-		if strings.HasPrefix(publicURL, "http://") {
-			publicURL = publicURL[7:]
-		} else if strings.HasPrefix(publicURL, "https://") {
-			publicURL = publicURL[8:]
-		}
-		if idx := strings.IndexAny(publicURL, "/?#"); idx != -1 {
-			publicURL = publicURL[:idx]
-		}
-		allowedDomains = append(allowedDomains, publicURL)
-	}
-	// Always allow localhost for development
-	allowedDomains = append(allowedDomains, "localhost", "localhost:5173", "127.0.0.1", "127.0.0.1:5173")
+	allowedDomains := buildAllowedDomains(cfg)
 
 	if !IsValidRedirectURL(redirectURI, allowedDomains) {
 		c.JSON(400, gin.H{"error": "invalid redirect URL"})
@@ -120,20 +130,7 @@ func CallbackPocketID(c *gin.Context) {
 
 	// SECURITY: Validate redirect URL again to prevent open redirect attacks
 	cfg, _ := config.Load()
-	allowedDomains := []string{}
-	if cfg.Server.PublicURL != "" {
-		publicURL := cfg.Server.PublicURL
-		if strings.HasPrefix(publicURL, "http://") {
-			publicURL = publicURL[7:]
-		} else if strings.HasPrefix(publicURL, "https://") {
-			publicURL = publicURL[8:]
-		}
-		if idx := strings.IndexAny(publicURL, "/?#"); idx != -1 {
-			publicURL = publicURL[:idx]
-		}
-		allowedDomains = append(allowedDomains, publicURL)
-	}
-	allowedDomains = append(allowedDomains, "localhost", "localhost:5173", "127.0.0.1", "127.0.0.1:5173")
+	allowedDomains := buildAllowedDomains(cfg)
 
 	if !IsValidRedirectURL(redirectURL, allowedDomains) {
 		c.JSON(400, gin.H{"error": "invalid redirect URL"})

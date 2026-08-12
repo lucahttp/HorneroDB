@@ -38,6 +38,9 @@ export function DataTable({
   const [isTypeSelectOpen, setIsTypeSelectOpen] = useState(false)
   const [newColTargetTable, setNewColTargetTable] = useState('')
   const [newColDisplayColumn, setNewColDisplayColumn] = useState('')
+  const [newColPrefix, setNewColPrefix] = useState('')
+  const [newColDigits, setNewColDigits] = useState('3')
+  const [newColStartVal, setNewColStartVal] = useState('1')
   const [addColumnCoords, setAddColumnCoords] = useState(null)
   const newColInputRef = useRef(null)
   const addColumnRef = useRef(null)
@@ -215,10 +218,15 @@ export function DataTable({
       if (newColType === 'relation') {
         meta.target_table = newColTargetTable
         meta.display_column = newColDisplayColumn
+      } else if (newColType === 'autonumber') {
+        meta.prefix = newColPrefix
+        meta.digits = parseInt(newColDigits, 10) || 0
+        meta.current_value = parseInt(newColStartVal, 10) || 1
       }
       await onCreateColumn(newColName.trim(), newColType, meta)
       setNewColName(''); setNewColType('text'); setShowAddColumn(false)
       setNewColTargetTable(''); setNewColDisplayColumn('')
+      setNewColPrefix(''); setNewColDigits('3'); setNewColStartVal('1')
     } catch (err) { /* parent */ }
   }
 
@@ -282,6 +290,14 @@ export function DataTable({
       )
     }
 
+    if (col.field_type === 'autonumber') {
+      return (
+        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic', padding: '0 4px' }}>
+          (Auto ID)
+        </span>
+      )
+    }
+
     if (col.field_type === 'relation') {
       const val = newRow[col.slug]
       return (
@@ -341,6 +357,23 @@ export function DataTable({
 
     if (col.field_type === 'json' && val) {
       return <code className="cell-json">{typeof val === 'object' ? JSON.stringify(val) : String(val)}</code>
+    }
+
+    if (col.field_type === 'autonumber' && val != null) {
+      return (
+        <span style={{
+          fontFamily: 'var(--font-mono, monospace)',
+          fontSize: '0.8rem',
+          fontWeight: 600,
+          color: '#0891b2',
+          background: 'rgba(6, 182, 212, 0.12)',
+          padding: '2px 8px',
+          borderRadius: '4px',
+          letterSpacing: '0.5px'
+        }}>
+          {String(val)}
+        </span>
+      )
     }
 
     if (col.field_type === 'relation') {
@@ -542,6 +575,54 @@ export function DataTable({
                           <option key={c.id} value={c.slug}>{c.name}</option>
                         ))}
                       </select>
+                    </div>
+                  )}
+                  {newColType === 'autonumber' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem', padding: '0.75rem', background: 'var(--bg-surface)', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+                      <label style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>Configuración de Secuencia</label>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                        <div>
+                          <label style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Prefijo (Opcional, ej: PED-)</label>
+                          <input
+                            type="text"
+                            className="form-input"
+                            style={{ height: 'auto', padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
+                            placeholder="Sin prefijo"
+                            value={newColPrefix}
+                            onChange={(e) => setNewColPrefix(e.target.value)}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Ceros (ej: 3)</label>
+                          <input
+                            type="number"
+                            className="form-input"
+                            style={{ height: 'auto', padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
+                            placeholder="3 (001, 002...)"
+                            value={newColDigits}
+                            onChange={(e) => setNewColDigits(e.target.value)}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Inicio de secuencia</label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          style={{ height: 'auto', padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
+                          value={newColStartVal}
+                          onChange={(e) => setNewColStartVal(e.target.value)}
+                        />
+                      </div>
+
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', background: 'var(--bg-elevated)', padding: '0.35rem 0.5rem', borderRadius: '4px', border: '1px solid var(--border-subtle, #e2e8f0)' }}>
+                        Vista previa: <strong style={{ color: '#0891b2', fontFamily: 'var(--font-mono, monospace)' }}>
+                          {newColPrefix || ''}{String(newColStartVal || 1).padStart(parseInt(newColDigits) || 0, '0')}
+                        </strong>
+                      </div>
                     </div>
                   )}
 

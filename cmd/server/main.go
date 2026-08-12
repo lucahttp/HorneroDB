@@ -95,8 +95,8 @@ func main() {
 			return true
 		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Content-Length", "Accept-Encoding", "X-CSRF-Token", "Authorization", "X-Workspace-ID"},
-		ExposeHeaders:    []string{"Content-Length"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Content-Length", "Accept-Encoding", "X-CSRF-Token", "Authorization", "X-Workspace-ID", "MCP-Protocol-Version", "Mcp-Method", "Mcp-Name", "Mcp-Session-Id"},
+		ExposeHeaders:    []string{"Content-Length", "WWW-Authenticate", "MCP-Protocol-Version", "Mcp-Session-Id"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
@@ -118,8 +118,14 @@ func main() {
 			return
 		}
 
-		// Skip check for workspace routes (WorkspaceSecurity will handle it)
+		// Skip check for MCP and OAuth discovery routes (MCP handles auth per spec/Bearer token)
 		path := c.Request.URL.Path
+		if strings.HasPrefix(path, "/api/v1/mcp/") || strings.HasPrefix(path, "/.well-known/") {
+			c.Next()
+			return
+		}
+
+		// Skip check for workspace routes (WorkspaceSecurity will handle it)
 		if strings.HasPrefix(path, "/api/v1/workspaces/") {
 			parts := strings.Split(path, "/")
 			// Ensure it's not the root /workspaces list (which is global), but a specific workspace like /workspaces/:id
@@ -310,10 +316,10 @@ func main() {
 		// Initialize services for MCP with proper security.
 		// The mcpServer is created at handler-registration scope (below) so the public schema
 		// endpoint can also reach it. Here we just register the protected routes.
-		protected.GET("/mcp/sse", mcpServer.HandleSSE)
-		protected.POST("/mcp/message", mcpServer.HandleMessage)
+
+		// RFC 9728: Add WWW-Authenticate header on 401 for MCP resources
 		// Streamable HTTP transport (MCP 2025-03-26) — preferred by Copilot Studio
-		protected.POST("/mcp/stream", mcpServer.HandleStreamable)
+		protected.POST("/mcp/stream", mcp.ProtectedResourceHeader(cfg.Server.PublicURL), mcpServer.HandleStreamable)
 	}
 
 	// === MCP OpenAPI schema (public, for Power Apps custom connector import) ===
@@ -323,12 +329,18 @@ func main() {
 	// === MCP OAuth2 (Dynamic Client Registration per RFC 7591 / MCP spec) ===
 	// These endpoints are intentionally public so MCP clients can self-register and login.
 	oauthServer := &mcp.OAuthServer{
+		DB:        database.DB,
 		OIDCAuth:  api.GetOIDCAuth(),
 		JWTSecret: api.GetJWTSecret(),
 		PublicURL: cfg.Server.PublicURL,
 	}
 	// RFC 8414: Authorization Server Metadata – MCP clients fetch this first
 	r.GET("/.well-known/oauth-authorization-server", oauthServer.Discovery)
+
+	// RFC 9728: Protected Resource Metadata – MCP resource info for clients
+	protectedResourceHandler := mcp.NewProtectedResourceHandler(cfg.Server.PublicURL)
+	r.GET("/.well-known/oauth-protected-resource", protectedResourceHandler.Discovery)
+	r.GET("/.well-known/oauth-protected-resource/*path", protectedResourceHandler.Discovery)
 	v1.POST("/mcp/oauth/register", oauthServer.RegisterClient)
 	v1.GET("/mcp/oauth/authorize", oauthServer.Authorize)
 	v1.GET("/mcp/oauth/callback", oauthServer.OIDCCallback)

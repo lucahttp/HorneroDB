@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 
+	"hornerodb/internal/models"
 	"hornerodb/internal/models/metadata"
 )
 
@@ -178,6 +179,11 @@ func Migrate() error {
 	// Instance Settings
 	err = DB.Table("_hornero_instance_settings").AutoMigrate(&metadata.InstanceSettings{})
 	if err != nil {
+		return err
+	}
+
+	// MCP OAuth tables
+	if err := models.MigrateMCPSchema(DB); err != nil {
 		return err
 	}
 

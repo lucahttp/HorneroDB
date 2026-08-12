@@ -310,6 +310,7 @@
     "field_relation": "Relation",
     "field_json": "JSON",
     "field_file": "File",
+    "field_autonumber": "Auto Number / ID",
     "endpoint": "Endpoint",
     "confirm_delete_column": "Delete column \"{{name}}\"? This action cannot be undone."
 }

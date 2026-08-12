@@ -731,7 +731,7 @@ paths:
         |------------|----------------|
         | text | VARCHAR(255) |
         | long_text | TEXT |
-        | number | DECIMAL(10,2) |
+        | number | NUMERIC |
         | integer | INTEGER |
         | float | DOUBLE PRECISION |
         | boolean | BOOLEAN |
@@ -742,7 +742,8 @@ paths:
         | select | VARCHAR(100) |
         | relation | UUID |
         | json | JSONB |
-        | file | JSONB |
+        | attachment | JSONB |
+        | autonumber | VARCHAR(255) (sequential ID e.g. PED-001, meta: {prefix: "PED-", digits: 3, current_value: 1}) |
       requestBody:
         required: true
         content:
@@ -763,8 +764,10 @@ paths:
       - $ref: "#/components/parameters/ColumnId"
     put:
       tags: [Columns]
-      summary: Update column metadata
-      description: "Requires 'admin' role within the workspace."
+      summary: Update column definition and alter physical table
+      description: |
+        Requires 'admin' role within the workspace.
+        Updates column metadata and performs physical ALTER TABLE (renaming column or altering column SQL data type) if slug or field_type changes.
       requestBody:
         required: true
         content:
@@ -774,8 +777,13 @@ paths:
               properties:
                 name:
                   type: string
-                order_index:
-                  type: integer
+                slug:
+                  type: string
+                field_type:
+                  type: string
+                  enum: [text, long_text, number, integer, float, boolean, date, datetime, email, url, select, relation, json, attachment]
+                meta:
+                  type: object
       responses:
         "200":
           content:

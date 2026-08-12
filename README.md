@@ -20,7 +20,7 @@ Your *vibecoded* app can have its **data protected just like large enterprises (
 
 ## ✨ Why use HorneroDB
 
-* **BYOIdP Security (Bring Your Own Identity Provider)** — Modern authentication (SSO/OIDC) and native support for Passkeys. Your security shouldn't be locked behind an "Enterprise" plan.
+* **BYOIdP & API Key Security** — Simple, robust authentication: SSO/OIDC for humans and API Keys for programmatic access. Your security shouldn't be locked behind an "Enterprise" plan.
 * **PostgreSQL at its core** — Rich data types and the flexibility of a professional relational database.
 * **Granular Permissions (APIs and Staff)** — Strict control for your APIs (for your public frontend or *customer-facing* AI agents) and for your users (business staff).
   * *Column-level security per operation* (control who reads, creates, updates, or deletes each field).
@@ -68,7 +68,7 @@ Test HorneroDB instantly using the Docker Playground:
 # Clone and prepare the environment
 cp .env.example .env
 
-# Start HorneroDB, PocketID, and PostgreSQL
+# Start the application
 docker-compose up -d
 ```
 
@@ -265,7 +265,7 @@ Tu app *vibecodeada* puede tener sus **datos protegidos como los de las grandes 
 
 ## ✨ Por qué usar HorneroDB
 
-* **Seguridad BYOIdP (Bring Your Own Identity Provider)** — Autenticación moderna (SSO/OIDC) y soporte nativo para Passkeys. Tu seguridad no debería estar bloqueada detrás de un plan "Enterprise".
+* **Seguridad BYOIdP y API Keys** — Autenticación simple y robusta: SSO/OIDC para usuarios humanos y API Keys para accesos programáticos. Tu seguridad no debería estar bloqueada detrás de un plan "Enterprise".
 * **PostgreSQL en su núcleo** — Tipos de datos ricos y la flexibilidad de una base de datos relacional profesional.
 * **Permisos Granulares (APIs y Staff)** — Control estricto para tus APIs (para tu frontend público o agentes de IA *customer-facing*) y para tus usuarios (personal de la empresa).
   * *Seguridad a nivel de columna por operación* (controlá quién lee, crea, actualiza o elimina cada campo).
@@ -464,7 +464,7 @@ JWT_SECRET=tu-string-super-secreto-aleatorio-min-32-caracteres
 | Característica | 🐦 HorneroDB | 🟢 Supabase | 🧊 PocketBase | ⚡ NocoDB | 🧩 Airtable |
 | --- | --- | --- | --- | --- | --- |
 | **Permisos** | **Granular (Fila/Col)** | PG RLS | Colección | Tabla | Base |
-| **Seguridad** | **SSO + Passkeys (BYOIdP)** | Enterprise | Email/Pass | Enterprise | Enterprise |
+| **Seguridad** | **OIDC/SSO y API Keys** | Enterprise | Email/Pass | Enterprise | Enterprise |
 | **API** | **Auto-Segura** | REST/GQL | SDK | REST/GQL | REST |
 | **Auto-Host** | **Docker / Local** | Docker | Binario | Docker | ❌ |
 | **Costo** | **Gratis / Open Source** | Plan Gratis | Gratis | Gratis | $$$ |

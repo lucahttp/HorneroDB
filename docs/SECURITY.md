@@ -16,15 +16,19 @@ HorneroDB implements defense-in-depth security with multiple layers:
 
 ## Authentication
 
+HorneroDB has an intentionally minimal and robust security design with **two official authentication methods**:
+
 ### Methods Supported
 
 | Method | Use Case | Implementation |
 |--------|----------|----------------|
-| **JWT** | Web UI users | HMAC-SHA256 signed tokens |
-| **API Keys** | Service accounts | SHA-256 hashed, prefix `key_` |
-| **OIDC/SSO** | Enterprise users | PocketID, EntraID, Keycloak |
+| **OIDC/SSO** | Human Users (Web UI & MCP OAuth) | External Identity Provider (PocketID, Google, EntraID, Keycloak). Issues signed JWT session cookies/tokens upon login. |
+| **API Keys** | Programmatic, Services & AI Agents | SHA-256 hashed Bearer tokens (prefix `key_`) with origin, role, and rate-limit restrictions. |
 
-### JWT Configuration
+> [!NOTE]
+> JWT is the internal session token format created upon successful OIDC/SSO authentication. It is not a separate authentication option.
+
+### OIDC & JWT Session Configuration
 
 **Development**:
 - If `JWT_SECRET` not set, auto-generates random 32-char secret

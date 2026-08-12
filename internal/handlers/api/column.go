@@ -81,7 +81,7 @@ func CreateColumn(c *gin.Context) {
 
 	// Validate field type against whitelist
 	if !ValidateFieldType(input.FieldType) {
-		response.ValidationError(c, "invalid field_type: must be one of text, long_text, number, integer, boolean, date, datetime, email, url, attachment, select, relation, json")
+		response.ValidationError(c, "invalid field_type: must be one of text, long_text, number, integer, boolean, date, datetime, email, url, attachment, select, relation, json, autonumber")
 		return
 	}
 
@@ -217,7 +217,9 @@ func GetColumnSQL(fieldType string, meta metadata.JSON) string {
 	case "long_text":
 		return "TEXT"
 	case "number":
-		return "DECIMAL(10,2)"
+		return "NUMERIC"
+	case "float":
+		return "DOUBLE PRECISION"
 	case "integer":
 		return "INTEGER"
 	case "boolean":
@@ -244,6 +246,8 @@ func GetColumnSQL(fieldType string, meta metadata.JSON) string {
 		return "UUID"
 	case "json":
 		return "JSONB"
+	case "autonumber":
+		return "VARCHAR(255)"
 	default:
 		return ""
 	}
@@ -293,6 +297,7 @@ var ValidFieldTypes = map[string]bool{
 	"text":       true,
 	"long_text":  true,
 	"number":     true,
+	"float":      true,
 	"integer":    true,
 	"boolean":    true,
 	"date":       true,
@@ -303,6 +308,7 @@ var ValidFieldTypes = map[string]bool{
 	"select":     true,
 	"relation":   true,
 	"json":       true,
+	"autonumber": true,
 }
 
 // ValidateFieldType verifica si el tipo de campo es válido
@@ -330,24 +336,97 @@ func UpdateColumn(c *gin.Context) {
 		return
 	}
 
-	// Construir mapa solo con campos proporcionados
+	// Fetch existing column
+	var column metadata.Column
+	if err := database.DB.Table("_hornero_columns").First(&column, "id = ?", columnID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			response.NotFoundError(c, "column")
+			return
+		}
+		response.DatabaseError(c, err, "fetching column")
+		return
+	}
+
+	// Fetch table info
+	var table metadata.Table
+	if err := database.DB.Table("_hornero_tables").First(&table, "id = ?", column.TableID).Error; err != nil {
+		response.DatabaseError(c, err, "fetching table")
+		return
+	}
+
+	safeTableName, err := ValidateTableName(table.WorkspaceID.String(), table.Slug)
+	if err != nil {
+		response.ValidationError(c, "invalid table name")
+		return
+	}
+
 	updates := make(map[string]interface{})
 	if input.Name != "" {
 		updates["name"] = input.Name
 	}
-	if input.Slug != "" {
+
+	newSlug := column.Slug
+	if input.Slug != "" && input.Slug != column.Slug {
+		if !ValidateSlug(input.Slug) {
+			response.ValidationError(c, "invalid column slug: must be lowercase alphanumeric with underscores")
+			return
+		}
+		// Physical rename column first
+		renameSQL := `ALTER TABLE "` + safeTableName + `" RENAME COLUMN "` + column.Slug + `" TO "` + input.Slug + `"`
+		if err := database.DB.Exec(renameSQL).Error; err != nil {
+			slog.Error("failed to physically rename column",
+				"error", err,
+				"column_id", columnID,
+				"user_id", userID,
+			)
+			response.DatabaseError(c, err, "renaming physical column")
+			return
+		}
+		newSlug = input.Slug
 		updates["slug"] = input.Slug
 	}
+
+	newFieldType := column.FieldType
 	if input.FieldType != "" {
-		// Validar field type
 		if !ValidateFieldType(input.FieldType) {
 			response.ValidationError(c, "invalid field_type")
 			return
 		}
+		newFieldType = input.FieldType
 		updates["field_type"] = input.FieldType
 	}
+
+	newMeta := column.Meta
 	if input.Meta != nil {
+		newMeta = input.Meta
 		updates["meta"] = input.Meta
+	}
+
+	if newFieldType == "select" && input.Meta != nil {
+		var metaMap map[string]interface{}
+		if err := json.Unmarshal(input.Meta, &metaMap); err == nil {
+			if err := validateSelectChoices(metaMap); err != nil {
+				response.ValidationError(c, err.Error())
+				return
+			}
+		}
+	}
+
+	// Physical ALTER TABLE if column SQL type changes
+	oldSQL := GetColumnSQL(column.FieldType, column.Meta)
+	targetSQL := GetColumnSQL(newFieldType, newMeta)
+
+	if targetSQL != "" && (oldSQL != targetSQL || input.FieldType != "") {
+		alterSQL := `ALTER TABLE "` + safeTableName + `" ALTER COLUMN "` + newSlug + `" TYPE ` + targetSQL + ` USING "` + newSlug + `"::` + targetSQL
+		if err := database.DB.Exec(alterSQL).Error; err != nil {
+			slog.Error("failed to physically alter column type",
+				"error", err,
+				"column_id", columnID,
+				"user_id", userID,
+			)
+			response.DatabaseError(c, err, "altering physical column type")
+			return
+		}
 	}
 
 	if len(updates) == 0 {
@@ -357,7 +436,7 @@ func UpdateColumn(c *gin.Context) {
 
 	result := database.DB.Table("_hornero_columns").Where("id = ?", columnID).Updates(updates)
 	if result.Error != nil {
-		slog.Error("failed to update column",
+		slog.Error("failed to update column metadata",
 			"error", result.Error,
 			"column_id", columnID,
 			"user_id", userID,
@@ -366,11 +445,7 @@ func UpdateColumn(c *gin.Context) {
 		return
 	}
 
-	if result.RowsAffected == 0 {
-		response.NotFoundError(c, "column")
-		return
-	}
-
+	slog.Info("column updated", "column_id", columnID, "name", column.Name, "user_id", userID)
 	response.Success(c, map[string]interface{}{"message": "column updated"})
 }
 

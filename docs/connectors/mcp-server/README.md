@@ -30,8 +30,8 @@ All operations require authentication and respect HorneroDB's granular permissio
 ### Security Features
 
 ✅ **Authentication Required** — All MCP connections must authenticate via:
-- OAuth2 flow (for user sessions)
-- API Keys (for service accounts)
+- OIDC/SSO (OAuth2 flow issuing JWT session tokens for human users)
+- API Keys (Bearer `key_...` tokens for automated services and AI agents)
 
 ✅ **Workspace Isolation** — Users can only access workspaces where they have roles
 
@@ -307,6 +307,56 @@ Delete a record.
 **Security**:
 - Requires `delete` permission on table
 - If user has `delete: "own"`, only deletes if `created_by = user_id`
+
+---
+
+### `create_column`
+Add a new column to a table and alter the underlying physical table.
+
+**Parameters**:
+```json
+{
+  "workspace_id": "uuid-of-workspace",
+  "table_slug": "customers",
+  "name": "Status",
+  "field_type": "select",
+  "meta": { "choices": [{"value": "active", "label": "Active"}] }
+}
+```
+
+*Supported field types*: `text`, `long_text`, `number`, `float`, `integer`, `boolean`, `date`, `datetime`, `email`, `url`, `attachment`, `select`, `relation`, `json`, `autonumber` (sequential ID e.g. `meta: {"prefix": "PED-", "digits": 3, "current_value": 1}`).
+
+---
+
+### `update_column`
+Update an existing column's definition, slug, field type, or metadata, and update the physical database table (`ALTER TABLE ... RENAME / ALTER COLUMN TYPE`).
+
+**Parameters**:
+```json
+{
+  "workspace_id": "uuid-of-workspace",
+  "table_slug": "customers",
+  "column_slug": "estado",
+  "name": "Estado",              // Optional
+  "new_slug": "estado_nuevo",    // Optional: renames column physically
+  "field_type": "integer",       // Optional: alters column type physically
+  "meta": {}                     // Optional: updates field metadata
+}
+```
+
+---
+
+### `delete_column`
+Delete a column and drop its physical data from the database.
+
+**Parameters**:
+```json
+{
+  "workspace_id": "uuid-of-workspace",
+  "table_slug": "customers",
+  "column_slug": "status"
+}
+```
 
 ---
 

@@ -26,11 +26,12 @@ type ToolContext struct {
 	UserID      string
 	RoleName    string
 	WorkspaceID string
+	IsAPIKey    bool
 }
 
-// IsAuthenticated returns true if the context has a valid user
+// IsAuthenticated returns true if the context has a valid user or API key
 func (tc ToolContext) IsAuthenticated() bool {
-	return tc.UserID != "" && tc.RoleName != ""
+	return (tc.UserID != "" && tc.RoleName != "") || tc.WorkspaceID != ""
 }
 
 type MCPRequest struct {
@@ -247,6 +248,23 @@ func New(dataSvc *data.Service, permSvc *permission.Service) *Server {
 				},
 			},
 			{
+				Name:        "update_column",
+				Description: "Actualiza el nombre, slug, tipo o meta de una columna existente y modifica la tabla SQL físicamente (requiere ser admin).",
+				InputSchema: InputSchema{
+					Type: "object",
+					Properties: map[string]Property{
+						"workspace_id": {Type: "string", Description: "ID del workspace"},
+						"table_slug":   {Type: "string", Description: "Slug de la tabla"},
+						"column_slug":  {Type: "string", Description: "Slug actual de la columna a modificar"},
+						"name":         {Type: "string", Description: "Nuevo nombre opcional de la columna"},
+						"new_slug":     {Type: "string", Description: "Nuevo slug opcional para renombrar la columna físicamente"},
+						"field_type":   {Type: "string", Description: "Nuevo tipo de campo opcional (ej: integer, number, text, select)"},
+						"meta":         {Type: "object", Description: "Metadatos opcionales a actualizar"},
+					},
+					Required: []string{"workspace_id", "table_slug", "column_slug"},
+				},
+			},
+			{
 				Name:        "delete_column",
 				Description: "Elimina una columna y sus datos (requiere ser admin). Irreversible.",
 				InputSchema: InputSchema{
@@ -326,6 +344,8 @@ func (s *Server) HandleRequestWithContext(ctx ToolContext, req MCPRequest) MCPRe
 			return MCPResponse{JSONRPC: "2.0", ID: req.ID, Error: &MCPError{Code: -32001, Message: "Authentication required"}}
 		}
 		return s.handleResourcesList(req)
+	case "resources/templates/list":
+		return MCPResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]interface{}{"resourceTemplates": []interface{}{}}}
 	case "resources/read":
 		if !ctx.IsAuthenticated() {
 			return MCPResponse{JSONRPC: "2.0", ID: req.ID, Error: &MCPError{Code: -32001, Message: "Authentication required"}}
@@ -415,6 +435,8 @@ func (s *Server) handleToolCallWithContext(ctx ToolContext, req MCPRequest) MCPR
 		result, err = s.mcpDeleteTable(ctx, arguments)
 	case "create_column":
 		result, err = s.mcpCreateColumn(ctx, arguments)
+	case "update_column":
+		result, err = s.mcpUpdateColumn(ctx, arguments)
 	case "delete_column":
 		result, err = s.mcpDeleteColumn(ctx, arguments)
 	case "create_role":
@@ -462,15 +484,20 @@ func (s *Server) resolveTable(ctx ToolContext, workspaceID, tableSlug, operation
 		return nil, uuid.Nil, "", errors.New("invalid table_slug format")
 	}
 
-	// Check if user has access to this workspace
-	var userRole metadata.UserRole
-	err = database.DB.Table("_hornero_user_roles").
-		Where("user_id = ? AND workspace_id = ?", ctx.UserID, workspaceID).
-		First(&userRole).Error
-	if err != nil {
-		// Check if user is a system admin or has API key access
-		if ctx.RoleName == "" {
-			return nil, uuid.Nil, "", errors.New("access denied: no role found for this workspace")
+	// Check if user or API Key has access to this workspace
+	if ctx.IsAPIKey {
+		if ctx.WorkspaceID == "" || ctx.WorkspaceID != workspaceID {
+			return nil, uuid.Nil, "", errors.New("access denied: API key is restricted to its assigned workspace")
+		}
+	} else {
+		var userRole metadata.UserRole
+		err = database.DB.Table("_hornero_user_roles").
+			Where("user_id = ? AND workspace_id = ?", ctx.UserID, workspaceID).
+			First(&userRole).Error
+		if err != nil {
+			if ctx.RoleName == "" {
+				return nil, uuid.Nil, "", errors.New("access denied: no role found for this workspace")
+			}
 		}
 	}
 
@@ -486,11 +513,15 @@ func (s *Server) resolveTable(ctx ToolContext, workspaceID, tableSlug, operation
 
 	// Check table-level permissions
 	roleName := ctx.RoleName
-	if userRole.RoleID != uuid.Nil {
-		// Get role name from role ID
-		var role metadata.Role
-		database.DB.Table("_hornero_roles").Where("id = ?", userRole.RoleID).First(&role)
-		roleName = role.Name
+	if !ctx.IsAPIKey {
+		var userRole metadata.UserRole
+		if database.DB.Table("_hornero_user_roles").
+			Where("user_id = ? AND workspace_id = ?", ctx.UserID, workspaceID).
+			First(&userRole).Error == nil && userRole.RoleID != uuid.Nil {
+			var role metadata.Role
+			database.DB.Table("_hornero_roles").Where("id = ?", userRole.RoleID).First(&role)
+			roleName = role.Name
+		}
 	}
 
 	accessLevel, err := s.permSvc.CheckTableAccess(wsID, roleName, tableSlug, operation)
@@ -510,13 +541,17 @@ func (s *Server) listWorkspaces(ctx ToolContext) (interface{}, error) {
 		return nil, errors.New("authentication required")
 	}
 
-	// Include workspaces where the user has a role OR is the owner.
-	// (Owner may not have a user_role entry if workspace was created via REST API import.)
 	var workspaces []metadata.Workspace
-	err := database.DB.Table("_hornero_workspaces").
-		Where("owner_id = ? OR id IN (SELECT workspace_id FROM _hornero_user_roles WHERE user_id = ?)",
-			ctx.UserID, ctx.UserID).
-		Find(&workspaces).Error
+	query := database.DB.Table("_hornero_workspaces")
+	if ctx.IsAPIKey {
+		// API Key is strictly bound to its assigned single WorkspaceID
+		query = query.Where("id = ?", ctx.WorkspaceID)
+	} else {
+		// SSO User — includes owned workspaces or workspaces where user has an assigned role
+		query = query.Where("owner_id = ? OR id IN (SELECT workspace_id FROM _hornero_user_roles WHERE user_id = ?)",
+			ctx.UserID, ctx.UserID)
+	}
+	err := query.Find(&workspaces).Error
 	if err != nil {
 		return nil, err
 	}
@@ -534,20 +569,21 @@ func (s *Server) listTables(ctx ToolContext, args map[string]interface{}) (inter
 		return nil, errors.New("workspace_id is required")
 	}
 
-	// Grant access if the user is the workspace owner OR has any role assigned.
+	// Grant access if the user is the workspace owner OR has any role assigned OR (for API-key auth) ctx.WorkspaceID matches.
 	// Mirrors WorkspaceAuth middleware logic so owners without a user_role entry aren't silently excluded.
 	var ws metadata.Workspace
 	if err := database.DB.Table("_hornero_workspaces").First(&ws, "id = ?", workspaceID).Error; err != nil {
 		return nil, errors.New("workspace not found")
 	}
-	if ws.OwnerID.String() != ctx.UserID {
-		var count int64
-		database.DB.Table("_hornero_user_roles").
-			Where("user_id = ? AND workspace_id = ?", ctx.UserID, workspaceID).
-			Count(&count)
-		if count == 0 {
-			return nil, errors.New("access denied: user does not have access to this workspace")
-		}
+	isOwner := ws.OwnerID.String() == ctx.UserID
+	isKeyWorkspace := ctx.WorkspaceID == workspaceID
+	var count int64
+	database.DB.Table("_hornero_user_roles").
+		Where("user_id = ? AND workspace_id = ?", ctx.UserID, workspaceID).
+		Count(&count)
+	hasRole := count > 0
+	if !isOwner && !isKeyWorkspace && !hasRole {
+		return nil, errors.New("access denied: user does not have access to this workspace")
 	}
 
 	var tables []metadata.Table

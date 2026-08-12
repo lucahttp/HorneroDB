@@ -213,3 +213,7 @@ pocketid-tree.json
 server
 main
 *.local.sh
+
+postgres-data
+.DS_Store
+*.DS_Store

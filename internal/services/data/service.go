@@ -84,12 +84,18 @@ func (s *Service) ListRecords(ctx RequestContext, limit int, offset int, expandP
 
 // CreateRecord creates a new record and dispatches webhooks
 func (s *Service) CreateRecord(ctx RequestContext, input map[string]interface{}) (map[string]interface{}, error) {
+	input = s.filterDefinedColumns(ctx.Table.ID, input)
+
 	writableColumns, _ := s.permSvc.GetColumnsForOperation(ctx.WsID, ctx.RoleName, ctx.Table.Slug, "create")
 	if writableColumns != nil {
 		input = s.filterInputColumns(input, writableColumns)
 	}
 
 	if err := s.validateTypedFields(ctx, input); err != nil {
+		return nil, err
+	}
+
+	if err := s.generateAutonumberFields(ctx.Table.ID, input); err != nil {
 		return nil, err
 	}
 
@@ -103,7 +109,7 @@ func (s *Service) CreateRecord(ctx RequestContext, input map[string]interface{})
 	}
 
 	var created map[string]interface{}
-	recordID := input["id"].(uuid.UUID).String()
+	recordID := fmt.Sprintf("%v", input["id"])
 	if err := database.DB.Table(ctx.TableName).Where("id = ?", recordID).Take(&created).Error; err == nil {
 		go workers.DispatchWebhookAsync(ctx.WsID, ctx.Table.ID, ctx.Table.Slug, "created", created)
 	}
@@ -137,6 +143,8 @@ func (s *Service) GetRecord(ctx RequestContext, recordID string) (map[string]int
 
 // UpdateRecord updates an existing record
 func (s *Service) UpdateRecord(ctx RequestContext, recordID string, input map[string]interface{}) error {
+	input = s.filterDefinedColumns(ctx.Table.ID, input)
+
 	writableColumns, _ := s.permSvc.GetColumnsForOperation(ctx.WsID, ctx.RoleName, ctx.Table.Slug, "update")
 	if writableColumns != nil {
 		input = s.filterInputColumns(input, writableColumns)
@@ -457,4 +465,92 @@ func (s *Service) filterInputColumns(input map[string]interface{}, allowedColumn
 		}
 	}
 	return filtered
+}
+
+func (s *Service) filterDefinedColumns(tableID uuid.UUID, input map[string]interface{}) map[string]interface{} {
+	cols, err := s.loadTableColumns(tableID)
+	if err != nil || len(cols) == 0 {
+		return input
+	}
+
+	validSlugs := make(map[string]bool)
+	for _, c := range cols {
+		validSlugs[c.Slug] = true
+	}
+	for _, sys := range []string{"id", "created_at", "updated_at", "created_by"} {
+		validSlugs[sys] = true
+	}
+
+	filtered := make(map[string]interface{})
+	for k, v := range input {
+		if validSlugs[k] {
+			filtered[k] = v
+		}
+	}
+	return filtered
+}
+
+func (s *Service) generateAutonumberFields(tableID uuid.UUID, input map[string]interface{}) error {
+	cols, err := s.loadTableColumns(tableID)
+	if err != nil {
+		return err
+	}
+
+	for _, col := range cols {
+		if col.FieldType != "autonumber" {
+			continue
+		}
+		val, present := input[col.Slug]
+		if !present || val == nil || val == "" {
+			autoVal, err := s.generateNextAutonumber(col.ID)
+			if err != nil {
+				return fmt.Errorf("failed to generate autonumber for %s: %v", col.Slug, err)
+			}
+			input[col.Slug] = autoVal
+		}
+	}
+	return nil
+}
+
+func (s *Service) generateNextAutonumber(colID uuid.UUID) (string, error) {
+	var formattedVal string
+	err := database.DB.Transaction(func(tx *gorm.DB) error {
+		var col metadata.Column
+		if err := tx.Table("_hornero_columns").Set("gorm:query_option", "FOR UPDATE").First(&col, "id = ?", colID).Error; err != nil {
+			return err
+		}
+
+		meta := make(map[string]interface{})
+		if len(col.Meta) > 0 {
+			_ = json.Unmarshal(col.Meta, &meta)
+		}
+
+		prefix, _ := meta["prefix"].(string)
+		suffix, _ := meta["suffix"].(string)
+		digits := 3
+		if dFloat, ok := meta["digits"].(float64); ok && dFloat >= 0 {
+			digits = int(dFloat)
+		} else if dInt, ok := meta["digits"].(int); ok && dInt >= 0 {
+			digits = dInt
+		}
+
+		currentVal := 1
+		if cFloat, ok := meta["current_value"].(float64); ok && cFloat > 0 {
+			currentVal = int(cFloat)
+		} else if cInt, ok := meta["current_value"].(int); ok && cInt > 0 {
+			currentVal = cInt
+		}
+
+		if digits > 0 {
+			formattedVal = fmt.Sprintf("%s%0*d%s", prefix, digits, currentVal, suffix)
+		} else {
+			formattedVal = fmt.Sprintf("%s%d%s", prefix, currentVal, suffix)
+		}
+
+		meta["current_value"] = currentVal + 1
+		metaBytes, _ := json.Marshal(meta)
+		return tx.Table("_hornero_columns").Where("id = ?", colID).Update("meta", metadata.JSON(metaBytes)).Error
+	})
+
+	return formattedVal, err
 }

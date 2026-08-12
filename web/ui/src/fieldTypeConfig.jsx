@@ -22,6 +22,7 @@ export const FIELD_TYPES = {
   relation: { icon: '⟲', labelKey: 'field_relation', color: '#14b8a6', inputType: 'text' },
   json: { icon: '{ }', labelKey: 'field_json', color: '#64748b', inputType: 'textarea' },
   file: { icon: <Attachment width="1em" height="1em" />, labelKey: 'field_file', color: '#78716c', inputType: 'file' },
+  autonumber: { icon: '№', labelKey: 'field_autonumber', color: '#06b6d4', inputType: 'text' },
 }
 
 /** Get config for a type — falls back to text. Label is resolved at call time via i18n. */

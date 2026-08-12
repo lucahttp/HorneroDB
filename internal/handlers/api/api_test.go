@@ -134,3 +134,28 @@ func TestGetCurrentUserNoAuth(t *testing.T) {
 		t.Errorf("Expected empty user_id, got %s", response["user_id"])
 	}
 }
+
+func TestIsValidRedirectURL(t *testing.T) {
+	allowed := []string{"localhost", "127.0.0.1", "example.com"}
+
+	tests := []struct {
+		url      string
+		expected bool
+	}{
+		{"http://localhost:5173/callback", true},
+		{"http://localhost:5174/callback", true},
+		{"http://127.0.0.1:5174/callback", true},
+		{"http://example.com/callback", true},
+		{"http://app.example.com/callback", true},
+		{"/relative/path", true},
+		{"http://malicious.com/callback", false},
+		{"https://evil.com", false},
+	}
+
+	for _, tt := range tests {
+		got := IsValidRedirectURL(tt.url, allowed)
+		if got != tt.expected {
+			t.Errorf("IsValidRedirectURL(%q) = %v; want %v", tt.url, got, tt.expected)
+		}
+	}
+}

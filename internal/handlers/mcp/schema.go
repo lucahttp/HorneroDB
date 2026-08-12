@@ -30,6 +30,17 @@ func (s *Server) isWorkspaceAdmin(ctx ToolContext, workspaceID string) (uuid.UUI
 		return uuid.Nil, errors.New("invalid workspace_id format")
 	}
 
+	// For API Keys, enforce single workspace scoping and role verification
+	if ctx.IsAPIKey {
+		if ctx.WorkspaceID == "" || ctx.WorkspaceID != workspaceID {
+			return uuid.Nil, errors.New("access denied: API key is restricted to its assigned workspace")
+		}
+		if ctx.RoleName != "admin" {
+			return uuid.Nil, fmt.Errorf("access denied: workspace admin required (your API key role: %s)", ctx.RoleName)
+		}
+		return wsID, nil
+	}
+
 	// Fetch workspace to check ownership
 	var workspace metadata.Workspace
 	if err := database.DB.Table("_hornero_workspaces").First(&workspace, "id = ?", workspaceID).Error; err != nil {
@@ -69,6 +80,10 @@ func (s *Server) isWorkspaceAdmin(ctx ToolContext, workspaceID string) (uuid.UUI
 // ---------------------------------------------------------------------------
 
 func (s *Server) createWorkspace(ctx ToolContext, args map[string]interface{}) (interface{}, error) {
+	if ctx.IsAPIKey {
+		return nil, errors.New("access denied: API keys cannot create workspaces; action reserved for SSO human users")
+	}
+
 	name, _ := args["name"].(string)
 	slug, _ := args["slug"].(string)
 	if name == "" {
@@ -333,6 +348,105 @@ func (s *Server) mcpCreateColumn(ctx ToolContext, args map[string]interface{}) (
 	return col, nil
 }
 
+func (s *Server) mcpUpdateColumn(ctx ToolContext, args map[string]interface{}) (interface{}, error) {
+	workspaceID, _ := args["workspace_id"].(string)
+	tableSlug, _ := args["table_slug"].(string)
+	columnSlug, _ := args["column_slug"].(string)
+	name, _ := args["name"].(string)
+	newSlug, _ := args["new_slug"].(string)
+	fieldType, _ := args["field_type"].(string)
+	metaRaw, hasMeta := args["meta"]
+
+	if workspaceID == "" || tableSlug == "" || columnSlug == "" {
+		return nil, errors.New("workspace_id, table_slug, and column_slug are required")
+	}
+
+	if _, err := s.isWorkspaceAdmin(ctx, workspaceID); err != nil {
+		return nil, err
+	}
+
+	var table metadata.Table
+	if err := database.DB.Table("_hornero_tables").
+		First(&table, "workspace_id = ? AND slug = ?", workspaceID, tableSlug).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("table '%s' not found", tableSlug)
+		}
+		return nil, fmt.Errorf("failed to fetch table: %v", err)
+	}
+
+	var col metadata.Column
+	if err := database.DB.Table("_hornero_columns").
+		First(&col, "table_id = ? AND slug = ?", table.ID, columnSlug).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("column '%s' not found in table", columnSlug)
+		}
+		return nil, fmt.Errorf("failed to fetch column: %v", err)
+	}
+
+	safeTableName, err := api.ValidateTableName(workspaceID, tableSlug)
+	if err != nil {
+		return nil, fmt.Errorf("invalid table reference: %v", err)
+	}
+
+	updates := make(map[string]interface{})
+	if name != "" {
+		updates["name"] = name
+	}
+
+	targetSlug := columnSlug
+	if newSlug != "" && newSlug != columnSlug {
+		if !api.ValidateSlug(newSlug) {
+			return nil, fmt.Errorf("invalid new_slug '%s': must be lowercase alphanumeric with underscores", newSlug)
+		}
+		renameSQL := `ALTER TABLE "` + safeTableName + `" RENAME COLUMN "` + columnSlug + `" TO "` + newSlug + `"`
+		if err := database.DB.Exec(renameSQL).Error; err != nil {
+			return nil, fmt.Errorf("failed to rename physical column: %v", err)
+		}
+		targetSlug = newSlug
+		updates["slug"] = newSlug
+	}
+
+	targetFieldType := col.FieldType
+	if fieldType != "" {
+		if !api.ValidateFieldType(fieldType) {
+			return nil, fmt.Errorf("invalid field_type '%s'", fieldType)
+		}
+		targetFieldType = fieldType
+		updates["field_type"] = fieldType
+	}
+
+	targetMeta := col.Meta
+	if hasMeta && metaRaw != nil {
+		metaBytes, err := json.Marshal(metaRaw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid meta payload: %v", err)
+		}
+		targetMeta = metadata.JSON(metaBytes)
+		updates["meta"] = targetMeta
+	}
+
+	oldSQL := api.GetColumnSQL(col.FieldType, col.Meta)
+	targetSQL := api.GetColumnSQL(targetFieldType, targetMeta)
+
+	if targetSQL != "" && (oldSQL != targetSQL || fieldType != "") {
+		alterSQL := `ALTER TABLE "` + safeTableName + `" ALTER COLUMN "` + targetSlug + `" TYPE ` + targetSQL + ` USING "` + targetSlug + `"::` + targetSQL
+		if err := database.DB.Exec(alterSQL).Error; err != nil {
+			return nil, fmt.Errorf("failed to alter physical column type: %v", err)
+		}
+	}
+
+	if len(updates) == 0 {
+		return nil, errors.New("no fields to update")
+	}
+
+	if err := database.DB.Table("_hornero_columns").Where("id = ?", col.ID).Updates(updates).Error; err != nil {
+		return nil, fmt.Errorf("failed to update column metadata: %v", err)
+	}
+
+	slog.Info("mcp: column updated", "column_id", col.ID, "user_id", ctx.UserID)
+	return map[string]interface{}{"message": "column updated", "column_slug": targetSlug}, nil
+}
+
 func (s *Server) mcpDeleteColumn(ctx ToolContext, args map[string]interface{}) (interface{}, error) {
 	workspaceID, _ := args["workspace_id"].(string)
 	tableSlug, _ := args["table_slug"].(string)
@@ -390,6 +504,10 @@ func (s *Server) mcpDeleteColumn(ctx ToolContext, args map[string]interface{}) (
 // ---------------------------------------------------------------------------
 
 func (s *Server) mcpCreateRole(ctx ToolContext, args map[string]interface{}) (interface{}, error) {
+	if ctx.IsAPIKey {
+		return nil, errors.New("access denied: API keys cannot manage roles or security policies")
+	}
+
 	workspaceID, _ := args["workspace_id"].(string)
 	name, _ := args["name"].(string)
 	description, _ := args["description"].(string)
@@ -424,6 +542,10 @@ func (s *Server) mcpCreateRole(ctx ToolContext, args map[string]interface{}) (in
 }
 
 func (s *Server) mcpDeleteRole(ctx ToolContext, args map[string]interface{}) (interface{}, error) {
+	if ctx.IsAPIKey {
+		return nil, errors.New("access denied: API keys cannot manage roles or security policies")
+	}
+
 	workspaceID, _ := args["workspace_id"].(string)
 	roleName, _ := args["role_name"].(string)
 
@@ -592,6 +714,10 @@ func extractHost(u string) string {
 // table_slug can be "*" to apply to all tables.
 // permissions is an object like: { "create": "all", "read": "own", "update": "none", "delete": "none" }
 func (s *Server) mcpSetRolePermissions(ctx ToolContext, args map[string]interface{}) (interface{}, error) {
+	if ctx.IsAPIKey {
+		return nil, errors.New("access denied: API keys cannot manage roles or security policies")
+	}
+
 	workspaceID, _ := args["workspace_id"].(string)
 	roleName, _ := args["role_name"].(string)
 	tableSlug, _ := args["table_slug"].(string)

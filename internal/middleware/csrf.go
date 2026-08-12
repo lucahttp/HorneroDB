@@ -18,6 +18,13 @@ func CSRFProtection(allowedOrigins []string) gin.HandlerFunc {
 			return
 		}
 
+		// Skip CSRF protection for MCP and OAuth endpoints (they use Bearer tokens/OAuth, not cookies)
+		path := c.Request.URL.Path
+		if strings.HasPrefix(path, "/api/v1/mcp/") || strings.HasPrefix(path, "/.well-known/") {
+			c.Next()
+			return
+		}
+
 		// Skip CSRF protection for API Key authentication
 		// API Keys are not susceptible to CSRF as they are not automatically attached like cookies
 		authHeader := c.Request.Header.Get("Authorization")

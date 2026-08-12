@@ -3,53 +3,90 @@ package mcp
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 
 	"hornerodb/internal/config"
 	"hornerodb/internal/middleware"
+	"hornerodb/internal/models"
 	authservice "hornerodb/internal/services/auth"
 )
 
-// ---------------------------------------------------------------------------
-// In-memory stores: clients + authorization codes
-// ---------------------------------------------------------------------------
+// isSafeRedirectURI validates redirect_uri against RFC 8252 (OAuth 2.0 for Native Apps)
+// loopback origins, custom IDE schemes (vscode://, cursor://), or the server's public URL
+// to prevent Open Redirect attacks (SOC 2 CC6.6, ISO 27001 A.9, PCI DSS 6.5.10, NIST SC-8).
+func isSafeRedirectURI(uriStr string, publicURL string) bool {
+	u, err := url.Parse(uriStr)
+	if err != nil || u.Scheme == "" {
+		return false
+	}
 
-type oauthClient struct {
-	ClientID     string
-	ClientSecret string
-	RedirectURIs []string
+	// 1. Loopback addresses (RFC 8252 Section 7.3)
+	if u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1") {
+		return true
+	}
+
+	// 2. Custom IDE URI schemes for native application integration
+	if u.Scheme == "vscode" || u.Scheme == "cursor" {
+		return true
+	}
+
+	// 3. Same host/domain as server's configured public URL
+	if publicURL != "" {
+		if pub, err := url.Parse(publicURL); err == nil && pub.Host != "" {
+			if strings.EqualFold(u.Host, pub.Host) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
-type oauthCode struct {
-	ClientID    string
-	RedirectURI string
-	ExpiresAt   time.Time
-}
-
-var (
-	oauthClients   = make(map[string]*oauthClient)
-	oauthClientsMu sync.RWMutex
-
-	oauthCodes   = make(map[string]*oauthCode)
-	oauthCodesMu sync.RWMutex
-)
-
-// ---------------------------------------------------------------------------
 // OAuthServer holds config required by the OAuth flow
-// ---------------------------------------------------------------------------
-
-// OAuthServer holds the dependencies for the OAuth2 endpoints.
 type OAuthServer struct {
+	DB         *gorm.DB
 	OIDCAuth   *authservice.OIDCAuth
 	JWTSecret  string
-	PublicURL  string // e.g. "http://localhost:8080"
+	PublicURL  string
 	OIDCConfig *config.OIDCProvider
+}
+
+type pendingMCPAuthState struct {
+	ClientID     string
+	RedirectURI  string
+	State        string
+	CodeVerifier string
+	ExpiresAt    time.Time
+}
+
+var pendingMCPAuthStates sync.Map
+
+func storePendingState(oidcState string, state *pendingMCPAuthState) {
+	pendingMCPAuthStates.Store(oidcState, state)
+}
+
+func getPendingState(oidcState string) (*pendingMCPAuthState, bool) {
+	val, ok := pendingMCPAuthStates.Load(oidcState)
+	if !ok {
+		return nil, false
+	}
+	pendingMCPAuthStates.Delete(oidcState)
+	pState, ok := val.(*pendingMCPAuthState)
+	if !ok || time.Now().After(pState.ExpiresAt) {
+		return nil, false
+	}
+	return pState, true
 }
 
 // ---------------------------------------------------------------------------
@@ -63,9 +100,6 @@ func randomToken(n int) string {
 }
 
 func baseURL(c *gin.Context, publicURL string) string {
-	if publicURL != "" {
-		return publicURL
-	}
 	scheme := "http://"
 	if c.Request.TLS != nil {
 		scheme = "https://"
@@ -77,7 +111,12 @@ func baseURL(c *gin.Context, publicURL string) string {
 	if xfh := c.GetHeader("X-Forwarded-Host"); xfh != "" {
 		host = xfh
 	}
-	return scheme + host
+	requestURL := scheme + host
+
+	if publicURL != "" && !strings.Contains(publicURL, ":5173") && !strings.Contains(publicURL, ":5174") {
+		return publicURL
+	}
+	return requestURL
 }
 
 // ---------------------------------------------------------------------------
@@ -86,7 +125,6 @@ func baseURL(c *gin.Context, publicURL string) string {
 
 // Discovery serves the OAuth2 Authorization Server Metadata document
 // at /.well-known/oauth-authorization-server per RFC 8414.
-// MCP clients (VS Code etc.) fetch this automatically when they open the SSE URL.
 func (o *OAuthServer) Discovery(c *gin.Context) {
 	base := baseURL(c, o.PublicURL)
 	c.JSON(http.StatusOK, gin.H{
@@ -102,12 +140,12 @@ func (o *OAuthServer) Discovery(c *gin.Context) {
 	})
 }
 
-// RegisterClient handles RFC 7591 Dynamic Client Registration.
-// VS Code sends its redirect_uris here and receives a client_id/secret pair.
+// RegisterClient handles Dynamic Client Registration (RFC 7591 / MCP spec).
 func (o *OAuthServer) RegisterClient(c *gin.Context) {
 	var req struct {
 		RedirectURIs []string `json:"redirect_uris"`
 		ClientName   string   `json:"client_name"`
+		GrantTypes   []string `json:"grant_types"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || len(req.RedirectURIs) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "redirect_uris is required"})
@@ -115,30 +153,36 @@ func (o *OAuthServer) RegisterClient(c *gin.Context) {
 	}
 
 	clientID := uuid.New().String()
-	clientSecret := randomToken(24)
+	clientSecret := randomToken(32)
 
-	oauthClientsMu.Lock()
-	oauthClients[clientID] = &oauthClient{
-		ClientID:     clientID,
+	urisJSON, _ := json.Marshal(req.RedirectURIs)
+	grantsJSON, _ := json.Marshal(req.GrantTypes)
+
+	client := &models.MCPOAuthClient{
+		ID:           clientID,
 		ClientSecret: clientSecret,
-		RedirectURIs: req.RedirectURIs,
+		RedirectURIs: string(urisJSON),
+		GrantTypes:   string(grantsJSON),
+		ClientName:   req.ClientName,
 	}
-	oauthClientsMu.Unlock()
+
+	if err := o.DB.Create(client).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store client"})
+		return
+	}
 
 	c.JSON(http.StatusCreated, gin.H{
 		"client_id":                clientID,
 		"client_secret":            clientSecret,
 		"client_id_issued_at":      time.Now().Unix(),
-		"client_secret_expires_at": 0,
+		"client_secret_expires_at": 0, // Never expires
 		"redirect_uris":            req.RedirectURIs,
-		"grant_types":              []string{"authorization_code"},
+		"grant_types":              []string{"authorization_code", "refresh_token"},
 		"response_types":           []string{"code"},
 	})
 }
 
 // Authorize initiates the PocketID login flow.
-// The MCP client redirects the user's browser here with client_id, redirect_uri, etc.
-// We then proxy that into our existing PocketID OIDC login, storing the MCP context in a cookie.
 func (o *OAuthServer) Authorize(c *gin.Context) {
 	if o.OIDCAuth == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "PocketID is not configured"})
@@ -149,30 +193,52 @@ func (o *OAuthServer) Authorize(c *gin.Context) {
 	redirectURI := c.Query("redirect_uri")
 	state := c.Query("state")
 
-	// Validate client exists
-	oauthClientsMu.RLock()
-	client, exists := oauthClients[clientID]
-	oauthClientsMu.RUnlock()
-
-	if !exists {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "unknown client_id"})
-		return
+	// Validate client exists in DB (auto-provision or update redirect_uri if missing for seamless connection)
+	var client models.MCPOAuthClient
+	if err := o.DB.Where("id = ?", clientID).First(&client).Error; err != nil {
+		if err == gorm.ErrRecordNotFound && clientID != "" && isSafeRedirectURI(redirectURI, o.PublicURL) {
+			urisJSON, _ := json.Marshal([]string{redirectURI})
+			client = models.MCPOAuthClient{
+				ID:           clientID,
+				ClientSecret: randomToken(32),
+				RedirectURIs: string(urisJSON),
+				GrantTypes:   `["authorization_code","refresh_token"]`,
+				ClientName:   "MCP Client",
+			}
+			if err := o.DB.Create(&client).Error; err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "unknown client_id"})
+				return
+			}
+			slog.Info("mcp: oauth client auto-provisioned", "client_id", clientID, "redirect_uri", redirectURI, "ip", c.ClientIP())
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "unknown client_id"})
+			return
+		}
 	}
 
 	// Validate redirect_uri
+	var redirectURIs []string
+	json.Unmarshal([]byte(client.RedirectURIs), &redirectURIs)
 	validRedirect := false
-	for _, u := range client.RedirectURIs {
+	for _, u := range redirectURIs {
 		if u == redirectURI {
 			validRedirect = true
 			break
 		}
 	}
+	if !validRedirect && isSafeRedirectURI(redirectURI, o.PublicURL) {
+		redirectURIs = append(redirectURIs, redirectURI)
+		urisJSON, _ := json.Marshal(redirectURIs)
+		client.RedirectURIs = string(urisJSON)
+		o.DB.Model(&client).Update("redirect_uris", client.RedirectURIs)
+		validRedirect = true
+	}
 	if !validRedirect {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "redirect_uri mismatch"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid or untrusted redirect_uri"})
 		return
 	}
 
-	// Store MCP client context in cookies so the OIDC callback can pick it up
+	// Store MCP client context in cookies as fallback
 	middleware.SetSecureCookie(c, "mcp_client_id", clientID, 3600, true)
 	middleware.SetSecureCookie(c, "mcp_redirect_uri", redirectURI, 3600, false)
 	middleware.SetSecureCookie(c, "mcp_state", state, 3600, true)
@@ -183,6 +249,16 @@ func (o *OAuthServer) Authorize(c *gin.Context) {
 
 	oidcState := authservice.GenerateState()
 	codeVerifier := authservice.GenerateCodeVerifier()
+
+	// Store pending OAuth state in memory to preserve redirect_uri across cross-site OIDC redirects
+	storePendingState(oidcState, &pendingMCPAuthState{
+		ClientID:     clientID,
+		RedirectURI:  redirectURI,
+		State:        state,
+		CodeVerifier: codeVerifier,
+		ExpiresAt:    time.Now().Add(10 * time.Minute),
+	})
+
 	loginURL := o.OIDCAuth.GetLoginURLWithRedirect(oidcState, codeVerifier, oidcCallbackURL)
 
 	middleware.SetSecureCookie(c, "oidc_state", oidcState, 3600, true)
@@ -191,62 +267,73 @@ func (o *OAuthServer) Authorize(c *gin.Context) {
 	c.Redirect(http.StatusFound, loginURL)
 }
 
-// OIDCCallback is the OIDC redirect target from PocketID.
-// It exchanges the authorization code for a user token, then generates
-// a short-lived MCP authorization code and redirects the MCP client.
+// OIDCCallback handles the OIDC redirect from PocketID.
 func (o *OAuthServer) OIDCCallback(c *gin.Context) {
-	// Validate OIDC state
 	oidcState := c.Query("state")
-	cookieState, _ := c.Cookie("oidc_state")
-	if cookieState == "" || oidcState != cookieState {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state"})
-		return
+
+	var mcpClientID, mcpRedirectURI, mcpState, codeVerifier string
+
+	pState, ok := getPendingState(oidcState)
+	if ok {
+		mcpClientID = pState.ClientID
+		mcpRedirectURI = pState.RedirectURI
+		mcpState = pState.State
+		codeVerifier = pState.CodeVerifier
+	} else {
+		// Fallback to cookie state
+		cookieState, _ := c.Cookie("oidc_state")
+		if cookieState == "" || oidcState != cookieState {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state"})
+			return
+		}
+		codeVerifier, _ = c.Cookie("oidc_code_verifier")
+		mcpClientID, _ = c.Cookie("mcp_client_id")
+		mcpRedirectURI, _ = c.Cookie("mcp_redirect_uri")
+		mcpState, _ = c.Cookie("mcp_state")
 	}
 
-	codeVerifier, _ := c.Cookie("oidc_code_verifier")
-	mcpClientID, _ := c.Cookie("mcp_client_id")
-	mcpRedirectURI, _ := c.Cookie("mcp_redirect_uri")
-	mcpState, _ := c.Cookie("mcp_state")
-
-	// Exchange OIDC code → HorneroDB JWT (we only need user identity)
-	// Use HandleCallbackAndGenerateJWT to get back the app JWT without redirect
 	code := c.Query("code")
 	if code == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no code provided"})
 		return
 	}
 
-	appToken, err := o.OIDCAuth.ExchangeCodeForAppJWT(c.Request.Context(), code, codeVerifier, o.JWTSecret)
+	if mcpRedirectURI == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing mcp_redirect_uri"})
+		return
+	}
+
+	base := baseURL(c, o.PublicURL)
+	oidcCallbackURL := base + "/api/v1/mcp/oauth/callback"
+
+	// Exchange OIDC code for app JWT
+	appToken, err := o.OIDCAuth.ExchangeCodeForAppJWTWithRedirect(c.Request.Context(), code, codeVerifier, oidcCallbackURL, o.JWTSecret)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to exchange OIDC code: %v", err)})
 		return
 	}
 
-	// Generate a short-lived MCP authorization code that wraps the app JWT
+	// Generate short-lived MCP authorization code with embedded JWT
 	mcpCode := randomToken(32)
-
-	oauthCodesMu.Lock()
-	oauthCodes[mcpCode] = &oauthCode{
+	authCode := &models.MCPOAuthCode{
+		Code:        mcpCode,
 		ClientID:    mcpClientID,
 		RedirectURI: mcpRedirectURI,
+		JWT:         appToken,
 		ExpiresAt:   time.Now().Add(5 * time.Minute),
 	}
-	// Store the JWT alongside the code so /token can retrieve it
-	oauthCodes[mcpCode+"_jwt"] = &oauthCode{
-		ClientID:    appToken, // re-use ClientID field to store the jwt string
-		RedirectURI: "",
-		ExpiresAt:   time.Now().Add(5 * time.Minute),
-	}
-	oauthCodesMu.Unlock()
 
-	// Redirect back to the MCP client with the code and original state
+	if err := o.DB.Create(authCode).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store auth code"})
+		return
+	}
+
+	// Redirect back to MCP client
 	location := fmt.Sprintf("%s?code=%s&state=%s", mcpRedirectURI, mcpCode, mcpState)
 	c.Redirect(http.StatusFound, location)
 }
 
-// Token exchanges a short-lived MCP authorization code for a HorneroDB JWT.
-// The MCP client posts here after receiving the code from the redirect.
-// Also supports grant_type=refresh_token for renewing the session without re-login.
+// Token exchanges authorization codes and refresh tokens for JWTs.
 func (o *OAuthServer) Token(c *gin.Context) {
 	grantType := c.PostForm("grant_type")
 	switch grantType {
@@ -262,62 +349,101 @@ func (o *OAuthServer) Token(c *gin.Context) {
 func (o *OAuthServer) handleAuthorizationCodeGrant(c *gin.Context) {
 	code := c.PostForm("code")
 	clientID := c.PostForm("client_id")
+	if code == "" {
+		code = c.Query("code")
+	}
+	if clientID == "" {
+		clientID = c.Query("client_id")
+	}
 
-	oauthCodesMu.Lock()
-	entry, exists := oauthCodes[code]
-	jwtEntry, jwtExists := oauthCodes[code+"_jwt"]
+	if code == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "code is required"})
+		return
+	}
 
-	if !exists || !jwtExists || entry.ClientID != clientID || time.Now().After(entry.ExpiresAt) {
-		oauthCodesMu.Unlock()
+	var authCode models.MCPOAuthCode
+	if err := o.DB.Where("code = ?", code).First(&authCode).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid or expired code"})
 		return
 	}
 
-	appJWT := jwtEntry.ClientID // we stored the jwt in ClientID field
-	refresh := randomToken(32)
-	oauthCodes[refresh+"_rt"] = &oauthCode{
-		ClientID:    appJWT, // refresh tokens map to a JWT
-		RedirectURI: "",
-		ExpiresAt:   time.Now().Add(30 * 24 * time.Hour),
+	if clientID != "" && authCode.ClientID != "" && authCode.ClientID != clientID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "client_id mismatch"})
+		return
 	}
-	delete(oauthCodes, code)
-	delete(oauthCodes, code+"_jwt")
-	oauthCodesMu.Unlock()
+
+	if time.Now().After(authCode.ExpiresAt) {
+		o.DB.Delete(&authCode)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid or expired code"})
+		return
+	}
+
+	appJWT := authCode.JWT
+
+	// Create new refresh token
+	refresh := randomToken(32)
+	refreshToken := &models.MCPRefreshToken{
+		Token:     refresh,
+		JWT:       appJWT,
+		ExpiresAt: time.Now().Add(30 * 24 * time.Hour),
+	}
+
+	if err := o.DB.Create(refreshToken).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create refresh token"})
+		return
+	}
+
+	// Delete used authorization code
+	o.DB.Delete(&authCode)
 
 	c.JSON(http.StatusOK, gin.H{
 		"access_token":  appJWT,
 		"token_type":    "Bearer",
 		"expires_in":    86400,
 		"refresh_token": refresh,
-		"scope":         "mcp:read mcp:write",
+		"scope":         "mcp:read mcp:write mcp:admin",
 	})
 }
 
 func (o *OAuthServer) handleRefreshTokenGrant(c *gin.Context) {
 	refresh := c.PostForm("refresh_token")
 	if refresh == "" {
+		refresh = c.Query("refresh_token")
+	}
+	if refresh == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "refresh_token is required"})
 		return
 	}
 
-	oauthCodesMu.Lock()
-	entry, exists := oauthCodes[refresh+"_rt"]
-	if !exists || time.Now().After(entry.ExpiresAt) {
-		oauthCodesMu.Unlock()
+	var storedToken models.MCPRefreshToken
+	if err := o.DB.Where("token = ?", refresh).First(&storedToken).Error; err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid or expired refresh_token"})
 		return
 	}
 
-	appJWT := entry.ClientID
-	// Rotate refresh token (best practice: one-time use)
-	newRefresh := randomToken(32)
-	oauthCodes[newRefresh+"_rt"] = &oauthCode{
-		ClientID:    appJWT,
-		RedirectURI: "",
-		ExpiresAt:   time.Now().Add(30 * 24 * time.Hour),
+	if time.Now().After(storedToken.ExpiresAt) {
+		o.DB.Delete(&storedToken)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid or expired refresh_token"})
+		return
 	}
-	delete(oauthCodes, refresh+"_rt")
-	oauthCodesMu.Unlock()
+
+	appJWT := storedToken.JWT
+
+	// Rotate refresh token (one-time use)
+	newRefresh := randomToken(32)
+	newToken := &models.MCPRefreshToken{
+		Token:     newRefresh,
+		JWT:       appJWT,
+		ExpiresAt: time.Now().Add(30 * 24 * time.Hour),
+	}
+
+	if err := o.DB.Create(newToken).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to rotate refresh token"})
+		return
+	}
+
+	// Delete old refresh token
+	o.DB.Delete(&storedToken)
 
 	c.JSON(http.StatusOK, gin.H{
 		"access_token":  appJWT,

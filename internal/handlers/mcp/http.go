@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 )
 
+// DEPRECATED: SSE transport (HandleSSE, HandleMessage) — removed per spec 2026-07-28
 // SSEMCPClient holds the connection state for an HTTP SSE MCP client
 type SSEMCPClient struct {
 	SessionID string

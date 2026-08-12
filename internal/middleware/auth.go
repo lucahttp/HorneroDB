@@ -48,6 +48,10 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
+// AuthRequired enforces authentication for HorneroDB endpoints.
+// HorneroDB supports exactly TWO authentication methods:
+// 1. OIDC/SSO (human users via OIDC identity providers, validated via signed JWT session token or userinfo)
+// 2. API Keys (programmatic and AI agent access via SHA-256 hashed Bearer key_... tokens)
 func AuthRequired(secret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.Request.Method == "OPTIONS" {
