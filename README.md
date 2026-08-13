@@ -226,14 +226,27 @@ JWT_SECRET=your-super-secret-random-string-min-32-chars
 
 ---
 
+### Supported Data Types
+
+HorneroDB supports rich column data types mapped directly to PostgreSQL:
+* **Text / Long Text**: `VARCHAR(255)` / `TEXT`
+* **Numeric**: `NUMERIC` (number/financial), `INTEGER` (integers), `DOUBLE PRECISION` (float)
+* **Boolean & Dates**: `BOOLEAN`, `DATE`, `TIMESTAMPTZ`
+* **Web & Meta**: `VARCHAR(255)` (email), `VARCHAR(500)` (url), `JSONB` (json/attachments)
+* **Relations & Selects**: `UUID` / `UUID[]` (relations), `VARCHAR(100)` / `VARCHAR(100)[]` (select choices)
+* **Auto-Number / Auto-Sequence (`autonumber`)**: Atomic, thread-safe sequence IDs (`VARCHAR(255)`) with custom formatting (e.g., `PED-001`, `CMD-0042`, or plain numbers `1, 2, 3...`).
+
+---
+
 ## 🗺 Roadmap
 
 * [x] Full REST API (30+ endpoints)
 * [x] OIDC Auth & RBAC Permissions
-* [x] Nice style UI
+* [x] Nice style UI (Spreadsheet table view)
 * [x] Granular column-level permissions
+* [x] Auto-number / Auto-increment sequential fields (`autonumber`)
 * [x] API key rate limiting & domain restrictions
-* [x] MCP Server for AI Assistants (with full security)
+* [x] MCP Server for AI Assistants (with full security & OAuth auto-provisioning)
 * [x] Webhooks with Outbox Pattern (reliable delivery)
 * [ ] (WIP) Table Relations UI
 * [ ] Advanced Filters and Search
@@ -471,14 +484,27 @@ JWT_SECRET=tu-string-super-secreto-aleatorio-min-32-caracteres
 
 ---
 
+### Tipos de Datos Soportados
+
+HorneroDB soporta tipos de datos ricos mapeados directamente a PostgreSQL:
+* **Texto / Texto Largo**: `VARCHAR(255)` / `TEXT`
+* **Numéricos**: `NUMERIC` (números/financieros), `INTEGER` (enteros), `DOUBLE PRECISION` (decimales/float)
+* **Booleanos y Fechas**: `BOOLEAN`, `DATE`, `TIMESTAMPTZ`
+* **Web y Metadatos**: `VARCHAR(255)` (email), `VARCHAR(500)` (url), `JSONB` (json/archivos)
+* **Relaciones y Selecciones**: `UUID` / `UUID[]` (relaciones), `VARCHAR(100)` / `VARCHAR(100)[]` (opciones select)
+* **Auto-Secuencial / ID (`autonumber`)**: IDs secuenciales atómicos y thread-safe (`VARCHAR(255)`) con formato configurable (ej.: `PED-001`, `CMD-0042`, o números simples `1, 2, 3...`).
+
+---
+
 ## 🗺 Hoja de Ruta (Roadmap)
 
 * [x] API REST completa (más de 30 endpoints)
 * [x] Autenticación OIDC y permisos RBAC
-* [x] UI con estilo moderno
-* [x] Permisos granulares a nivel de columna
+* [x] UI estilo planilla con edición inline y vista previa
+* [x] Permisos granulares a nivel de columna y fila
+* [x] Campos auto-secuenciales / auto-incrementales (`autonumber`)
 * [x] Rate limiting de API keys y restricciones de dominio
-* [x] Servidor MCP para asistentes de IA (con seguridad total)
+* [x] Servidor MCP para asistentes de IA (con seguridad total y auto-provisionamiento OAuth)
 * [x] Webhooks con Outbox Pattern (entrega confiable)
 * [ ] (WIP) UI de relaciones entre tablas
 * [ ] Filtros y búsqueda avanzada
