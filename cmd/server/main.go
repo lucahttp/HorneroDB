@@ -118,8 +118,14 @@ func main() {
 			return
 		}
 
-		// Skip check for MCP and OAuth discovery routes (MCP handles auth per spec/Bearer token)
+		// Skip check for non-API routes (static UI assets, index.html, etc.)
 		path := c.Request.URL.Path
+		if !strings.HasPrefix(path, "/api/") {
+			c.Next()
+			return
+		}
+
+		// Skip check for MCP and OAuth discovery routes (MCP handles auth per spec/Bearer token)
 		if strings.HasPrefix(path, "/api/v1/mcp/") || strings.HasPrefix(path, "/.well-known/") {
 			c.Next()
 			return
