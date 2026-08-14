@@ -16,29 +16,32 @@ func NewProtectedResourceHandler(publicURL string) *ProtectedResourceHandler {
 }
 
 func (h *ProtectedResourceHandler) baseURL(c *gin.Context) string {
-	scheme := "http://"
-	if c.Request.TLS != nil {
-		scheme = "https://"
+	if h.PublicURL != "" && !strings.Contains(h.PublicURL, ":5173") && !strings.Contains(h.PublicURL, ":5174") {
+		return strings.TrimSuffix(h.PublicURL, "/")
 	}
-	if xfp := c.GetHeader("X-Forwarded-Proto"); xfp != "" {
-		scheme = xfp + "://"
+
+	scheme := "http://"
+	if c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https") {
+		scheme = "https://"
 	}
 	host := c.Request.Host
 	if xfh := c.GetHeader("X-Forwarded-Host"); xfh != "" {
 		host = xfh
 	}
-	requestURL := scheme + host
-
-	if h.PublicURL != "" && !strings.Contains(h.PublicURL, ":5173") && !strings.Contains(h.PublicURL, ":5174") {
-		return h.PublicURL
-	}
-	return requestURL
+	return scheme + host
 }
 
 func (h *ProtectedResourceHandler) Discovery(c *gin.Context) {
 	base := h.baseURL(c)
+	reqPath := c.Param("path")
+	if reqPath == "" {
+		reqPath = "/api/v1/mcp"
+	} else if !strings.HasPrefix(reqPath, "/") {
+		reqPath = "/" + reqPath
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"resource":                               base + "/api/v1/mcp",
+		"resource":                               base + reqPath,
 		"authorization_servers":                  []string{base},
 		"scopes_supported":                       []string{"mcp:read", "mcp:write", "mcp:admin"},
 		"bearer_methods_supported":               []string{"header"},

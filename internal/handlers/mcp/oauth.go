@@ -100,23 +100,19 @@ func randomToken(n int) string {
 }
 
 func baseURL(c *gin.Context, publicURL string) string {
-	scheme := "http://"
-	if c.Request.TLS != nil {
-		scheme = "https://"
+	if publicURL != "" && !strings.Contains(publicURL, ":5173") && !strings.Contains(publicURL, ":5174") {
+		return strings.TrimSuffix(publicURL, "/")
 	}
-	if xfp := c.GetHeader("X-Forwarded-Proto"); xfp != "" {
-		scheme = xfp + "://"
+
+	scheme := "http://"
+	if c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https") {
+		scheme = "https://"
 	}
 	host := c.Request.Host
 	if xfh := c.GetHeader("X-Forwarded-Host"); xfh != "" {
 		host = xfh
 	}
-	requestURL := scheme + host
-
-	if publicURL != "" && !strings.Contains(publicURL, ":5173") && !strings.Contains(publicURL, ":5174") {
-		return publicURL
-	}
-	return requestURL
+	return scheme + host
 }
 
 // ---------------------------------------------------------------------------

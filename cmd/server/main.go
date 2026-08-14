@@ -324,8 +324,11 @@ func main() {
 		// endpoint can also reach it. Here we just register the protected routes.
 
 		// RFC 9728: Add WWW-Authenticate header on 401 for MCP resources
-		// Streamable HTTP transport (MCP 2025-03-26) — preferred by Copilot Studio
+		// Streamable HTTP transport (MCP 2025-03-26) — preferred by Copilot Studio / Claude Code
 		protected.POST("/mcp/stream", mcp.ProtectedResourceHeader(cfg.Server.PublicURL), mcpServer.HandleStreamable)
+		protected.GET("/mcp/stream", mcp.ProtectedResourceHeader(cfg.Server.PublicURL), mcpServer.HandleStreamable)
+		protected.POST("/mcp", mcp.ProtectedResourceHeader(cfg.Server.PublicURL), mcpServer.HandleStreamable)
+		protected.GET("/mcp", mcp.ProtectedResourceHeader(cfg.Server.PublicURL), mcpServer.HandleStreamable)
 	}
 
 	// === MCP OpenAPI schema (public, for Power Apps custom connector import) ===
