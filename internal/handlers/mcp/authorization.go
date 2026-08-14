@@ -16,17 +16,18 @@ func NewProtectedResourceHandler(publicURL string) *ProtectedResourceHandler {
 }
 
 func (h *ProtectedResourceHandler) baseURL(c *gin.Context) string {
-	if h.PublicURL != "" && !strings.Contains(h.PublicURL, ":5173") && !strings.Contains(h.PublicURL, ":5174") {
+	if h.PublicURL != "" && strings.HasPrefix(h.PublicURL, "https://") {
 		return strings.TrimSuffix(h.PublicURL, "/")
 	}
 
-	scheme := "http://"
-	if c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https") {
-		scheme = "https://"
-	}
 	host := c.Request.Host
 	if xfh := c.GetHeader("X-Forwarded-Host"); xfh != "" {
 		host = xfh
+	}
+
+	scheme := "http://"
+	if c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https") || !strings.Contains(host, "localhost") && !strings.Contains(host, "127.0.0.1") {
+		scheme = "https://"
 	}
 	return scheme + host
 }
