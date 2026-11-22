@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"log/slog"
 
 	"hornerodb/internal/query"
@@ -18,8 +19,17 @@ func ListRecords(c *gin.Context) {
 		return
 	}
 
-	params := query.ExtractPaginationParams(c)
-	expandParam := c.Query("expand")
+	allowedColumns, _ := permService.GetColumnsForOperation(ctx.WsID, ctx.RoleName, ctx.Table.Slug, "read")
+
+	odataQuery, err := query.ParseODataQuery(c.Request.URL.Query(), allowedColumns)
+	if err != nil {
+		if errors.Is(err, query.ErrColumnAccessDenied) {
+			response.Error(c, 403, response.ErrForbidden, err.Error())
+			return
+		}
+		response.ValidationError(c, err.Error())
+		return
+	}
 
 	reqCtx := data.RequestContext{
 		WsID:        ctx.WsID,
@@ -30,7 +40,7 @@ func ListRecords(c *gin.Context) {
 		AccessLevel: ctx.AccessLevel,
 	}
 
-	records, count, err := dataService.ListRecords(reqCtx, params.Limit, params.Offset, expandParam)
+	records, count, err := dataService.ListRecords(reqCtx, odataQuery)
 	if err != nil {
 		slog.Error("failed to fetch records", "error", err, "table_slug", c.Param("table_slug"), "user_id", ctx.UserID)
 		response.DatabaseError(c, err, "fetching records")

@@ -175,6 +175,16 @@ Example secure MCP usage:
 }
 ```
 
+### OData Query Support (Dataverse-style Filtering)
+
+HorneroDB natively supports Microsoft OData query options (`$filter`, `$orderby`, `$select`, `$top`, `$skip`, `$expand`):
+
+- **Filtering**: `GET /api/v1/workspaces/{ws}/data/{table}?$filter=comanda_id eq 'c-123' and status eq 'ready'`
+- **Functions**: `GET /api/v1/workspaces/{ws}/data/{table}?$filter=contains(name, 'pizza') or startswith(name, 'Emp')`
+- **Sorting**: `GET /api/v1/workspaces/{ws}/data/{table}?$orderby=created_at desc, price asc`
+- **Selection**: `GET /api/v1/workspaces/{ws}/data/{table}?$select=id,name,price`
+- **Security**: Column-Level Security (CLS) strictly whitelists permitted columns prior to SQL execution, preventing blind data inference.
+
 ---
 
 ## ⚙️ Security Configuration
@@ -432,6 +442,16 @@ Ejemplo de uso seguro de MCP:
   // Filtrado automáticamente por los permisos del usuario
 }
 ```
+
+### Soporte de Consultas OData (Filtros estilo Dataverse)
+
+HorneroDB soporta nativamente opciones de consulta OData de Microsoft (`$filter`, `$orderby`, `$select`, `$top`, `$skip`, `$expand`):
+
+- **Filtros**: `GET /api/v1/workspaces/{ws}/data/{table}?$filter=comanda_id eq 'c-123' and status eq 'ready'`
+- **Funciones**: `GET /api/v1/workspaces/{ws}/data/{table}?$filter=contains(name, 'pizza') or startswith(name, 'Emp')`
+- **Ordenamiento**: `GET /api/v1/workspaces/{ws}/data/{table}?$orderby=created_at desc, precio asc`
+- **Selección de Columnas**: `GET /api/v1/workspaces/{ws}/data/{table}?$select=id,nombre,precio`
+- **Seguridad**: La seguridad a nivel de columna (CLS) valida estrictamente los campos permitidos antes de ejecutar SQL parametrizado, previniendo inferencia de datos.
 
 ---
 

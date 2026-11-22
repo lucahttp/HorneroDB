@@ -17,6 +17,7 @@ import (
 
 	"hornerodb/internal/database"
 	"hornerodb/internal/models/metadata"
+	"hornerodb/internal/query"
 	"hornerodb/internal/services/data"
 	"hornerodb/internal/services/permission"
 )
@@ -116,13 +117,17 @@ func New(dataSvc *data.Service, permSvc *permission.Service) *Server {
 			},
 			{
 				Name:        "list_records",
-				Description: "Lista registros de una tabla con permisos aplicados (row-level y column-level)",
+				Description: "Lista registros de una tabla con permisos aplicados (row-level y column-level) y soporte de filtros OData",
 				InputSchema: InputSchema{
 					Type: "object",
 					Properties: map[string]Property{
 						"workspace_id": {Type: "string", Description: "ID del workspace"},
 						"table_slug":   {Type: "string", Description: "Slug de la tabla"},
-						"limit":        {Type: "number", Description: "Límite de registros (default: 100, max: 1000)"},
+						"filter":       {Type: "string", Description: "Filtro OData (ej: comanda_id eq '123' o status eq 'ready' o contains(nombre, 'pizza'))"},
+						"orderby":      {Type: "string", Description: "Ordenamiento OData (ej: created_at desc, precio asc)"},
+						"select":       {Type: "string", Description: "Columnas a seleccionar separadas por coma"},
+						"expand":       {Type: "string", Description: "Relaciones a expandir separadas por coma"},
+						"limit":        {Type: "number", Description: "Límite de registros (default: 50, max: 1000)"},
 						"offset":       {Type: "number", Description: "Offset para paginación"},
 					},
 					Required: []string{"workspace_id", "table_slug"},
@@ -641,17 +646,11 @@ func (s *Server) listRecords(ctx ToolContext, args map[string]interface{}) (inte
 		return nil, err
 	}
 
-	// Parse pagination
-	limit := 100
-	if l, ok := args["limit"].(float64); ok {
-		limit = int(l)
-		if limit > 1000 {
-			limit = 1000 // Max limit
-		}
-	}
-	offset := 0
-	if o, ok := args["offset"].(float64); ok {
-		offset = int(o)
+	allowedColumns, _ := s.permSvc.GetColumnsForOperation(wsID, ctx.RoleName, tableSlug, "read")
+
+	odataQuery, err := query.ParseODataFromArgs(args, allowedColumns)
+	if err != nil {
+		return nil, err
 	}
 
 	// Build request context for data service
@@ -665,7 +664,7 @@ func (s *Server) listRecords(ctx ToolContext, args map[string]interface{}) (inte
 	}
 
 	// Use data service which applies row-level and column-level security
-	records, count, err := s.dataSvc.ListRecords(reqCtx, limit, offset, "")
+	records, count, err := s.dataSvc.ListRecords(reqCtx, odataQuery)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list records: %v", err)
 	}

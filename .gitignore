@@ -217,3 +217,9 @@ main
 postgres-data
 .DS_Store
 *.DS_Store
+
+# binario compilado
+hornerodb-linux
+hornerodb-linux-*
+hornerodb-darwin
+hornerodb-darwin-*

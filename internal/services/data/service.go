@@ -9,6 +9,7 @@ import (
 
 	"hornerodb/internal/database"
 	"hornerodb/internal/models/metadata"
+	"hornerodb/internal/query"
 	"hornerodb/internal/services/permission"
 	"hornerodb/internal/workers"
 
@@ -46,11 +47,17 @@ func NewService() *Service {
 }
 
 // ListRecords returns records matching the query parameters, total count, and error
-func (s *Service) ListRecords(ctx RequestContext, limit int, offset int, expandParam string) ([]map[string]interface{}, int, error) {
+func (s *Service) ListRecords(ctx RequestContext, odata *query.ODataQuery) ([]map[string]interface{}, int, error) {
 	dbQuery := database.DB.Table(ctx.TableName)
 
+	// Row-level security: own records only
 	if ctx.AccessLevel == permission.AccessOwn {
 		dbQuery = dbQuery.Where("created_by = ?", ctx.UserID)
+	}
+
+	// Apply OData filter if present
+	if odata != nil && odata.FilterSQL != "" {
+		dbQuery = dbQuery.Where(odata.FilterSQL, odata.FilterArgs...)
 	}
 
 	// First, get total count (before pagination)
@@ -59,7 +66,31 @@ func (s *Service) ListRecords(ctx RequestContext, limit int, offset int, expandP
 		return nil, 0, err
 	}
 
+	// Apply Select if specified
+	if odata != nil && len(odata.Select) > 0 {
+		dbQuery = dbQuery.Select(odata.Select)
+	}
+
+	// Apply OrderBy if specified
+	if odata != nil && odata.OrderBy != "" {
+		dbQuery = dbQuery.Order(odata.OrderBy)
+	}
+
 	// Apply pagination
+	limit := 50
+	offset := 0
+	expandParam := ""
+
+	if odata != nil {
+		if odata.Top > 0 {
+			limit = odata.Top
+		}
+		if odata.Skip >= 0 {
+			offset = odata.Skip
+		}
+		expandParam = odata.Expand
+	}
+
 	dbQuery = dbQuery.Offset(offset).Limit(limit)
 
 	var records []map[string]interface{}
