@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,9 +25,19 @@ import (
 
 // ToolContext holds authentication and authorization context for MCP tool execution
 type ToolContext struct {
-	UserID      string
-	RoleName    string
+	UserID   string
+	RoleName string
+	// WorkspaceID is the workspace the caller is bound to. It is always set for
+	// API keys (which belong to exactly one workspace) and is empty for users.
 	WorkspaceID string
+	// AuthSource identifies how the caller authenticated: "apikey", "oidc",
+	// "jwt" or "anonymous".
+	AuthSource string
+}
+
+// IsAPIKey reports whether the caller authenticated with a workspace scoped API key.
+func (tc ToolContext) IsAPIKey() bool {
+	return tc.AuthSource == "apikey"
 }
 
 // IsAuthenticated returns true if the context has a valid user
@@ -74,13 +86,18 @@ type Server struct {
 	tools   []Tool
 	dataSvc *data.Service
 	permSvc *permission.Service
+	// PublicURL is the externally reachable base URL of the server. It is used
+	// to build absolute URLs (SSE endpoint, OAuth metadata) without trusting
+	// the Host header of the request.
+	PublicURL string
 }
 
 // New creates a new MCP server with data and permission services for security
 func New(dataSvc *data.Service, permSvc *permission.Service) *Server {
 	return &Server{
-		dataSvc: dataSvc,
-		permSvc: permSvc,
+		dataSvc:   dataSvc,
+		permSvc:   permSvc,
+		PublicURL: configuredPublicURL(),
 		tools: []Tool{
 			{
 				Name:        "list_workspaces",
@@ -325,7 +342,7 @@ func (s *Server) HandleRequestWithContext(ctx ToolContext, req MCPRequest) MCPRe
 		if !ctx.IsAuthenticated() {
 			return MCPResponse{JSONRPC: "2.0", ID: req.ID, Error: &MCPError{Code: -32001, Message: "Authentication required"}}
 		}
-		return s.handleResourcesList(req)
+		return s.handleResourcesList(ctx, req)
 	case "resources/read":
 		if !ctx.IsAuthenticated() {
 			return MCPResponse{JSONRPC: "2.0", ID: req.ID, Error: &MCPError{Code: -32001, Message: "Authentication required"}}
@@ -448,7 +465,12 @@ func (s *Server) handleToolCallWithContext(ctx ToolContext, req MCPRequest) MCPR
 	}
 }
 
-// resolveTable validates workspace access and returns table metadata with permission check
+// resolveTable validates workspace access and returns table metadata with permission check.
+//
+// The workspace access is resolved from scratch for every call: the role of the
+// caller is looked up *inside the requested workspace*. A role inherited from
+// another workspace (e.g. the role carried by the JWT claims or by an API key
+// of a different workspace) is never accepted.
 func (s *Server) resolveTable(ctx ToolContext, workspaceID, tableSlug, operation string) (*metadata.Table, uuid.UUID, permission.AccessLevel, error) {
 	// Validate workspace ID format
 	wsID, err := uuid.Parse(workspaceID)
@@ -462,16 +484,10 @@ func (s *Server) resolveTable(ctx ToolContext, workspaceID, tableSlug, operation
 		return nil, uuid.Nil, "", errors.New("invalid table_slug format")
 	}
 
-	// Check if user has access to this workspace
-	var userRole metadata.UserRole
-	err = database.DB.Table("_hornero_user_roles").
-		Where("user_id = ? AND workspace_id = ?", ctx.UserID, workspaceID).
-		First(&userRole).Error
+	// Resolve the role the caller holds in THIS workspace.
+	roleName, err := s.resolveWorkspaceRole(ctx, wsID)
 	if err != nil {
-		// Check if user is a system admin or has API key access
-		if ctx.RoleName == "" {
-			return nil, uuid.Nil, "", errors.New("access denied: no role found for this workspace")
-		}
+		return nil, uuid.Nil, "", err
 	}
 
 	// Fetch table metadata
@@ -481,21 +497,18 @@ func (s *Server) resolveTable(ctx ToolContext, workspaceID, tableSlug, operation
 		if err == gorm.ErrRecordNotFound {
 			return nil, uuid.Nil, "", fmt.Errorf("table '%s' not found in workspace", tableSlug)
 		}
-		return nil, uuid.Nil, "", fmt.Errorf("failed to fetch table: %v", err)
+		slog.Error("mcp: failed to fetch table metadata",
+			"error", err, "workspace_id", workspaceID, "table_slug", tableSlug, "user_id", ctx.UserID)
+		return nil, uuid.Nil, "", errors.New("failed to fetch table metadata")
 	}
 
 	// Check table-level permissions
-	roleName := ctx.RoleName
-	if userRole.RoleID != uuid.Nil {
-		// Get role name from role ID
-		var role metadata.Role
-		database.DB.Table("_hornero_roles").Where("id = ?", userRole.RoleID).First(&role)
-		roleName = role.Name
-	}
-
 	accessLevel, err := s.permSvc.CheckTableAccess(wsID, roleName, tableSlug, operation)
 	if err != nil {
-		return nil, uuid.Nil, "", fmt.Errorf("error checking permissions: %v", err)
+		slog.Error("mcp: permission check failed",
+			"error", err, "workspace_id", workspaceID, "table_slug", tableSlug,
+			"role", roleName, "operation", operation)
+		return nil, uuid.Nil, "", errors.New("error checking permissions")
 	}
 
 	if accessLevel == permission.AccessNone {
@@ -505,9 +518,136 @@ func (s *Server) resolveTable(ctx ToolContext, workspaceID, tableSlug, operation
 	return &table, wsID, accessLevel, nil
 }
 
+// resolveWorkspaceRole returns the role the caller holds inside the given
+// workspace. Access is denied when the caller does not belong to the workspace.
+//
+// Rules:
+//   - API keys are bound to a single workspace: they can only be used on it.
+//   - Instance admins (can_create_workspaces) can access every workspace.
+//   - The owner of the workspace acts as "admin".
+//   - Any other user must have a role assigned in that exact workspace.
+func (s *Server) resolveWorkspaceRole(ctx ToolContext, wsID uuid.UUID) (string, error) {
+	// API keys must never be used to reach another workspace.
+	if ctx.IsAPIKey() {
+		if ctx.WorkspaceID == "" {
+			return "", errors.New("access denied: API key is not bound to a workspace")
+		}
+		keyWS, err := uuid.Parse(ctx.WorkspaceID)
+		if err != nil || keyWS != wsID {
+			slog.Warn("mcp: cross-tenant access denied for API key",
+				"user_id", ctx.UserID,
+				"auth_source", ctx.AuthSource,
+				"key_workspace_id", ctx.WorkspaceID,
+				"requested_workspace_id", wsID)
+			return "", errors.New("access denied: API key belongs to another workspace")
+		}
+		if ctx.RoleName == "" {
+			return "", errors.New("access denied: API key has no role assigned")
+		}
+		return ctx.RoleName, nil
+	}
+
+	if ctx.UserID == "" {
+		return "", errors.New("access denied: no identity in context")
+	}
+
+	// Instance admins have access to every workspace.
+	if s.isInstanceAdmin(ctx.UserID) {
+		return "admin", nil
+	}
+
+	// The owner of the workspace acts as admin.
+	var workspace metadata.Workspace
+	if err := database.DB.Table("_hornero_workspaces").
+		Select("id, owner_id").
+		First(&workspace, "id = ?", wsID).Error; err == nil {
+		if workspace.OwnerID.String() == ctx.UserID {
+			return "admin", nil
+		}
+	} else if err != gorm.ErrRecordNotFound {
+		slog.Error("mcp: failed to fetch workspace", "error", err, "workspace_id", wsID)
+		return "", errors.New("failed to fetch workspace")
+	}
+
+	// The real role of the user inside this workspace.
+	roleName, err := s.userRoleInWorkspace(ctx.UserID, wsID)
+	if err != nil {
+		slog.Error("mcp: failed to resolve user role", "error", err, "user_id", ctx.UserID, "workspace_id", wsID)
+		return "", errors.New("access denied: user does not have access to this workspace")
+	}
+	if roleName == "" {
+		slog.Warn("mcp: cross-tenant access denied",
+			"user_id", ctx.UserID, "auth_source", ctx.AuthSource, "requested_workspace_id", wsID)
+		return "", errors.New("access denied: user does not have access to this workspace")
+	}
+	return roleName, nil
+}
+
+// userRoleInWorkspace returns the name of the role the user holds in the given
+// workspace (empty string when the user has no role there).
+func (s *Server) userRoleInWorkspace(userID string, wsID uuid.UUID) (string, error) {
+	var row struct {
+		RoleName string `gorm:"column:role_name"`
+	}
+	err := database.DB.Table("_hornero_user_roles ur").
+		Select("r.name AS role_name").
+		Joins("JOIN _hornero_roles r ON r.id = ur.role_id").
+		Where("ur.user_id = ? AND ur.workspace_id = ?", userID, wsID).
+		Scan(&row).Error
+	if err != nil {
+		return "", err
+	}
+	return row.RoleName, nil
+}
+
+// isInstanceAdmin reports whether the user has instance level privileges.
+func (s *Server) isInstanceAdmin(userID string) bool {
+	if userID == "" {
+		return false
+	}
+	var user metadata.User
+	err := database.DB.Table("_hornero_users").
+		Select("can_create_workspaces").
+		Where("id = ?", userID).
+		First(&user).Error
+	if err != nil {
+		return false
+	}
+	return user.CanCreateWorkspaces
+}
+
+// configuredPublicURL returns the externally reachable base URL of the server,
+// taken from the environment. It is used to build absolute URLs without
+// trusting the Host / X-Forwarded-Host headers of the request.
+func configuredPublicURL() string {
+	for _, key := range []string{"PUBLIC_URL", "MCP_PUBLIC_URL"} {
+		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+			return strings.TrimRight(v, "/")
+		}
+	}
+	return ""
+}
+
 func (s *Server) listWorkspaces(ctx ToolContext) (interface{}, error) {
 	if !ctx.IsAuthenticated() {
 		return nil, errors.New("authentication required")
+	}
+
+	// API keys only ever see their own workspace.
+	if ctx.IsAPIKey() {
+		if ctx.WorkspaceID == "" {
+			return nil, errors.New("access denied: API key is not bound to a workspace")
+		}
+		var ws metadata.Workspace
+		if err := database.DB.Table("_hornero_workspaces").
+			First(&ws, "id = ?", ctx.WorkspaceID).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return nil, errors.New("workspace not found")
+			}
+			slog.Error("mcp: failed to fetch workspace", "error", err, "workspace_id", ctx.WorkspaceID)
+			return nil, errors.New("failed to fetch workspace")
+		}
+		return []metadata.Workspace{ws}, nil
 	}
 
 	// Include workspaces where the user has a role OR is the owner.
@@ -518,7 +658,8 @@ func (s *Server) listWorkspaces(ctx ToolContext) (interface{}, error) {
 			ctx.UserID, ctx.UserID).
 		Find(&workspaces).Error
 	if err != nil {
-		return nil, err
+		slog.Error("mcp: failed to list workspaces", "error", err, "user_id", ctx.UserID)
+		return nil, errors.New("failed to list workspaces")
 	}
 
 	return workspaces, nil
@@ -534,27 +675,26 @@ func (s *Server) listTables(ctx ToolContext, args map[string]interface{}) (inter
 		return nil, errors.New("workspace_id is required")
 	}
 
-	// Grant access if the user is the workspace owner OR has any role assigned.
-	// Mirrors WorkspaceAuth middleware logic so owners without a user_role entry aren't silently excluded.
-	var ws metadata.Workspace
-	if err := database.DB.Table("_hornero_workspaces").First(&ws, "id = ?", workspaceID).Error; err != nil {
-		return nil, errors.New("workspace not found")
+	// Access is resolved exactly like resolveTable does: the role of the caller
+	// is looked up inside the requested workspace and API keys are restricted
+	// to their own workspace.
+	wsUUID, err := uuid.Parse(workspaceID)
+	if err != nil {
+		return nil, errors.New("invalid workspace_id format")
 	}
-	if ws.OwnerID.String() != ctx.UserID {
-		var count int64
-		database.DB.Table("_hornero_user_roles").
-			Where("user_id = ? AND workspace_id = ?", ctx.UserID, workspaceID).
-			Count(&count)
-		if count == 0 {
-			return nil, errors.New("access denied: user does not have access to this workspace")
-		}
+	if _, err := s.resolveWorkspaceRole(ctx, wsUUID); err != nil {
+		return nil, err
 	}
 
 	var tables []metadata.Table
-	err := database.DB.Table("_hornero_tables").
+	err = database.DB.Table("_hornero_tables").
 		Where("workspace_id = ?", workspaceID).
 		Find(&tables).Error
-	return tables, err
+	if err != nil {
+		slog.Error("mcp: failed to list tables", "error", err, "workspace_id", workspaceID, "user_id", ctx.UserID)
+		return nil, errors.New("failed to list tables")
+	}
+	return tables, nil
 }
 
 func (s *Server) listColumns(ctx ToolContext, args map[string]interface{}) (interface{}, error) {
@@ -631,8 +771,15 @@ func (s *Server) listRecords(ctx ToolContext, args map[string]interface{}) (inte
 	// Use data service which applies row-level and column-level security
 	records, count, err := s.dataSvc.ListRecords(reqCtx, limit, offset, "")
 	if err != nil {
-		return nil, fmt.Errorf("failed to list records: %v", err)
+		slog.Error("mcp: list_records failed",
+			"error", err, "workspace_id", workspaceID, "table_slug", tableSlug,
+			"user_id", ctx.UserID, "auth_source", ctx.AuthSource)
+		return nil, errors.New("failed to list records")
 	}
+
+	slog.Info("mcp: list_records",
+		"workspace_id", workspaceID, "table_slug", tableSlug,
+		"user_id", ctx.UserID, "auth_source", ctx.AuthSource, "count", count)
 
 	return map[string]interface{}{
 		"records": records,
@@ -676,8 +823,15 @@ func (s *Server) createRecord(ctx ToolContext, args map[string]interface{}) (int
 	// Use data service which applies column-level security
 	created, err := s.dataSvc.CreateRecord(reqCtx, recordData)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create record: %v", err)
+		slog.Error("mcp: create_record failed",
+			"error", err, "workspace_id", workspaceID, "table_slug", tableSlug,
+			"user_id", ctx.UserID, "auth_source", ctx.AuthSource)
+		return nil, errors.New("failed to create record")
 	}
+
+	slog.Info("mcp: create_record",
+		"workspace_id", workspaceID, "table_slug", tableSlug,
+		"user_id", ctx.UserID, "auth_source", ctx.AuthSource)
 
 	return created, nil
 }
@@ -717,8 +871,15 @@ func (s *Server) getRecord(ctx ToolContext, args map[string]interface{}) (interf
 		if err == gorm.ErrRecordNotFound {
 			return nil, errors.New("record not found or access denied")
 		}
-		return nil, fmt.Errorf("failed to get record: %v", err)
+		slog.Error("mcp: get_record failed",
+			"error", err, "workspace_id", workspaceID, "table_slug", tableSlug,
+			"record_id", recordID, "user_id", ctx.UserID, "auth_source", ctx.AuthSource)
+		return nil, errors.New("failed to get record")
 	}
+
+	slog.Info("mcp: get_record",
+		"workspace_id", workspaceID, "table_slug", tableSlug, "record_id", recordID,
+		"user_id", ctx.UserID, "auth_source", ctx.AuthSource)
 
 	return record, nil
 }
@@ -760,14 +921,24 @@ func (s *Server) updateRecord(ctx ToolContext, args map[string]interface{}) (int
 	// Use data service which applies row-level and column-level security
 	err = s.dataSvc.UpdateRecord(reqCtx, recordID, recordData)
 	if err != nil {
-		return nil, fmt.Errorf("failed to update record: %v", err)
+		slog.Error("mcp: update_record failed",
+			"error", err, "workspace_id", workspaceID, "table_slug", tableSlug,
+			"record_id", recordID, "user_id", ctx.UserID, "auth_source", ctx.AuthSource)
+		return nil, errors.New("failed to update record")
 	}
 
 	// Fetch the updated record to return
 	updated, err := s.dataSvc.GetRecord(reqCtx, recordID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch updated record: %v", err)
+		slog.Error("mcp: update_record (read back) failed",
+			"error", err, "workspace_id", workspaceID, "table_slug", tableSlug,
+			"record_id", recordID, "user_id", ctx.UserID, "auth_source", ctx.AuthSource)
+		return nil, errors.New("failed to fetch updated record")
 	}
+
+	slog.Info("mcp: update_record",
+		"workspace_id", workspaceID, "table_slug", tableSlug, "record_id", recordID,
+		"user_id", ctx.UserID, "auth_source", ctx.AuthSource)
 
 	return updated, nil
 }
@@ -808,8 +979,15 @@ func (s *Server) deleteRecord(ctx ToolContext, args map[string]interface{}) (int
 	// Use data service which applies row-level security
 	err = s.dataSvc.DeleteRecord(reqCtx, recordID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to delete record: %v", err)
+		slog.Error("mcp: delete_record failed",
+			"error", err, "workspace_id", workspaceID, "table_slug", tableSlug,
+			"record_id", recordID, "user_id", ctx.UserID, "auth_source", ctx.AuthSource)
+		return nil, errors.New("failed to delete record")
 	}
+
+	slog.Info("mcp: delete_record",
+		"workspace_id", workspaceID, "table_slug", tableSlug, "record_id", recordID,
+		"user_id", ctx.UserID, "auth_source", ctx.AuthSource)
 
 	return map[string]string{"message": "deleted", "id": recordID}, nil
 }
@@ -880,6 +1058,7 @@ func buildStdioContext() (ToolContext, error) {
 		UserID:      result.ID.String(),
 		RoleName:    result.RoleName,
 		WorkspaceID: result.WorkspaceID.String(),
+		AuthSource:  "apikey",
 	}, nil
 }
 

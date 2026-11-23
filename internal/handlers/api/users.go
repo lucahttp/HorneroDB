@@ -12,10 +12,12 @@ import (
 	"hornerodb/internal/models/metadata"
 	"hornerodb/internal/query"
 	"hornerodb/internal/response"
+	"hornerodb/internal/services/audit"
 	"hornerodb/internal/services/auth"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // ListWorkspaceUsers returns users who have a role in the workspace
@@ -282,6 +284,44 @@ func GetUserRecoveryQR(c *gin.Context) {
 		return
 	}
 
+	// SECURITY (P0-1): the recovery QR embeds a single-use login token (OTAT).
+	// Only the instance admin(s) or the user themselves may request one, otherwise
+	// any authenticated user could hijack another account.
+	currentUserID := middleware.GetUserID(c)
+	if currentUserID == "" {
+		response.UnauthorizedError(c)
+		return
+	}
+
+	isInstanceAdmin := false
+	if targetUserID != currentUserID {
+		var adminUser metadata.User
+		res := database.DB.Table("_hornero_users").
+			Select("can_create_workspaces").
+			Where("id = ?", currentUserID).
+			First(&adminUser)
+
+		if res.Error != nil && res.Error != gorm.ErrRecordNotFound {
+			slog.Error("failed to check instance admin status",
+				"error", res.Error,
+				"user_id", currentUserID,
+			)
+			response.DatabaseError(c, res.Error, "checking admin privileges")
+			return
+		}
+
+		isInstanceAdmin = adminUser.CanCreateWorkspaces
+		if !isInstanceAdmin {
+			slog.Warn("recovery QR request denied",
+				"reason", "not_instance_admin",
+				"target_user_id", targetUserID,
+				"user_id", currentUserID,
+			)
+			response.PermissionError(c)
+			return
+		}
+	}
+
 	// Verify target user exists
 	var user metadata.User
 	if err := database.DB.Table("_hornero_users").Where("id = ?", targetUserID).First(&user).Error; err != nil {
@@ -322,6 +362,26 @@ func GetUserRecoveryQR(c *gin.Context) {
 	}
 
 	qrBase64 := base64.StdEncoding.EncodeToString(qrBytes)
+
+	// Audit trail. NEVER log the OTAT / login URL: it is a bearer credential
+	// that grants access to the target account.
+	slog.Info("recovery QR issued",
+		"target_user_id", targetUserID,
+		"requested_by", currentUserID,
+		"instance_admin", isInstanceAdmin,
+		"self_service", targetUserID == currentUserID,
+	)
+
+	auditWorkspace := resolveScopedWorkspaceID(c)
+	if auditWorkspace == "" {
+		auditWorkspace = c.GetString("workspace_id")
+	}
+	audit.LogFromContext(c, auditWorkspacePtr(auditWorkspace), "user.recovery_qr_generated", "user", targetUserID, map[string]interface{}{
+		"target_user_id": targetUserID,
+		"self_service":   targetUserID == currentUserID,
+		"instance_admin": isInstanceAdmin,
+	})
+
 	response.Success(c, gin.H{
 		"qr_code": qrBase64,
 		"url":     loginUrl,

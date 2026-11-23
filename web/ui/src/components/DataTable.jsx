@@ -1,20 +1,32 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { ColumnHeaderMenu } from './ColumnHeaderMenu.jsx'
-import { getFieldConfig, FIELD_TYPE_OPTIONS } from '../fieldTypeConfig.jsx'
-import { Trash, EditPencil, CheckCircle } from 'iconoir-react'
+import { getFieldConfig, FIELD_TYPE_OPTIONS, getSelectChoices, parseColumnMeta } from '../fieldTypeConfig.js'
+import { Trash, EditPencil, CheckCircle, Lock } from 'iconoir-react'
 import { useTranslation } from 'react-i18next'
 import { RelationPicker } from './RelationPicker.jsx'
+import { isColumnReadable, isColumnWritable, isColumnCreatable, hasSystemAccess } from '../utils/permissions.js'
 
 /**
  * Spreadsheet-style data table with:
  * - PocketBase-style type icons in column headers
- * - Per-type inputs (date picker, checkbox, textarea, etc.)
+ * - Per-type inputs (date picker, checkbox, textarea, real select, etc.)
  * - Checkbox row selection + select-all + bulk actions toolbar
  * - Inline cell editing on click (Enter saves, Escape cancels)
  * - Inline "ghost row" at bottom for creating new records
  * - "+" button in header for inline column creation
  * - Column header dropdown menus for edit/delete
+ * - CLS permission awareness: restricted columns are locked and hidden actions
+ *   are removed instead of failing with a 403.
+ *
+ * `pagination` (optional):
+ *   { total, page, pageSize, onPageChange, onPageSizeChange }
+ * `permissions` (optional): effective permissions of the current role, as
+ *   returned by `getEffectivePermissions()`.
+ * `sortBy` (optional): `{ column, direction }` with `direction` in
+ *   `asc | desc` and `column` in `null | <column slug>`.
+ * `onSortChange` (optional): called with the column slug that should be
+ *   sorted next. The parent owns the state and asks the API for the rows.
  */
 export function DataTable({
   columns,
@@ -28,6 +40,10 @@ export function DataTable({
   onRenameColumn,
   workspaceId,
   tables = [],
+  pagination = null,
+  permissions = null,
+  sortBy = null,
+  onSortChange = null,
 }) {
   const { t } = useTranslation()
   const [newRow, setNewRow] = useState({})
@@ -53,10 +69,33 @@ export function DataTable({
   // Relation Picker state
   const [pickerState, setPickerState] = useState(null) // { rowId, colSlug, meta, initialValue }
 
+  // ── Effective permissions of the current role (CLS) ───────────
+  const canUpdateRecords = !permissions || permissions.update !== 'none'
+  const canDeleteRecords = !permissions || permissions.delete !== 'none'
+  const canCreateRecords = !permissions || permissions.create !== 'none'
+  const canManageTables = !permissions || hasSystemAccess(permissions.system, 'tables', 'manage')
+
+  const columnIsReadable = (col) => !permissions || isColumnReadable(permissions.readableColumns, col.slug)
+  const columnIsWritable = (col) => canUpdateRecords && (!permissions || isColumnWritable(permissions.writableColumns, col.slug))
+  const columnIsCreatable = (col) => canCreateRecords && (!permissions || isColumnCreatable(permissions.creatableColumns, col.slug))
+
+  /**
+   * `aria-sort` value of a column header: the column is sorted ascending,
+   * descending, or not sorted at all.
+   */
+  const ariaSortFor = (col) => {
+    if (!sortBy || sortBy.column !== col.slug) return 'none'
+    return sortBy.direction === 'desc' ? 'descending' : 'ascending'
+  }
+
   useEffect(() => {
     if (editingCell && editInputRef.current) {
       editInputRef.current.focus()
-      if (editInputRef.current.select) editInputRef.current.select()
+      // <select> elements expose select() too — only text-like inputs should
+      // have their content pre-selected.
+      if (editInputRef.current.tagName !== 'SELECT' && editInputRef.current.select) {
+        editInputRef.current.select()
+      }
     }
   }, [editingCell])
 
@@ -97,7 +136,8 @@ export function DataTable({
     const id = [...selectedRows][0]
     const record = records.find(r => r.id === id)
     if (record && columns.length > 0) {
-      const firstCol = columns[0]
+      const firstCol = columns.find(c => columnIsWritable(c))
+      if (!firstCol) return
       startEditing(id, firstCol.slug, firstCol.field_type, record[firstCol.slug])
       setSelectedRows(new Set())
     }
@@ -106,6 +146,11 @@ export function DataTable({
   // ── Inline editing ──────────────────────────────────
 
   const startEditing = (rowId, colSlug, fieldType, currentValue) => {
+    const col = columns.find(c => c.slug === colSlug)
+
+    // The role is not allowed to write this column: the cell is read-only.
+    if (col && !columnIsWritable(col)) return
+
     const cfg = getFieldConfig(fieldType)
     if (cfg.inputType === 'checkbox') {
       // Toggle immediately for booleans
@@ -115,13 +160,7 @@ export function DataTable({
     }
 
     if (fieldType === 'relation') {
-      const col = columns.find(c => c.slug === colSlug)
-      let meta = {}
-      try {
-        meta = typeof col.meta === 'string' ? JSON.parse(col.meta) : col.meta
-      } catch (e) {
-        console.error("Failed to parse column meta", e)
-      }
+      const meta = parseColumnMeta(col)
       setPickerState({ rowId, colSlug, meta, initialValue: currentValue })
       return
     }
@@ -139,7 +178,7 @@ export function DataTable({
     if (editValue !== originalValue) {
       try {
         await onUpdateRecord(rowId, { [colSlug]: editValue })
-      } catch (err) { /* parent handles */ }
+      } catch { /* parent handles */ }
     }
     setEditingCell(null)
   }
@@ -164,7 +203,7 @@ export function DataTable({
     try {
       await onCreateRecord(newRow)
       setNewRow({})
-    } catch (err) { /* parent */ }
+    } catch { /* parent */ }
     finally { setCreatingRow(false) }
   }
 
@@ -219,7 +258,7 @@ export function DataTable({
       await onCreateColumn(newColName.trim(), newColType, meta)
       setNewColName(''); setNewColType('text'); setShowAddColumn(false)
       setNewColTargetTable(''); setNewColDisplayColumn('')
-    } catch (err) { /* parent */ }
+    } catch { /* parent */ }
   }
 
   const handleDeleteColumn = (id, name) => {
@@ -231,7 +270,7 @@ export function DataTable({
   // ── Render helpers ──────────────────────────────────
 
   /** Render appropriate input for editing a cell */
-  const renderEditInput = (fieldType) => {
+  const renderEditInput = (fieldType, column) => {
     const cfg = getFieldConfig(fieldType)
 
     if (cfg.inputType === 'textarea') {
@@ -252,10 +291,32 @@ export function DataTable({
       )
     }
 
+    // A select column with fixed options is edited through a real <select>.
+    if (cfg.inputType === 'select') {
+      const choices = getSelectChoices(column)
+      if (choices.length > 0) {
+        return (
+          <select
+            ref={editInputRef}
+            className="inline-cell-input inline-cell-editing"
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onKeyDown={handleEditKeyDown}
+            onBlur={saveEdit}
+          >
+            <option value="">{t('select_placeholder')}</option>
+            {choices.map(choice => (
+              <option key={choice.value} value={choice.value}>{choice.label}</option>
+            ))}
+          </select>
+        )
+      }
+    }
+
     return (
       <input
         ref={editInputRef}
-        type={cfg.inputType}
+        type={cfg.inputType === 'textarea' || cfg.inputType === 'select' ? 'text' : cfg.inputType}
         step={cfg.step}
         className="inline-cell-input inline-cell-editing"
         value={editValue}
@@ -269,6 +330,9 @@ export function DataTable({
   /** Render appropriate input for the ghost row */
   const renderGhostInput = (col, colIndex) => {
     const cfg = getFieldConfig(col.field_type)
+    // The API drops every column the role may not write, so the input is
+    // disabled instead of silently sending a value that gets discarded.
+    const creatable = columnIsCreatable(col)
 
     if (cfg.inputType === 'checkbox') {
       return (
@@ -277,9 +341,29 @@ export function DataTable({
           className="row-checkbox"
           checked={newRow[col.slug] === true || newRow[col.slug] === 'true'}
           onChange={(e) => setNewRow({ ...newRow, [col.slug]: e.target.checked })}
-          disabled={creatingRow}
+          disabled={creatingRow || !creatable}
         />
       )
+    }
+
+    if (cfg.inputType === 'select') {
+      const choices = getSelectChoices(col)
+      if (choices.length > 0) {
+        return (
+          <select
+            className="inline-cell-input"
+            value={newRow[col.slug] || ''}
+            onChange={(e) => setNewRow({ ...newRow, [col.slug]: e.target.value })}
+            onKeyDown={(e) => handleRowKeyDown(e, colIndex)}
+            disabled={creatingRow || !creatable}
+          >
+            <option value="">{t('select_placeholder')}</option>
+            {choices.map(choice => (
+              <option key={choice.value} value={choice.value}>{choice.label}</option>
+            ))}
+          </select>
+        )
+      }
     }
 
     if (col.field_type === 'relation') {
@@ -288,13 +372,10 @@ export function DataTable({
         <button
           className="inline-cell-input text-left"
           onClick={() => {
-            let meta = {}
-            try {
-              meta = typeof col.meta === 'string' ? JSON.parse(col.meta) : col.meta
-            } catch (e) { }
+            const meta = parseColumnMeta(col)
             setPickerState({ isNew: true, colSlug: col.slug, meta, initialValue: val })
           }}
-          disabled={creatingRow}
+          disabled={creatingRow || !creatable}
           style={{ cursor: 'pointer', color: val ? 'inherit' : 'var(--text-muted)' }}
         >
           {val ? (
@@ -306,14 +387,14 @@ export function DataTable({
 
     return (
       <input
-        type={cfg.inputType === 'textarea' ? 'text' : cfg.inputType}
+        type={cfg.inputType === 'textarea' || cfg.inputType === 'select' ? 'text' : cfg.inputType}
         step={cfg.step}
         className="inline-cell-input"
         placeholder={col.name}
         value={newRow[col.slug] || ''}
         onChange={(e) => setNewRow({ ...newRow, [col.slug]: e.target.value })}
         onKeyDown={(e) => handleRowKeyDown(e, colIndex)}
-        disabled={creatingRow}
+        disabled={creatingRow || !creatable}
       />
     )
   }
@@ -343,6 +424,12 @@ export function DataTable({
       return <code className="cell-json">{typeof val === 'object' ? JSON.stringify(val) : String(val)}</code>
     }
 
+    if (col.field_type === 'select' && val !== null && val !== undefined && val !== '') {
+      const choices = getSelectChoices(col)
+      const match = choices.find(choice => choice.value === String(val))
+      return <span className="cell-select">{match ? match.label : String(val)}</span>
+    }
+
     if (col.field_type === 'relation') {
       const expandedValue = record.expand?.[col.slug]
       return (
@@ -360,9 +447,19 @@ export function DataTable({
   const hasSelection = selectedRows.size > 0
   const allSelected = records.length > 0 && selectedRows.size === records.length
 
+  // ── Pagination ────────────────────────────────────────
+  const PAGE_SIZE_OPTIONS = [25, 50, 100]
+  const totalRecords = pagination?.total ?? records.length
+  const currentPage = pagination?.page ?? 0
+  const currentPageSize = pagination?.pageSize ?? 50
+  const totalPages = Math.max(1, Math.ceil(totalRecords / (currentPageSize || 1)))
+  const firstRecord = totalRecords === 0 ? 0 : currentPage * currentPageSize + 1
+  const lastRecord = Math.min(totalRecords, (currentPage + 1) * currentPageSize)
+
   return (
-    <div className="table-container" style={{ position: 'relative', overflowX: 'auto' }}>
-      {/* Bulk actions toolbar */}
+    <div className="table-container" style={{ position: 'relative' }}>
+      {/* Bulk actions toolbar — it lives outside of the scroll region, so the
+          actions are reachable no matter how far the rows are scrolled. */}
       {hasSelection && (
         <div className="bulk-toolbar" style={{ flexWrap: 'nowrap', gap: '0.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flex: 1 }}>
@@ -383,10 +480,12 @@ export function DataTable({
           </div>
 
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button className="btn btn-danger btn-sm" onClick={handleBulkDelete}>
-              <Trash width="1rem" height="1rem" style={{ marginRight: '0.35rem' }} />
-              {t('delete_selected')}
-            </button>
+            {canDeleteRecords && (
+              <button className="btn btn-danger btn-sm" onClick={handleBulkDelete}>
+                <Trash width="1rem" height="1rem" style={{ marginRight: '0.35rem' }} />
+                {t('delete_selected')}
+              </button>
+            )}
             <button className="btn btn-ghost btn-sm" onClick={() => setSelectedRows(new Set())}>
               {t('cancel')}
             </button>
@@ -394,7 +493,9 @@ export function DataTable({
         </div>
       )}
 
-      <table className="table">
+      {/* The grid scrolls on its own, so the header row can stay pinned. */}
+      <div className="data-table-scroll">
+        <table className="table data-table">
         <thead>
           <tr>
             <th className={hasSelection ? "" : "hidden sm:table-cell"} style={{ width: '40px', textAlign: 'center' }}>
@@ -404,6 +505,7 @@ export function DataTable({
                 checked={allSelected}
                 onChange={toggleAll}
                 title={allSelected ? t('deselect_all') : t('select_all')}
+                aria-label={allSelected ? t('deselect_all') : t('select_all')}
               />
             </th>
             <th className="hidden sm:table-cell" style={{ width: '100px' }}>
@@ -412,32 +514,61 @@ export function DataTable({
             </th>
             {columns.map(col => {
               const cfg = getFieldConfig(col.field_type)
+              const readable = columnIsReadable(col)
+              const writable = columnIsWritable(col)
               return (
-                <th key={col.id} style={{ position: 'relative' }}>
+                <th
+                  key={col.id}
+                  aria-sort={ariaSortFor(col)}
+                >
                   <ColumnHeaderMenu
                     column={col}
                     icon={<span className="field-type-icon" style={{ background: cfg.color }}>{cfg.icon}</span>}
                     onRename={onRenameColumn}
                     onDelete={handleDeleteColumn}
+                    canManage={canManageTables}
+                    onSort={onSortChange}
+                    sortState={sortBy}
                   />
+                  {!readable && (
+                    <span
+                      className="col-restricted-badge"
+                      title={t('column_read_restricted')}
+                      style={{ marginLeft: '0.35rem' }}
+                    >
+                      <Lock width="0.7rem" height="0.7rem" />
+                    </span>
+                  )}
+                  {readable && !writable && (
+                    <span
+                      className="col-restricted-badge"
+                      title={t('column_write_restricted')}
+                      style={{ marginLeft: '0.35rem' }}
+                    >
+                      <Lock width="0.7rem" height="0.7rem" />
+                    </span>
+                  )}
                 </th>
               )
             })}
             {/* "+" column header */}
-            <th style={{ width: '50px', padding: 0, position: 'relative' }} ref={addColumnRef}>
-              <button
-                className="column-add-btn"
-                onClick={(e) => {
-                  if (!showAddColumn) {
-                    const rect = addColumnRef.current.getBoundingClientRect()
-                    setAddColumnCoords({ top: rect.bottom + 8, right: window.innerWidth - rect.right })
-                    setShowAddColumn(true)
-                  } else {
-                    setShowAddColumn(false)
-                  }
-                }}
-                title={t('add_column')}
-              >+</button>
+            <th style={{ width: '50px', padding: 0 }} ref={addColumnRef}>
+              {canManageTables && (
+                <button
+                  className="column-add-btn"
+                  onClick={() => {
+                    if (!showAddColumn) {
+                      const rect = addColumnRef.current.getBoundingClientRect()
+                      setAddColumnCoords({ top: rect.bottom + 8, right: window.innerWidth - rect.right })
+                      setShowAddColumn(true)
+                    } else {
+                      setShowAddColumn(false)
+                    }
+                  }}
+                  title={t('add_column')}
+                  aria-label={t('add_column')}
+                >+</button>
+              )}
 
               {showAddColumn && window.document && window.document.body && createPortal(
                 <div className="column-add-popover" style={{ position: 'fixed', top: addColumnCoords?.top, right: addColumnCoords?.right, zIndex: 9999 }}>
@@ -579,6 +710,7 @@ export function DataTable({
                     type="checkbox"
                     className="row-checkbox"
                     checked={isSelected}
+                    aria-label={t('select')}
                     onChange={(e) => {
                       e.stopPropagation();
                       toggleRow(record.id);
@@ -599,22 +731,30 @@ export function DataTable({
                 </td>
                 {columns.map(col => {
                   const isEditing = editingCell?.rowId === record.id && editingCell?.colSlug === col.slug
+                  const readable = columnIsReadable(col)
+                  const writable = columnIsWritable(col)
+                  const cellClass = isEditing
+                    ? 'cell-editing'
+                    : (writable ? 'cell-clickable' : 'cell-locked')
                   return (
                     <td
                       key={col.id}
-                      className={isEditing ? 'cell-editing' : 'cell-clickable'}
+                      className={readable ? cellClass : `${cellClass} cell-restricted`}
+                      title={!readable ? t('column_read_restricted') : (!writable ? t('column_write_restricted') : undefined)}
                       onClick={(e) => {
                         if (hasSelection) {
                           e.stopPropagation();
                           toggleRow(record.id);
-                        } else if (!isEditing) {
+                        } else if (!isEditing && writable) {
                           startEditing(record.id, col.slug, col.field_type, record[col.slug])
                         }
                       }}
                     >
                       {isEditing
-                        ? renderEditInput(editingCell.fieldType)
-                        : renderCellValue(record, col)
+                        ? renderEditInput(editingCell.fieldType, col)
+                        : (readable
+                          ? renderCellValue(record, col)
+                          : <span className="cell-restricted-placeholder"><Lock width="0.75rem" height="0.75rem" /></span>)
                       }
                     </td>
                   )
@@ -630,44 +770,90 @@ export function DataTable({
                         toggleRow(record.id);
                       }}
                       title={t('select')}
+                      aria-label={t('select')}
                     >
                       <CheckCircle width="1rem" height="1rem" style={{ color: isSelected ? 'var(--primary)' : 'var(--text-muted)' }} />
                     </button>
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      style={{ padding: '4px' }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteRecord(record.id);
-                      }}
-                      title={t('delete_record')}
-                    >
-                      <Trash width="1rem" height="1rem" style={{ color: 'var(--danger)' }} />
-                    </button>
+                    {canDeleteRecords && (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        style={{ padding: '4px' }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteRecord(record.id);
+                        }}
+                        title={t('delete_record')}
+                        aria-label={t('delete_record')}
+                      >
+                        <Trash width="1rem" height="1rem" style={{ color: 'var(--danger)' }} />
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>
             )
           })}
 
-          {/* Ghost row */}
-          <tr className="inline-new-row">
-            <td className={hasSelection ? "" : "hidden sm:table-cell"}></td>
-            <td className="hidden sm:table-cell" style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-              {creatingRow ? (
-                <div className="loading-spinner" style={{ width: '16px', height: '16px', borderWidth: '2px' }} />
-              ) : t('new')}
-            </td>
-            {columns.map((col, colIndex) => (
-              <td key={col.id}>
-                {renderGhostInput(col, colIndex)}
+          {/* Ghost row — only shown when the role may create records */}
+          {canCreateRecords && (
+            <tr className="inline-new-row">
+              <td className={hasSelection ? "" : "hidden sm:table-cell"}></td>
+              <td className="hidden sm:table-cell" style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                {creatingRow ? (
+                  <div className="loading-spinner" style={{ width: '16px', height: '16px', borderWidth: '2px' }} />
+                ) : t('new')}
               </td>
-            ))}
-            <td></td>
-            <td></td>
-          </tr>
+              {columns.map((col, colIndex) => (
+                <td key={col.id}>
+                  {renderGhostInput(col, colIndex)}
+                </td>
+              ))}
+              <td></td>
+              <td></td>
+            </tr>
+          )}
         </tbody>
       </table>
+      </div>
+
+      {pagination && (
+        <div className="pagination-bar">
+          <span className="pagination-info">
+            {totalRecords === 0
+              ? t('pagination_empty')
+              : t('pagination_showing', { from: firstRecord, to: lastRecord, total: totalRecords })}
+          </span>
+          <div className="pagination-controls">
+            <select
+              className="form-select pagination-page-size"
+              value={currentPageSize}
+              onChange={(e) => pagination.onPageSizeChange(Number(e.target.value))}
+              aria-label={t('pagination_page_size')}
+            >
+              {PAGE_SIZE_OPTIONS.map(size => (
+                <option key={size} value={size}>{size}</option>
+              ))}
+            </select>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => pagination.onPageChange(currentPage - 1)}
+              disabled={currentPage <= 0}
+            >
+              {t('previous')}
+            </button>
+            <span className="pagination-page-indicator">
+              {currentPage + 1} / {totalPages}
+            </span>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => pagination.onPageChange(currentPage + 1)}
+              disabled={currentPage + 1 >= totalPages}
+            >
+              {t('next')}
+            </button>
+          </div>
+        </div>
+      )}
 
       {pickerState && (
         <RelationPicker
@@ -676,7 +862,7 @@ export function DataTable({
           displayColumn={pickerState.meta?.display_column}
           initialValue={pickerState.initialValue}
           onClose={() => setPickerState(null)}
-          onSelect={(id, label) => {
+          onSelect={(id) => {
             if (pickerState.isNew) {
               setNewRow({ ...newRow, [pickerState.colSlug]: id })
             } else {

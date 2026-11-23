@@ -2,23 +2,35 @@ services:
   postgres:
     image: postgres:18-alpine
     container_name: hornerodb-postgres
+    restart: unless-stopped
     env_file: .env
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-hornero}
     ports:
-      - "5432:5432"
+      - "${DB_EXTERNAL_PORT:-5432}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # PostgreSQL 18+ images store the cluster in a major-version-specific
+      # subdirectory ($PGDATA=/var/lib/postgresql/18/docker) and refuse to start
+      # when the legacy /var/lib/postgresql/data path is a mount point.
+      # Mounting the volume at /var/lib/postgresql keeps the cluster inside the
+      # named volume and allows pg_upgrade --link without mount boundary issues.
+      # See https://github.com/docker-library/postgres/issues/37
+      - postgres_data:/var/lib/postgresql
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-hornero}" ]
       interval: 10s
       timeout: 5s
       retries: 5
 
   pocket-id:
     image: ghcr.io/pocket-id/pocket-id:v2
+    container_name: hornerodb-pocket-id
     restart: unless-stopped
     env_file: .env
     ports:
-      - 1411:1411
+      - "1411:1411"
     volumes:
       - "./data:/app/data"
     # Optional healthcheck
@@ -28,27 +40,50 @@ services:
       timeout: 5s
       retries: 2
       start_period: 10s
+
   hornerodb-server:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: hornerodb-server
+    restart: unless-stopped
     env_file: .env
     environment:
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_USER=postgres  
-      - DB_PASSWORD=postgres
-      - DB_NAME=hornero
-      - POCKETID_ISSUER_URL=http://pocket-id:1411
-      - POCKETID_PUBLIC_URL=http://localhost:1411
+      - DB_USER=${DB_USER:-postgres}
+      # Production mode: serves the embedded UI and enables fail-fast
+      # security validation (see docs/SECURITY.md).
+      - HORNERO_ENV=${HORNERO_ENV:-production}
+      - GIN_MODE=${GIN_MODE:-release}
+      # Resolved from .env (compose interpolation) with a fallback, so the
+      # value configured in .env is respected instead of being overridden.
+      - DB_PASSWORD=${DB_PASSWORD:-postgres}
+      - DB_NAME=${DB_NAME:-hornero}
+      - DB_SSLMODE=${DB_SSLMODE:-disable}
+      # The bundled PostgreSQL lives on the internal compose network, so TLS
+      # and the default password are allowed by default. Set both to "false"
+      # for internet-facing deployments.
+      - DB_ALLOW_INSECURE_SSL=${DB_ALLOW_INSECURE_SSL:-true}
+      - DB_ALLOW_INSECURE_DB=${DB_ALLOW_INSECURE_DB:-true}
+      # OIDC issuer: the container reaches PocketID over the internal Docker
+      # network (service name), while the PUBLIC issuer below is the URL the
+      # browser uses and the expected `iss` claim of the ID token.
+      - POCKETID_ISSUER_URL=${POCKETID_ISSUER_URL_INTERNAL:-http://pocket-id:1411}
+      - POCKETID_PUBLIC_URL=${POCKETID_PUBLIC_URL:-https://desktop-vvfip0e.taila8065d.ts.net:1411}
     ports:
-      - "8080:8080"
+      - "${SERVER_EXTERNAL_PORT:-8080}:${SERVER_PORT:-8080}"
     depends_on:
       postgres:
         condition: service_healthy
       pocket-id:
         condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:${SERVER_PORT:-8080}/health || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   postgres_data:

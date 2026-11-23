@@ -5,7 +5,7 @@ import { AuthProvider, useAuth } from './context/AuthContext.jsx'
 import { ErrorModal } from './components/ErrorModal.jsx'
 import { AxiosInterceptor } from './components/AxiosInterceptor.jsx'
 import { IconProvider } from './components/IconProvider.jsx'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import { API_URL } from './constants'
 
@@ -28,24 +28,30 @@ function SetupCheck({ children }) {
   const [checking, setChecking] = useState(true)
   const [retryCount, setRetryCount] = useState(0)
   const [hasError, setHasError] = useState(false)
+  const [setupAttempt, setSetupAttempt] = useState(0)
+  const retryTimerRef = useRef(null)
+  const attemptRef = useRef(0)
 
   useEffect(() => {
-    if (!token) {
-      setChecking(false)
-      return
-    }
+    if (!token) return undefined
+
+    let cancelled = false
+    attemptRef.current = 0
 
     const checkSetup = async () => {
       try {
         const res = await axios.get(`${API_URL}/setup/status`)
+        if (cancelled) return
         setSetupStatus(res.data.data)
         setHasError(false)
         setChecking(false) // Éxito - dejar de mostrar loading
       } catch (err) {
+        if (cancelled) return
         console.error('Error checking setup:', err)
-        const newRetryCount = retryCount + 1
+        attemptRef.current += 1
+        const newRetryCount = attemptRef.current
         setRetryCount(newRetryCount)
-        
+
         // Después de 3 reintentos, mostrar error
         if (newRetryCount >= 3) {
           setHasError(true)
@@ -53,7 +59,8 @@ function SetupCheck({ children }) {
           setChecking(false) // Dejar de mostrar loading después de 3 intentos
         } else {
           // Reintentar en 2 segundos
-          setTimeout(() => {
+          retryTimerRef.current = setTimeout(() => {
+            retryTimerRef.current = null
             checkSetup()
           }, 2000)
         }
@@ -61,9 +68,21 @@ function SetupCheck({ children }) {
     }
 
     checkSetup()
-  }, [token, retryCount])
 
-  if (checking && retryCount < 3) {
+    // Limpia el temporizador de reintento y evita(setState) tras desmontar
+    return () => {
+      cancelled = true
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current)
+        retryTimerRef.current = null
+      }
+    }
+  }, [token, setupAttempt])
+
+  // Sin token no hay nada que verificar: no mostrar el spinner.
+  const isChecking = !!token && checking && !hasError && retryCount < 3
+
+  if (isChecking) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
         <div className="loading-spinner" />
@@ -85,6 +104,7 @@ function SetupCheck({ children }) {
               setRetryCount(0)
               setHasError(false)
               setChecking(true)
+              setSetupAttempt(prev => prev + 1)
             }}
             className="btn btn-primary"
           >

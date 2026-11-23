@@ -20,26 +20,3 @@ type Column struct {
 func (c *Column) TableName() string {
 	return "_hornero_columns"
 }
-
-type Permission struct {
-	ID          uuid.UUID  `gorm:"type:uuid;primaryKey;default:gen_random_uuid()" json:"id"`
-	WorkspaceID uuid.UUID  `gorm:"type:uuid;index;not null" json:"workspace_id"`
-	TableID     *uuid.UUID `gorm:"type:uuid;index" json:"table_id"`
-	ColumnID    *uuid.UUID `gorm:"type:uuid;index" json:"column_id"`
-	Role        string     `gorm:"type:varchar(50);not null" json:"role"` // admin, empleado, cliente, anonymous
-
-	Scope string `gorm:"type:varchar(20);not null" json:"scope"` // table, column, row
-
-	RowFilter JSON `gorm:"type:jsonb" json:"row_filter"` // row-level filter
-
-	AllowRead   bool `gorm:"default:false" json:"allow_read"`
-	AllowCreate bool `gorm:"default:false" json:"allow_create"`
-	AllowUpdate bool `gorm:"default:false" json:"allow_update"`
-	AllowDelete bool `gorm:"default:false" json:"allow_delete"`
-
-	CreatedAt time.Time `json:"created_at"`
-}
-
-func (p *Permission) TableName() string {
-	return "_hornero_permissions"
-}

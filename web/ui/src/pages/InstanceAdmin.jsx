@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import axios from 'axios'
 import { API_URL } from '../constants'
 import { useAuth } from '../context/AuthContext'
 import TopNavbar from '../components/TopNavbar.jsx'
-import { notify } from '../components/Toast.jsx'
+import { notify } from '../components/toast.js'
 import { Button } from '../components/index.jsx'
 import { CheckCircle, Xmark, User } from 'iconoir-react'
 
@@ -14,6 +14,17 @@ export default function InstanceAdmin() {
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
+
+  const loadUsers = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API_URL}/admin/users`)
+      setUsers(res.data.data || [])
+    } catch {
+      notify(t('error_loading_users'), 'error')
+    } finally {
+      setLoading(false)
+    }
+  }, [t])
 
   useEffect(() => {
     // Verificar si el usuario actual es admin de instancia
@@ -31,18 +42,7 @@ export default function InstanceAdmin() {
         setIsAdmin(false)
         setLoading(false)
       })
-  }, [])
-
-  const loadUsers = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/admin/users`)
-      setUsers(res.data.data || [])
-    } catch (err) {
-      notify(t('error_loading_users'), 'error')
-    } finally {
-      setLoading(false)
-    }
-  }
+  }, [loadUsers])
 
   const togglePermission = async (userId, currentValue) => {
     try {
@@ -63,7 +63,7 @@ export default function InstanceAdmin() {
           : (t('permissions_revoked')),
         'success'
       )
-    } catch (err) {
+    } catch {
       notify(t('error_updating_permissions'), 'error')
     }
   }

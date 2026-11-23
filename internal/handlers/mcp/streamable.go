@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // HandleStreamable implements the MCP Streamable HTTP transport (MCP spec 2025-03-26).
@@ -74,12 +75,10 @@ func (s *Server) HandleStreamable(c *gin.Context) {
 		return
 	}
 
-	// Send back session id (stable per request for now — could be UUID for true sessions later)
+	// Send back session id. The session identifier is opaque and random: it
+	// must never embed the identity of the caller.
 	if sessionID := c.GetHeader("MCP-Session-Id"); sessionID == "" {
-		// Server-allocated session — keep simple: derive from user id so it's stable for the same caller
-		if tc.UserID != "" {
-			c.Header("MCP-Session-Id", "sess-"+tc.UserID)
-		}
+		c.Header("MCP-Session-Id", uuid.New().String())
 	}
 
 	if useSSE {
@@ -109,6 +108,10 @@ func (s *Server) handleBatch(tc ToolContext, body []byte) []MCPResponse {
 }
 
 // buildToolContext pulls the authenticated user/role populated by the AuthRequired middleware.
+//
+// The middleware stores the role under the "role" key (not "role_name"), the
+// workspace the caller is bound to under "workspace_id" and the authentication
+// method under "auth_source".
 func buildToolContext(c *gin.Context) ToolContext {
 	tc := ToolContext{}
 	if v, ok := c.Get("user_id"); ok {
@@ -116,9 +119,19 @@ func buildToolContext(c *gin.Context) ToolContext {
 			tc.UserID = s
 		}
 	}
-	if v, ok := c.Get("role_name"); ok {
+	if v, ok := c.Get("role"); ok {
 		if s, ok := v.(string); ok {
 			tc.RoleName = s
+		}
+	}
+	if v, ok := c.Get("workspace_id"); ok {
+		if s, ok := v.(string); ok {
+			tc.WorkspaceID = s
+		}
+	}
+	if v, ok := c.Get("auth_source"); ok {
+		if s, ok := v.(string); ok {
+			tc.AuthSource = s
 		}
 	}
 	return tc

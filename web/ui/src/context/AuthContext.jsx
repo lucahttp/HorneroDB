@@ -1,8 +1,20 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
-import { API_URL, AUTH_TOKEN_KEY } from '../constants'
+import { API_URL, AUTH_TOKEN_KEY, AUTH_EXPIRED_EVENT } from '../constants'
 
 const AuthContext = createContext(null)
+
+/**
+ * Marker used when the session lives only in the `hornero_session` cookie.
+ * The API authenticated the request, but there is no bearer token to keep in
+ * `localStorage`. The marker keeps the router guards working (they only check
+ * that a session exists) without ever being sent as an `Authorization` header.
+ */
+const COOKIE_SESSION = '__cookie_session__'
+
+// The session cookie has to travel with every request: in a same-origin
+// deployment the API lives behind the same host as the UI.
+axios.defaults.withCredentials = true
 
 export const useAuth = () => {
   const context = useContext(AuthContext)
@@ -15,45 +27,100 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(localStorage.getItem(AUTH_TOKEN_KEY))
   const [user, setUser] = useState(null)
-  const [loading, setLoading] = useState(!!token)
+  // The session is probed on startup, so the app waits for the answer even
+  // when there is no token in `localStorage`.
+  const [authLoading, setAuthLoading] = useState(true)
 
-  useEffect(() => {
-    if (token) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
-      axios.get(`${API_URL}/auth/me`)
-        .then(res => {
-          setUser(res.data.data)
-          setLoading(false)
-        })
-        .catch(() => {
-          localStorage.removeItem(AUTH_TOKEN_KEY)
-          setToken(null)
-          setLoading(false)
-        })
+  const logout = useCallback(() => {
+    // Close the session on the server first: that is what clears the
+    // `hornero_session` cookie. The bearer token is attached explicitly
+    // because `localStorage` is emptied right after this call. A failing
+    // request must not keep the user stuck in the app, so the local state is
+    // cleared anyway.
+    const currentToken = localStorage.getItem(AUTH_TOKEN_KEY)
+    axios.post(`${API_URL}/auth/logout`, null, currentToken
+      ? { headers: { Authorization: `Bearer ${currentToken}` } }
+      : undefined
+    ).catch(() => {})
+
+    localStorage.removeItem(AUTH_TOKEN_KEY)
+    delete axios.defaults.headers.common['Authorization']
+    setToken(null)
+    setUser(null)
+    setAuthLoading(false)
+  }, [])
+
+  const login = useCallback((newToken, userData) => {
+    if (newToken) {
+      localStorage.setItem(AUTH_TOKEN_KEY, newToken)
+      axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
+      setToken(newToken)
     } else {
+      localStorage.removeItem(AUTH_TOKEN_KEY)
       delete axios.defaults.headers.common['Authorization']
-      setLoading(false)
+      setToken(COOKIE_SESSION)
     }
-  }, [token])
-
-  const login = (newToken, userData) => {
-    localStorage.setItem(AUTH_TOKEN_KEY, newToken)
-    setToken(newToken)
     if (userData) {
       setUser(userData)
     }
-  }
+  }, [])
 
-  const logout = () => {
-    localStorage.removeItem(AUTH_TOKEN_KEY)
-    setToken(null)
-    setUser(null)
-  }
+  /**
+   * Probes the session on startup.
+   *
+   * The session may live in the `hornero_session` cookie only, so the probe
+   * runs even when `localStorage` has no token: a 200 answer means the user
+   * is authenticated and only the cookie carries the session.
+   */
+  useEffect(() => {
+    let cancelled = false
+
+    const storedToken = localStorage.getItem(AUTH_TOKEN_KEY)
+    if (storedToken) {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`
+    } else {
+      delete axios.defaults.headers.common['Authorization']
+    }
+
+    axios.get(`${API_URL}/auth/me`)
+      .then(res => {
+        if (cancelled) return
+        setUser(res.data.data)
+        // Keep the bearer token when there is one, otherwise mark the session
+        // as cookie-only.
+        setToken(prev => prev || COOKIE_SESSION)
+      })
+      .catch(() => {
+        if (cancelled) return
+        localStorage.removeItem(AUTH_TOKEN_KEY)
+        delete axios.defaults.headers.common['Authorization']
+        setToken(null)
+        setUser(null)
+      })
+      .finally(() => {
+        if (!cancelled) setAuthLoading(false)
+      })
+
+    return () => { cancelled = true }
+  }, [])
+
+  /**
+   * Global 401 handling: the Axios interceptor dispatches `AUTH_EXPIRED_EVENT`
+   * when the API rejects the session, and this listener performs the logout.
+   */
+  useEffect(() => {
+    const handleSessionExpired = () => logout()
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleSessionExpired)
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleSessionExpired)
+  }, [logout])
 
   const value = {
     token,
     user,
-    loading,
+    // True as soon as the session probe answered with a user.
+    isAuthenticated: !!user,
+    // While the session is being probed there is nothing to render yet.
+    loading: authLoading,
     login,
     logout
   }

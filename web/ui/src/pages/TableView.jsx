@@ -1,18 +1,18 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import axios from 'axios'
-import { Xmark } from 'iconoir-react'
 import { API_URL } from '../constants'
 import { useAuth } from '../context/AuthContext'
 import { Button, Badge } from '../components/index.jsx'
 import { DataTable } from '../components/DataTable.jsx'
 import { CsvImportWizard } from '../components/CsvImportWizard.jsx'
-import { notify } from '../components/Toast.jsx'
+import { notify } from '../components/toast.js'
 import TopNavbar from '../components/TopNavbar.jsx'
+import { getEffectivePermissions, isColumnReadable } from '../utils/permissions.js'
 
 export default function TableView() {
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
   const { workspaceId, tableId } = useParams()
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -22,60 +22,168 @@ export default function TableView() {
   const [records, setRecords] = useState([])
   const [roles, setRoles] = useState([])
   const [loading, setLoading] = useState(true)
+  const [recordsLoading, setRecordsLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('data')
   const [tables, setTables] = useState([])
+
+  // ── Pagination ───────────────────────────────────────
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(50)
+  const [totalRecords, setTotalRecords] = useState(0)
+
+  // ── Server-side search & sorting ─────────────────────
+  // `searchInput` is what the user types, `search` is the debounced value that
+  // actually reaches the API.
+  const [searchInput, setSearchInput] = useState('')
+  const [search, setSearch] = useState('')
+  const [sortBy, setSortBy] = useState({ column: null, direction: 'asc' })
 
   // CSV Import Wizard ref
   const csvWizardRef = useRef(null)
 
-  const loadData = async () => {
-    try {
-      const [tableRes, columnsRes, rolesRes, allTablesRes] = await Promise.all([
-        axios.get(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}`),
-        axios.get(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}/columns`),
-        axios.get(`${API_URL}/workspaces/${workspaceId}/roles`),
-        axios.get(`${API_URL}/workspaces/${workspaceId}/tables`)
-      ])
-      const tableData = tableRes.data.data
-      const colData = columnsRes.data.data
-      setTable(tableData)
-      setColumns(colData)
-      setRoles(rolesRes.data.data)
-      setTables(allTablesRes.data.data || [])
+  /**
+   * Loads the table metadata and the records of the current page.
+   * It never touches React state, so it can safely be called from an effect.
+   */
+  const fetchAll = useCallback(async () => {
+    const [tableRes, columnsRes, rolesRes, allTablesRes] = await Promise.all([
+      axios.get(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}`),
+      axios.get(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}/columns`, { params: { limit: 200 } }),
+      // The list endpoints are paginated: ask for enough rows to be sure the
+      // role of the current user is part of the answer.
+      axios.get(`${API_URL}/workspaces/${workspaceId}/roles`, { params: { limit: 200 } }),
+      axios.get(`${API_URL}/workspaces/${workspaceId}/tables`, { params: { limit: 200 } })
+    ])
 
-      const relationsToExpand = colData
-        .filter(c => c.field_type === 'relation')
-        .map(c => c.slug)
-        .join(',')
+    const tableData = tableRes.data.data
+    const colData = columnsRes.data.data || []
 
-      // Build query params properly
-      const params = new URLSearchParams()
-      params.append('limit', '1000') // Fetch up to 1000 records
-      if (relationsToExpand) {
-        params.append('expand', relationsToExpand)
-      }
-      
-      const recordsRes = await axios.get(
-        `${API_URL}/workspaces/${workspaceId}/data/${tableData.slug}?${params.toString()}`
-      )
-      setRecords(recordsRes.data.data || [])
-    } catch (err) {
-      console.error('Error loading table data:', err)
-      if (err.response) {
-        console.error('Response status:', err.response.status)
-        console.error('Response data:', err.response.data)
-        notify(`${t('error_loading_data')}: ${err.response.status}`, 'error')
-      } else {
-        notify(t('error_loading_data'), 'error')
-      }
+    const relationsToExpand = colData
+      .filter(c => c.field_type === 'relation')
+      .map(c => c.slug)
+      .join(',')
+
+    const params = new URLSearchParams()
+    params.append('limit', String(pageSize))
+    params.append('offset', String(page * pageSize))
+    if (relationsToExpand) {
+      params.append('expand', relationsToExpand)
     }
-    setLoading(false)
-  }
+    if (search) {
+      params.append('search', search)
+    }
+    if (sortBy.column) {
+      params.append('order', `${sortBy.column}:${sortBy.direction}`)
+    }
+
+    const recordsRes = await axios.get(
+      `${API_URL}/workspaces/${workspaceId}/data/${tableData.slug}?${params.toString()}`
+    )
+
+    return {
+      table: tableData,
+      columns: colData,
+      roles: rolesRes.data.data || [],
+      tables: allTablesRes.data.data || [],
+      records: recordsRes.data.data || [],
+      // The API answers with the total amount of rows, not the size of the page.
+      total: recordsRes.data.meta?.count ?? recordsRes.data.meta?.total ?? recordsRes.data.data?.length ?? 0,
+    }
+  }, [workspaceId, tableId, page, pageSize, search, sortBy])
+
+  const applyData = useCallback((data) => {
+    setTable(data.table)
+    setColumns(data.columns)
+    setRoles(data.roles)
+    setTables(data.tables)
+    setRecords(data.records)
+    setTotalRecords(data.total)
+  }, [])
+
+  const handleLoadError = useCallback((err) => {
+    console.error('Error loading table data:', err)
+    if (err.response) {
+      console.error('Response status:', err.response.status)
+      console.error('Response data:', err.response.data)
+      notify(`${t('error_loading_data')}: ${err.response.status}`, 'error')
+    } else {
+      notify(t('error_loading_data'), 'error')
+    }
+  }, [t])
 
   useEffect(() => {
-    loadData()
-  }, [workspaceId, tableId])
+    let cancelled = false
 
+    fetchAll()
+      .then(data => {
+        if (!cancelled) applyData(data)
+      })
+      .catch(err => {
+        if (!cancelled) handleLoadError(err)
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false)
+          setRecordsLoading(false)
+        }
+      })
+
+    return () => { cancelled = true }
+  }, [fetchAll, applyData, handleLoadError])
+
+  /** Reload everything (used after a mutation). */
+  const reload = useCallback(() => {
+    fetchAll()
+      .then(applyData)
+      .catch(handleLoadError)
+  }, [fetchAll, applyData, handleLoadError])
+
+  // ── Effective permissions of the current role (CLS) ───
+  const currentRoleName = user?.role
+  const currentRole = roles.find(r => r.name === currentRoleName)
+  const effectivePermissions = getEffectivePermissions(
+    currentRole?.permissions,
+    currentRoleName,
+    table?.slug
+  )
+
+  const handlePageChange = (nextPage) => {
+    setRecordsLoading(true)
+    setPage(nextPage)
+  }
+
+  const handlePageSizeChange = (nextSize) => {
+    setRecordsLoading(true)
+    setPageSize(nextSize)
+    setPage(0)
+  }
+
+  /**
+   * Debounces the search box (300 ms) so a burst of keystrokes only produces
+   * one request. Any change of the search resets the pagination to the first
+   * page, because the filtered result set is a different one.
+   */
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const next = searchInput.trim()
+      setSearch(prev => (prev === next ? prev : next))
+      setPage(0)
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [searchInput])
+
+  /**
+   * Cycles the sort state of a column: none → asc → desc → none.
+   */
+  const handleSortChange = useCallback((column) => {
+    setSortBy(prev => {
+      if (prev.column !== column) return { column, direction: 'asc' }
+      if (prev.direction === 'asc') return { column, direction: 'desc' }
+      return { column: null, direction: 'asc' }
+    })
+    setPage(0)
+  }, [])
 
   const handleExportSchema = async () => {
     try {
@@ -95,7 +203,7 @@ export default function TableView() {
 
   const handleCreateRecord = async (data) => {
     await axios.post(`${API_URL}/workspaces/${workspaceId}/data/${table.slug}`, data)
-    loadData()
+    reload()
   }
 
   const deleteRecord = async (id) => {
@@ -103,6 +211,7 @@ export default function TableView() {
     try {
       await axios.delete(`${API_URL}/workspaces/${workspaceId}/data/${table.slug}/${id}`)
       setRecords(prev => prev.filter(r => r.id !== id))
+      setTotalRecords(prev => Math.max(0, prev - 1))
       notify(t('record_deleted'), 'success')
     } catch (err) {
       console.error(err)
@@ -113,7 +222,7 @@ export default function TableView() {
   const handleUpdateRecord = async (recordId, data) => {
     try {
       await axios.put(`${API_URL}/workspaces/${workspaceId}/data/${table.slug}/${recordId}`, data)
-      loadData()
+      reload()
     } catch (err) {
       console.error(err)
       notify(t('error_update_record'), 'error')
@@ -123,11 +232,13 @@ export default function TableView() {
   const handleBulkDelete = async (ids) => {
     if (!confirm(t('confirm_delete_records', { count: ids.length }))) return
     try {
-      await Promise.all(
-        ids.map(id => axios.delete(`${API_URL}/workspaces/${workspaceId}/data/${table.slug}/${id}`))
-      )
+      // One atomic request instead of N parallel DELETEs: the API either
+      // removes every selected record or none of them.
+      await axios.delete(`${API_URL}/workspaces/${workspaceId}/data/${table.slug}/bulk`, {
+        data: { ids },
+      })
       notify(t('records_deleted'), 'success')
-      loadData()
+      reload()
     } catch (err) {
       console.error(err)
       notify(t('error_delete_records'), 'error')
@@ -142,7 +253,7 @@ export default function TableView() {
         field_type: type,
         meta: meta
       })
-      loadData()
+      reload()
       notify(t('column_created'), 'success')
     } catch (err) {
       console.error(err)
@@ -153,7 +264,7 @@ export default function TableView() {
   const handleDeleteColumn = async (columnId) => {
     try {
       await axios.delete(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}/columns/${columnId}`)
-      loadData()
+      reload()
       notify(t('column_deleted'), 'success')
     } catch (err) {
       console.error(err)
@@ -166,7 +277,7 @@ export default function TableView() {
       await axios.put(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}/columns/${columnId}`, {
         name: newName
       })
-      loadData()
+      reload()
       notify(t('column_renamed'), 'success')
     } catch (err) {
       console.error(err)
@@ -176,22 +287,47 @@ export default function TableView() {
 
   const handleOpenCSVImport = () => { csvWizardRef.current?.open() }
 
-  const handleExportCSV = () => {
-    if (!records.length || !columns.length) return
-    const headers = columns.map(c => c.slug)
-    const rows = records.map(r => headers.map(h => {
-      const v = r[h] ?? ''
-      const s = String(v)
-      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
-    }).join(','))
-    const csv = [headers.join(','), ...rows].join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${table?.slug || 'export'}_${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+  const handleExportCSV = async () => {
+    if (!table || !columns.length) return
+    try {
+      // The grid is paginated, so the export walks through every page.
+      const allRecords = []
+      const batchSize = 500
+      let offset = 0
+      let total = Number.POSITIVE_INFINITY
+
+      while (offset < total) {
+        const res = await axios.get(`${API_URL}/workspaces/${workspaceId}/data/${table.slug}`, {
+          params: { limit: batchSize, offset }
+        })
+        const batch = res.data.data || []
+        allRecords.push(...batch)
+
+        const reported = res.data.meta?.count ?? res.data.meta?.total
+        total = typeof reported === 'number' ? reported : allRecords.length
+
+        if (batch.length === 0) break
+        offset += batch.length
+      }
+
+      const headers = columns.map(c => c.slug)
+      const rows = allRecords.map(r => headers.map(h => {
+        const v = r[h] ?? ''
+        const s = String(v)
+        return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
+      }).join(','))
+      const csv = [headers.join(','), ...rows].join('\n')
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${table.slug || 'export'}_${new Date().toISOString().slice(0, 10)}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error(err)
+      notify(t('error_export_csv'), 'error')
+    }
   }
 
   if (loading) {
@@ -251,32 +387,96 @@ export default function TableView() {
           </div>
 
           {activeTab === 'data' && (
-            <DataTable
-              columns={columns}
-              records={records}
-              onCreateRecord={handleCreateRecord}
-              onDeleteRecord={deleteRecord}
-              onUpdateRecord={handleUpdateRecord}
-              onBulkDelete={handleBulkDelete}
-              onCreateColumn={handleCreateColumn}
-              onDeleteColumn={handleDeleteColumn}
-              onRenameColumn={handleRenameColumn}
-              workspaceId={workspaceId}
-              tables={tables}
-            />
+            <>
+              <div className="table-toolbar" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                <div style={{ position: 'relative', flex: '1 1 16rem', maxWidth: '22rem' }}>
+                  <input
+                    type="search"
+                    className="form-input"
+                    style={{ paddingRight: searchInput ? '2.25rem' : undefined }}
+                    placeholder={t('search_records')}
+                    aria-label={t('search_records_aria')}
+                    value={searchInput}
+                    onChange={e => setSearchInput(e.target.value)}
+                  />
+                  {searchInput && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchInput('')}
+                      aria-label={t('clear_search')}
+                      title={t('clear_search')}
+                      style={{
+                        position: 'absolute', right: '0.5rem', top: '50%', transform: 'translateY(-50%)',
+                        background: 'transparent', border: 'none', cursor: 'pointer',
+                        color: 'var(--text-muted)', fontSize: '1rem', lineHeight: 1, padding: '0.25rem',
+                      }}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                {sortBy.column && (
+                  <span className="badge badge-gray" style={{ whiteSpace: 'nowrap' }}>
+                    {t('sort_by')}: {sortBy.column} {sortBy.direction === 'asc' ? '↑' : '↓'}
+                  </span>
+                )}
+              </div>
+
+              {search && records.length === 0 && !recordsLoading && (
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '0.75rem' }}>
+                  {t('no_records_found')}
+                </p>
+              )}
+
+              <DataTable
+                columns={columns}
+                records={records}
+                onCreateRecord={handleCreateRecord}
+                onDeleteRecord={deleteRecord}
+                onUpdateRecord={handleUpdateRecord}
+                onBulkDelete={handleBulkDelete}
+                onCreateColumn={handleCreateColumn}
+                onDeleteColumn={handleDeleteColumn}
+                onRenameColumn={handleRenameColumn}
+                workspaceId={workspaceId}
+                tables={tables}
+                permissions={effectivePermissions}
+                sortBy={sortBy}
+                onSortChange={handleSortChange}
+                pagination={{
+                  total: totalRecords,
+                  page,
+                  pageSize,
+                  onPageChange: handlePageChange,
+                  onPageSizeChange: handlePageSizeChange,
+                }}
+              />
+            </>
           )}
 
           {activeTab === 'columns' && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '1rem' }}>
-              {columns.map(col => (
-                <div key={col.id} className="card">
-                  <div style={{ fontWeight: 700, marginBottom: '0.25rem' }}>{col.name}</div>
-                  <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: '0.75rem' }}>
-                    @{col.slug}
+              {columns.map(col => {
+                const readable = isColumnReadable(effectivePermissions.readableColumns, col.slug)
+                return (
+                  <div key={col.id} className="card">
+                    <div style={{ fontWeight: 700, marginBottom: '0.25rem' }}>{col.name}</div>
+                    <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: '0.75rem' }}>
+                      @{col.slug}
+                    </div>
+                    <Badge variant="primary">{col.field_type}</Badge>
+                    {!readable && (
+                      <Badge variant="error" style={{ marginLeft: '0.5rem' }}>{t('restricted')}</Badge>
+                    )}
                   </div>
-                  <Badge variant="primary">{col.field_type}</Badge>
-                </div>
-              ))}
+                )
+              })}
+            </div>
+          )}
+
+          {recordsLoading && (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '1rem 0' }}>
+              <div className="loading-spinner" />
             </div>
           )}
         </div>
@@ -287,7 +487,7 @@ export default function TableView() {
         workspaceId={workspaceId}
         table={table}
         columns={columns}
-        onImportComplete={loadData}
+        onImportComplete={reload}
       />
     </div>
   )

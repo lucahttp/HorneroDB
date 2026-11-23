@@ -14,3 +14,9 @@ docker compose up -d --no-deps --build hornerodb-server
 
 ### push to docker hub
 docker build -t lukaneco/hornerodb:latest . && docker push lukaneco/hornerodb:latest
+
+
+
+
+
+cd .\web\ui\ && npm run build && cd ../.. && docker compose up -d --build hornerodb-server

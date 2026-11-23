@@ -1,9 +1,11 @@
 package api
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -52,6 +54,11 @@ func CheckInitialSetup(c *gin.Context) {
 	})
 }
 
+// setupAdvisoryLockKey is the PostgreSQL advisory lock key used to serialise the
+// initial setup transaction, preventing concurrent requests from creating two
+// instance admins (TOCTOU race).
+const setupAdvisoryLockKey = 7823419
+
 // CompleteInitialSetup completa la configuración inicial de la instancia
 // Solo funciona si no hay admins configurados (primer setup)
 func CompleteInitialSetup(c *gin.Context) {
@@ -71,9 +78,29 @@ func CompleteInitialSetup(c *gin.Context) {
 		PocketIDURL      string `json:"pocketid_url"`
 		DefaultRateLimit int    `json:"default_rate_limit"`
 		MaxWorkspaces    int    `json:"max_workspaces"`
+		SetupToken       string `json:"setup_token"`
 	}
 
-	if err := c.ShouldBindJSON(&input); err != nil {
+	bindErr := c.ShouldBindJSON(&input)
+
+	// SECURITY (P0-7): optional bootstrap token. When HORNERO_SETUP_TOKEN is
+	// configured, the caller MUST present it (header or body) or the setup is
+	// rejected. Compared in constant time to avoid timing leaks.
+	if expectedToken := strings.TrimSpace(os.Getenv("HORNERO_SETUP_TOKEN")); expectedToken != "" {
+		headerOK := subtle.ConstantTimeCompare([]byte(c.GetHeader("X-Setup-Token")), []byte(expectedToken)) == 1
+		bodyOK := subtle.ConstantTimeCompare([]byte(input.SetupToken), []byte(expectedToken)) == 1
+
+		if !headerOK && !bodyOK {
+			slog.Warn("initial setup rejected: invalid bootstrap token",
+				"user_id", userID,
+				"ip", c.ClientIP(),
+			)
+			response.PermissionError(c)
+			return
+		}
+	}
+
+	if bindErr != nil {
 		response.ValidationError(c, "Invalid setup data")
 		return
 	}
@@ -107,6 +134,12 @@ func CompleteInitialSetup(c *gin.Context) {
 	// Usar transacción para evitar race condition (TOCTOU)
 	var setupCompleted bool
 	err := database.DB.Transaction(func(tx *gorm.DB) error {
+		// Serialise concurrent setup attempts: the advisory lock is released
+		// automatically when the transaction ends.
+		if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", setupAdvisoryLockKey).Error; err != nil {
+			return fmt.Errorf("failed to acquire setup lock: %w", err)
+		}
+
 		// Verificar que realmente se necesite setup (con bloqueo)
 		var adminCount int64
 		if err := tx.Table("_hornero_users").

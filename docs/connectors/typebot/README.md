@@ -50,7 +50,7 @@ docs/connectors/typebot/
 
 ## Endpoints used
 
-All requests are made with `Authorization: Bearer <apiKey>` against the configured `baseUrl` (`http://localhost:8090` by default):
+All requests are made with `Authorization: Bearer <apiKey>` against the configured `baseUrl` (`http://localhost:8080` by default):
 
 | Action     | Method | Path                                                |
 |------------|--------|-----------------------------------------------------|

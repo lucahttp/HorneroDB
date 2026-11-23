@@ -1,10 +1,17 @@
 package mcp
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,12 +31,19 @@ type oauthClient struct {
 	ClientID     string
 	ClientSecret string
 	RedirectURIs []string
+	// RequirePKCE forces the client to use PKCE (S256) on the authorization
+	// code flow. It is enabled for every dynamically registered client.
+	RequirePKCE bool
 }
 
 type oauthCode struct {
 	ClientID    string
 	RedirectURI string
 	ExpiresAt   time.Time
+	// CodeChallenge / CodeChallengeMethod hold the PKCE challenge of the
+	// authorization request (RFC 7636).
+	CodeChallenge       string
+	CodeChallengeMethod string
 }
 
 var (
@@ -63,21 +77,96 @@ func randomToken(n int) string {
 }
 
 func baseURL(c *gin.Context, publicURL string) string {
+	// The configured public URL always wins: building URLs from the Host
+	// header of the request allows host header injection.
 	if publicURL != "" {
-		return publicURL
+		return strings.TrimRight(publicURL, "/")
 	}
+	if v := strings.TrimSpace(os.Getenv("PUBLIC_URL")); v != "" {
+		return strings.TrimRight(v, "/")
+	}
+	if v := strings.TrimSpace(os.Getenv("MCP_PUBLIC_URL")); v != "" {
+		return strings.TrimRight(v, "/")
+	}
+
 	scheme := "http://"
 	if c.Request.TLS != nil {
 		scheme = "https://"
 	}
-	if xfp := c.GetHeader("X-Forwarded-Proto"); xfp != "" {
+	if xfp := strings.ToLower(strings.TrimSpace(c.GetHeader("X-Forwarded-Proto"))); xfp == "http" || xfp == "https" {
 		scheme = xfp + "://"
 	}
-	host := c.Request.Host
-	if xfh := c.GetHeader("X-Forwarded-Host"); xfh != "" {
-		host = xfh
+	// The Host header is only used as a last resort and X-Forwarded-Host is
+	// deliberately ignored: it is attacker controlled.
+	host := strings.TrimSpace(c.Request.Host)
+	if host == "" {
+		host = "localhost"
 	}
 	return scheme + host
+}
+
+// validateRedirectURI rejects redirect URIs that are not safe for an OAuth
+// client: only https is allowed, except for loopback addresses used by
+// native clients (http://localhost / http://127.0.0.1).
+func validateRedirectURI(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return errors.New("redirect_uri is empty")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid redirect_uri: %w", err)
+	}
+	if parsed.Fragment != "" || parsed.User != nil {
+		return errors.New("redirect_uri must not contain fragments or credentials")
+	}
+
+	switch strings.ToLower(parsed.Scheme) {
+	case "https":
+		if parsed.Host == "" {
+			return errors.New("redirect_uri must contain a host")
+		}
+		return nil
+	case "http":
+		host := strings.ToLower(parsed.Hostname())
+		if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+			return nil
+		}
+		return errors.New("http redirect_uri is only allowed for localhost/127.0.0.1")
+	default:
+		return fmt.Errorf("unsupported redirect_uri scheme %q", parsed.Scheme)
+	}
+}
+
+// verifyCodeChallenge verifies a PKCE code verifier against the stored
+// challenge (RFC 7636, method S256). The comparison is constant time.
+func verifyCodeChallenge(method, verifier, challenge string) bool {
+	if verifier == "" || challenge == "" {
+		return false
+	}
+	switch strings.ToUpper(method) {
+	case "S256":
+		sum := sha256.Sum256([]byte(verifier))
+		computed := base64.RawURLEncoding.EncodeToString(sum[:])
+		return hmac.Equal([]byte(computed), []byte(challenge))
+	case "PLAIN":
+		return hmac.Equal([]byte(verifier), []byte(challenge))
+	default:
+		return false
+	}
+}
+
+// cleanupExpiredCodes removes the expired entries of the in-memory code store.
+// It is called before every insertion so the store cannot grow unbounded.
+func cleanupExpiredCodes() {
+	now := time.Now()
+	oauthCodesMu.Lock()
+	defer oauthCodesMu.Unlock()
+	for key, entry := range oauthCodes {
+		if entry == nil || now.After(entry.ExpiresAt) {
+			delete(oauthCodes, key)
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +203,15 @@ func (o *OAuthServer) RegisterClient(c *gin.Context) {
 		return
 	}
 
+	// Every redirect URI must be a safe absolute URI (https, or http on
+	// loopback). An open redirect would let an attacker steal the code.
+	for _, uri := range req.RedirectURIs {
+		if err := validateRedirectURI(uri); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
 	clientID := uuid.New().String()
 	clientSecret := randomToken(24)
 
@@ -122,17 +220,20 @@ func (o *OAuthServer) RegisterClient(c *gin.Context) {
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		RedirectURIs: req.RedirectURIs,
+		RequirePKCE:  true,
 	}
 	oauthClientsMu.Unlock()
 
 	c.JSON(http.StatusCreated, gin.H{
-		"client_id":                clientID,
-		"client_secret":            clientSecret,
-		"client_id_issued_at":      time.Now().Unix(),
-		"client_secret_expires_at": 0,
-		"redirect_uris":            req.RedirectURIs,
-		"grant_types":              []string{"authorization_code"},
-		"response_types":           []string{"code"},
+		"client_id":                        clientID,
+		"client_secret":                    clientSecret,
+		"client_id_issued_at":              time.Now().Unix(),
+		"client_secret_expires_at":         0,
+		"redirect_uris":                    req.RedirectURIs,
+		"grant_types":                      []string{"authorization_code"},
+		"response_types":                   []string{"code"},
+		"token_endpoint_auth_method":       "client_secret_post",
+		"code_challenge_methods_supported": []string{"S256"},
 	})
 }
 
@@ -148,6 +249,8 @@ func (o *OAuthServer) Authorize(c *gin.Context) {
 	clientID := c.Query("client_id")
 	redirectURI := c.Query("redirect_uri")
 	state := c.Query("state")
+	codeChallenge := c.Query("code_challenge")
+	codeChallengeMethod := c.Query("code_challenge_method")
 
 	// Validate client exists
 	oauthClientsMu.RLock()
@@ -172,10 +275,26 @@ func (o *OAuthServer) Authorize(c *gin.Context) {
 		return
 	}
 
+	// PKCE (RFC 7636): only S256 is accepted.
+	if codeChallenge != "" {
+		if codeChallengeMethod == "" {
+			codeChallengeMethod = "S256"
+		}
+		if strings.ToUpper(codeChallengeMethod) != "S256" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "only the S256 code_challenge_method is supported"})
+			return
+		}
+	} else if client.RequirePKCE {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "code_challenge is required"})
+		return
+	}
+
 	// Store MCP client context in cookies so the OIDC callback can pick it up
 	middleware.SetSecureCookie(c, "mcp_client_id", clientID, 3600, true)
 	middleware.SetSecureCookie(c, "mcp_redirect_uri", redirectURI, 3600, false)
 	middleware.SetSecureCookie(c, "mcp_state", state, 3600, true)
+	middleware.SetSecureCookie(c, "mcp_code_challenge", codeChallenge, 3600, false)
+	middleware.SetSecureCookie(c, "mcp_code_challenge_method", codeChallengeMethod, 3600, false)
 
 	// Kick off PocketID OIDC
 	base := baseURL(c, o.PublicURL)
@@ -207,6 +326,8 @@ func (o *OAuthServer) OIDCCallback(c *gin.Context) {
 	mcpClientID, _ := c.Cookie("mcp_client_id")
 	mcpRedirectURI, _ := c.Cookie("mcp_redirect_uri")
 	mcpState, _ := c.Cookie("mcp_state")
+	mcpCodeChallenge, _ := c.Cookie("mcp_code_challenge")
+	mcpCodeChallengeMethod, _ := c.Cookie("mcp_code_challenge_method")
 
 	// Exchange OIDC code → HorneroDB JWT (we only need user identity)
 	// Use HandleCallbackAndGenerateJWT to get back the app JWT without redirect
@@ -225,11 +346,16 @@ func (o *OAuthServer) OIDCCallback(c *gin.Context) {
 	// Generate a short-lived MCP authorization code that wraps the app JWT
 	mcpCode := randomToken(32)
 
+	// Drop the expired entries before growing the store.
+	cleanupExpiredCodes()
+
 	oauthCodesMu.Lock()
 	oauthCodes[mcpCode] = &oauthCode{
-		ClientID:    mcpClientID,
-		RedirectURI: mcpRedirectURI,
-		ExpiresAt:   time.Now().Add(5 * time.Minute),
+		ClientID:            mcpClientID,
+		RedirectURI:         mcpRedirectURI,
+		ExpiresAt:           time.Now().Add(5 * time.Minute),
+		CodeChallenge:       mcpCodeChallenge,
+		CodeChallengeMethod: mcpCodeChallengeMethod,
 	}
 	// Store the JWT alongside the code so /token can retrieve it
 	oauthCodes[mcpCode+"_jwt"] = &oauthCode{
@@ -262,6 +388,19 @@ func (o *OAuthServer) Token(c *gin.Context) {
 func (o *OAuthServer) handleAuthorizationCodeGrant(c *gin.Context) {
 	code := c.PostForm("code")
 	clientID := c.PostForm("client_id")
+	clientSecret := c.PostForm("client_secret")
+	codeVerifier := c.PostForm("code_verifier")
+
+	if code == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "code is required"})
+		return
+	}
+
+	// The client must authenticate itself when a secret was registered.
+	if !o.verifyClientSecret(clientID, clientSecret) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid client authentication"})
+		return
+	}
 
 	oauthCodesMu.Lock()
 	entry, exists := oauthCodes[code]
@@ -271,6 +410,21 @@ func (o *OAuthServer) handleAuthorizationCodeGrant(c *gin.Context) {
 		oauthCodesMu.Unlock()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid or expired code"})
 		return
+	}
+
+	// PKCE: when the authorization request carried a challenge, the verifier
+	// must match it (S256, constant time comparison).
+	if entry.CodeChallenge != "" {
+		if codeVerifier == "" {
+			oauthCodesMu.Unlock()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "code_verifier is required"})
+			return
+		}
+		if !verifyCodeChallenge(entry.CodeChallengeMethod, codeVerifier, entry.CodeChallenge) {
+			oauthCodesMu.Unlock()
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid code_verifier"})
+			return
+		}
 	}
 
 	appJWT := jwtEntry.ClientID // we stored the jwt in ClientID field
@@ -293,11 +447,37 @@ func (o *OAuthServer) handleAuthorizationCodeGrant(c *gin.Context) {
 	})
 }
 
+// verifyClientSecret checks the client secret of a registered client. Clients
+// without a registered secret (public clients) are accepted, but a wrong
+// secret is always rejected.
+func (o *OAuthServer) verifyClientSecret(clientID, clientSecret string) bool {
+	oauthClientsMu.RLock()
+	client, exists := oauthClients[clientID]
+	oauthClientsMu.RUnlock()
+
+	if !exists {
+		return false
+	}
+	if client.ClientSecret == "" {
+		// Public client: nothing to verify.
+		return true
+	}
+	return hmac.Equal([]byte(client.ClientSecret), []byte(clientSecret))
+}
+
 func (o *OAuthServer) handleRefreshTokenGrant(c *gin.Context) {
 	refresh := c.PostForm("refresh_token")
 	if refresh == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "refresh_token is required"})
 		return
+	}
+
+	clientID := c.PostForm("client_id")
+	if clientID != "" {
+		if !o.verifyClientSecret(clientID, c.PostForm("client_secret")) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid client authentication"})
+			return
+		}
 	}
 
 	oauthCodesMu.Lock()

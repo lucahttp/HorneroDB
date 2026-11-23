@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 func init() { gin.SetMode(gin.TestMode) }
@@ -257,14 +259,221 @@ func TestParseResourceURI(t *testing.T) {
 
 func TestExtractHost(t *testing.T) {
 	cases := map[string]string{
-		"https://api.example.com":            "api.example.com",
-		"http://localhost:8080":              "localhost:8080",
-		"https://api.example.com/some/path":  "api.example.com",
-		"api.example.com":                    "api.example.com",
+		"https://api.example.com":           "api.example.com",
+		"http://localhost:8080":             "localhost:8080",
+		"https://api.example.com/some/path": "api.example.com",
+		"api.example.com":                   "api.example.com",
 	}
 	for in, want := range cases {
 		if got := extractHost(in); got != want {
 			t.Errorf("extractHost(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Auth context
+// ---------------------------------------------------------------------------
+
+func TestBuildToolContext_ReadsRoleKey(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Set("user_id", "user-123")
+	c.Set("role", "admin")
+	c.Set("workspace_id", "ws-456")
+	c.Set("auth_source", "apikey")
+
+	tc := buildToolContext(c)
+
+	if tc.UserID != "user-123" {
+		t.Errorf("UserID = %q, want %q", tc.UserID, "user-123")
+	}
+	// The middleware stores the role under "role", not "role_name".
+	if tc.RoleName != "admin" {
+		t.Errorf("RoleName = %q, want %q", tc.RoleName, "admin")
+	}
+	if tc.WorkspaceID != "ws-456" {
+		t.Errorf("WorkspaceID = %q, want %q", tc.WorkspaceID, "ws-456")
+	}
+	if tc.AuthSource != "apikey" {
+		t.Errorf("AuthSource = %q, want %q", tc.AuthSource, "apikey")
+	}
+	if !tc.IsAPIKey() {
+		t.Error("expected IsAPIKey() to be true for auth_source=apikey")
+	}
+}
+
+func TestBuildToolContext_IgnoresRoleNameKey(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Set("user_id", "user-123")
+	// "role_name" is not the key used by the auth middleware: it must not be
+	// picked up (it would leak a role from another workspace).
+	c.Set("role_name", "admin")
+
+	tc := buildToolContext(c)
+
+	if tc.RoleName != "" {
+		t.Errorf("RoleName = %q, want empty (role_name must be ignored)", tc.RoleName)
+	}
+}
+
+func TestBuildToolContext_MissingValuesAreSafe(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+
+	tc := buildToolContext(c)
+
+	if tc.UserID != "" || tc.RoleName != "" || tc.WorkspaceID != "" || tc.AuthSource != "" {
+		t.Errorf("expected an empty context, got %+v", tc)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Session id
+// ---------------------------------------------------------------------------
+
+func TestStreamable_SessionIDIsOpaque(t *testing.T) {
+	srv := newTestServer()
+	r := gin.New()
+	r.POST("/mcp/stream", func(c *gin.Context) {
+		c.Set("user_id", "super-secret-user-id")
+		c.Set("role", "admin")
+		srv.HandleStreamable(c)
+	})
+
+	body := `{"jsonrpc":"2.0","id":1,"method":"ping"}`
+	req := httptest.NewRequest(http.MethodPost, "/mcp/stream", bytes.NewReader([]byte(body)))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	sessionID := w.Header().Get("MCP-Session-Id")
+	if sessionID == "" {
+		t.Fatal("expected an MCP-Session-Id header")
+	}
+	if strings.Contains(sessionID, "super-secret-user-id") {
+		t.Fatalf("session id leaks the user id: %q", sessionID)
+	}
+	if strings.Contains(sessionID, "sess-") {
+		t.Fatalf("session id must not be derived from the user id: %q", sessionID)
+	}
+	if _, err := uuid.Parse(sessionID); err != nil {
+		t.Fatalf("expected an opaque uuid session id, got %q: %v", sessionID, err)
+	}
+}
+
+func TestStreamable_SessionIDIsRandomPerRequest(t *testing.T) {
+	srv := newTestServer()
+	r := gin.New()
+	r.POST("/mcp/stream", srv.HandleStreamable)
+
+	body := `{"jsonrpc":"2.0","id":1,"method":"ping"}`
+	seen := make(map[string]bool)
+	for i := 0; i < 5; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/mcp/stream", bytes.NewReader([]byte(body)))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		id := w.Header().Get("MCP-Session-Id")
+		if id == "" {
+			t.Fatal("expected an MCP-Session-Id header")
+		}
+		if seen[id] {
+			t.Fatalf("session id %q was reused", id)
+		}
+		seen[id] = true
+	}
+}
+
+// ---------------------------------------------------------------------------
+// OAuth: PKCE, redirect URIs and client secrets
+// ---------------------------------------------------------------------------
+
+func TestVerifyCodeChallenge_S256(t *testing.T) {
+	// RFC 7636, Appendix B.
+	const (
+		verifier  = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+		challenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+	)
+
+	if !verifyCodeChallenge("S256", verifier, challenge) {
+		t.Fatal("expected the RFC 7636 verifier to match the challenge")
+	}
+	if !verifyCodeChallenge("s256", verifier, challenge) {
+		t.Fatal("expected the method to be case insensitive")
+	}
+	if verifyCodeChallenge("S256", "wrong-verifier", challenge) {
+		t.Fatal("expected a wrong verifier to be rejected")
+	}
+	if verifyCodeChallenge("S256", "", challenge) {
+		t.Fatal("expected an empty verifier to be rejected")
+	}
+	if verifyCodeChallenge("S256", verifier, "") {
+		t.Fatal("expected an empty challenge to be rejected")
+	}
+	if verifyCodeChallenge("MD5", verifier, challenge) {
+		t.Fatal("expected an unsupported method to be rejected")
+	}
+}
+
+func TestValidateRedirectURI(t *testing.T) {
+	cases := []struct {
+		uri     string
+		wantErr bool
+	}{
+		{"https://client.example.com/callback", false},
+		{"http://localhost:1234/callback", false},
+		{"http://127.0.0.1:1234/callback", false},
+		{"http://example.com/callback", true},
+		{"javascript:alert(1)", true},
+		{"ftp://example.com/callback", true},
+		{"https://user:pass@example.com/callback", true},
+		{"https://example.com/callback#fragment", true},
+		{"", true},
+	}
+
+	for _, c := range cases {
+		err := validateRedirectURI(c.uri)
+		if (err != nil) != c.wantErr {
+			t.Errorf("validateRedirectURI(%q) err=%v, wantErr=%v", c.uri, err, c.wantErr)
+		}
+	}
+}
+
+func TestVerifyClientSecret(t *testing.T) {
+	o := &OAuthServer{}
+
+	oauthClientsMu.Lock()
+	oauthClients["client-1"] = &oauthClient{ClientID: "client-1", ClientSecret: "s3cret", RequirePKCE: true}
+	oauthClientsMu.Unlock()
+
+	if !o.verifyClientSecret("client-1", "s3cret") {
+		t.Fatal("expected the correct secret to be accepted")
+	}
+	if o.verifyClientSecret("client-1", "wrong") {
+		t.Fatal("expected a wrong secret to be rejected")
+	}
+	if o.verifyClientSecret("unknown-client", "s3cret") {
+		t.Fatal("expected an unknown client to be rejected")
+	}
+}
+
+func TestBaseURL_PrefersConfiguredPublicURL(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Request.Host = "attacker.example.com"
+	c.Request.Header.Set("X-Forwarded-Host", "evil.example.com")
+
+	if got := baseURL(c, "https://hornerodb.example.com"); got != "https://hornerodb.example.com" {
+		t.Fatalf("baseURL = %q, want the configured public URL", got)
+	}
+
+	// Without a configured URL the request host is used, but the
+	// X-Forwarded-Host header is ignored (host header injection).
+	got := baseURL(c, "")
+	if strings.Contains(got, "evil.example.com") {
+		t.Fatalf("baseURL trusted X-Forwarded-Host: %q", got)
+	}
+	if !strings.Contains(got, "attacker.example.com") {
+		t.Fatalf("baseURL = %q, want the request host", got)
 	}
 }

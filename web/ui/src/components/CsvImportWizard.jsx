@@ -5,6 +5,12 @@ import { Xmark } from 'iconoir-react'
 import { API_URL } from '../constants'
 import { Button } from './index.jsx'
 
+/**
+ * Amount of rows sent per bulk request. The API accepts a whole batch in one
+ * call, so a large file does not turn into hundreds of round-trips.
+ */
+const BULK_BATCH_SIZE = 200
+
 export const CsvImportWizard = forwardRef(({ workspaceId, table, columns, onImportComplete }, ref) => {
   const { t } = useTranslation()
   const [csvWizard, setCsvWizard] = useState(null)
@@ -14,31 +20,88 @@ export const CsvImportWizard = forwardRef(({ workspaceId, table, columns, onImpo
     open: () => csvFileRef.current?.click()
   }))
 
-  const splitCSVLine = (line) => {
-    const result = []
-    let cur = ''
-    let inQ = false
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i]
-      if (ch === '"') { inQ = !inQ }
-      else if (ch === ',' && !inQ) { result.push(cur.trim()); cur = '' }
-      else { cur += ch }
-    }
-    result.push(cur.trim())
-    return result
-  }
-
+  /**
+   * RFC 4180 style CSV parser.
+   *
+   * It understands escaped quotes (`""` inside a quoted field) and line
+   * breaks inside quoted fields, which a naive `split('\n')` cannot handle.
+   */
   const parseCSV = (text) => {
-    const lines = text.split(/\r?\n/).filter(l => l.trim())
-    if (!lines.length) return { headers: [], rows: [] }
-    const headers = splitCSVLine(lines[0])
-    const rows = lines.slice(1).map(l => {
-      const vals = splitCSVLine(l)
-      const row = {}
-      headers.forEach((h, i) => { row[h] = vals[i] ?? '' })
-      return row
+    const rows = []
+    let row = []
+    let field = ''
+    let inQuotes = false
+    let i = 0
+    const len = text.length
+
+    // Drop the UTF-8 byte order mark if the file has one.
+    if (text.charCodeAt(0) === 0xfeff) i = 1
+
+    while (i < len) {
+      const ch = text[i]
+
+      if (inQuotes) {
+        if (ch === '"') {
+          // `""` is an escaped quote, a single `"` closes the field.
+          if (text[i + 1] === '"') {
+            field += '"'
+            i += 2
+            continue
+          }
+          inQuotes = false
+          i += 1
+          continue
+        }
+        field += ch
+        i += 1
+        continue
+      }
+
+      if (ch === '"') {
+        inQuotes = true
+        i += 1
+        continue
+      }
+
+      if (ch === ',') {
+        row.push(field)
+        field = ''
+        i += 1
+        continue
+      }
+
+      if (ch === '\r' || ch === '\n') {
+        row.push(field)
+        field = ''
+        rows.push(row)
+        row = []
+        i += 1
+        // Treat `\r\n` as a single line break.
+        if (ch === '\r' && text[i] === '\n') i += 1
+        continue
+      }
+
+      field += ch
+      i += 1
+    }
+
+    // The last field of the file, when the file does not end with a break.
+    if (field.length > 0 || row.length > 0) {
+      row.push(field)
+      rows.push(row)
+    }
+
+    const populated = rows.filter(r => r.some(cell => cell.trim() !== ''))
+    if (!populated.length) return { headers: [], rows: [] }
+
+    const headers = populated[0].map(h => h.trim())
+    const dataRows = populated.slice(1).map(r => {
+      const record = {}
+      headers.forEach((h, idx) => { record[h] = (r[idx] ?? '').trim() })
+      return record
     })
-    return { headers, rows }
+
+    return { headers, rows: dataRows }
   }
 
   const handleCSVFileChange = (e) => {
@@ -53,7 +116,17 @@ export const CsvImportWizard = forwardRef(({ workspaceId, table, columns, onImpo
         const match = columns.find(c => c.slug === normalized || c.slug === h.toLowerCase())
         defaultMapping[h] = match ? match.slug : '__ignore__'
       })
-      setCsvWizard({ step: 2, headers, rows, mapping: defaultMapping, importing: false, results: null })
+      setCsvWizard({
+        step: 2,
+        headers,
+        rows,
+        mapping: defaultMapping,
+        importing: false,
+        results: null,
+        batch: 0,
+        totalBatches: 0,
+        imported: 0,
+      })
     }
     reader.readAsText(file, 'UTF-8')
     e.target.value = ''
@@ -61,10 +134,19 @@ export const CsvImportWizard = forwardRef(({ workspaceId, table, columns, onImpo
 
   const handleCSVImport = async () => {
     if (!csvWizard) return
-    setCsvWizard(prev => ({ ...prev, step: 3, importing: true, results: [] }))
-    const results = []
-    for (let i = 0; i < csvWizard.rows.length; i++) {
-      const row = csvWizard.rows[i]
+    setCsvWizard(prev => ({
+      ...prev,
+      step: 3,
+      importing: true,
+      results: [],
+      batch: 0,
+      totalBatches: 0,
+      imported: 0,
+    }))
+
+    // Build every payload up-front so a mapping/typing problem is detected
+    // before the first request goes out.
+    const payloads = csvWizard.rows.map((row, index) => {
       const payload = {}
       csvWizard.headers.forEach(h => {
         const target = csvWizard.mapping[h]
@@ -86,14 +168,35 @@ export const CsvImportWizard = forwardRef(({ workspaceId, table, columns, onImpo
           payload[target] = val
         }
       })
+      return { index, payload }
+    })
+
+    const totalBatches = Math.max(1, Math.ceil(payloads.length / BULK_BATCH_SIZE))
+    const results = []
+    let imported = 0
+
+    setCsvWizard(prev => ({ ...prev, totalBatches }))
+
+    for (let b = 0; b < totalBatches; b++) {
+      const batch = payloads.slice(b * BULK_BATCH_SIZE, (b + 1) * BULK_BATCH_SIZE)
+      if (!batch.length) continue
+
+      // Show the progress of the batch that is being sent right now.
+      setCsvWizard(prev => ({ ...prev, batch: b + 1, imported }))
+
       try {
-        await axios.post(`${API_URL}/workspaces/${workspaceId}/data/${table.slug}`, payload)
-        results.push({ row: i + 1, ok: true })
+        await axios.post(`${API_URL}/workspaces/${workspaceId}/data/${table.slug}/bulk`, {
+          records: batch.map(item => item.payload),
+        })
+        batch.forEach(item => results.push({ row: item.index + 1, ok: true }))
+        imported += batch.length
       } catch (err) {
-        results.push({ row: i + 1, ok: false, error: err?.response?.data?.error?.message || err.message })
+        const message = err?.response?.data?.error?.message || err.message
+        batch.forEach(item => results.push({ row: item.index + 1, ok: false, error: message }))
       }
     }
-    setCsvWizard(prev => ({ ...prev, importing: false, results }))
+
+    setCsvWizard(prev => ({ ...prev, importing: false, results, imported }))
     if (onImportComplete) onImportComplete()
   }
 
@@ -108,7 +211,7 @@ export const CsvImportWizard = forwardRef(({ workspaceId, table, columns, onImpo
                 {csvWizard.step === 2 ? t('csv_map_columns') : csvWizard.step === 3 ? t('csv_import_data') : t('csv_import')}
               </h3>
               {!csvWizard.importing && (
-                <button className="btn btn-ghost btn-sm" onClick={() => setCsvWizard(null)}>
+                <button className="btn btn-ghost btn-sm" onClick={() => setCsvWizard(null)} aria-label={t('aria_close_modal')}>
                   <Xmark width="1rem" height="1rem" />
                 </button>
               )}
@@ -151,6 +254,19 @@ export const CsvImportWizard = forwardRef(({ workspaceId, table, columns, onImpo
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', padding: '2rem 0' }}>
                     <div className="loading-spinner" />
                     <p>{t('csv_importing', { count: csvWizard.rows.length })}</p>
+                    {csvWizard.totalBatches > 0 && (
+                      <>
+                        <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                          {t('csv_batch_progress', { current: csvWizard.batch, total: csvWizard.totalBatches })}
+                        </p>
+                        <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                          {t('csv_rows_progress', { done: csvWizard.imported, total: csvWizard.rows.length })}
+                        </p>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          {t('csv_bulk_batch_size', { size: BULK_BATCH_SIZE })}
+                        </p>
+                      </>
+                    )}
                   </div>
                 ) : (
                   <div>

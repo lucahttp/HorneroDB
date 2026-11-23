@@ -3,9 +3,9 @@ import { useTranslation } from 'react-i18next'
 import axios from 'axios'
 import { Xmark, Plus, Trash, Table2Columns } from 'iconoir-react'
 import { Button } from './index.jsx'
-import { notify } from './Toast.jsx'
+import { notify } from './toast.js'
 import { API_URL } from '../constants/index.js'
-import { FIELD_TYPE_OPTIONS, getFieldConfig } from '../fieldTypeConfig.jsx'
+import { FIELD_TYPE_OPTIONS, getFieldConfig } from '../fieldTypeConfig.js'
 
 export function TableEditModal({ table, workspaceId, onClose, onTableUpdated, onColumnAdded, onColumnDeleted }) {
   const { t } = useTranslation()

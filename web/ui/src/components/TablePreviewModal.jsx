@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import axios from 'axios'
 import { Xmark, Table2Columns } from 'iconoir-react'
 import { API_URL } from '../constants/index.js'
-import { getFieldConfig } from '../fieldTypeConfig.jsx'
+import { getFieldConfig } from '../fieldTypeConfig.js'
 
 export function TablePreviewModal({ table, workspaceId, onClose }) {
   const { t } = useTranslation()

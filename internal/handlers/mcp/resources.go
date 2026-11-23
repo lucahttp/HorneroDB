@@ -7,6 +7,7 @@ import (
 
 	"hornerodb/internal/database"
 	"hornerodb/internal/models/metadata"
+	"hornerodb/internal/services/permission"
 )
 
 // MCP resource URIs use a custom scheme per RFC 3986. We expose:
@@ -23,19 +24,36 @@ const (
 
 // handleResourcesList returns the list of tables the caller can see, as resources.
 // Two resources per table: schema + data.
-func (s *Server) handleResourcesList(req MCPRequest) MCPResponse {
-	wsList, err := s.listWorkspacesResource()
+//
+// Only the workspaces the caller actually belongs to are listed, and a table is
+// only exposed when the caller has read access to it: resources/list must not
+// leak the metadata of other tenants.
+func (s *Server) handleResourcesList(ctx ToolContext, req MCPRequest) MCPResponse {
+	wsList, err := s.workspacesForResources(ctx)
 	if err != nil {
 		return MCPResponse{JSONRPC: "2.0", ID: req.ID, Error: &MCPError{Code: -32000, Message: err.Error()}}
 	}
 
 	resources := make([]map[string]interface{}, 0, len(wsList)*4)
 	for _, ws := range wsList {
+		// The role is resolved inside this workspace: a role inherited from
+		// another workspace must not grant access here.
+		roleName, err := s.resolveWorkspaceRole(ctx, ws.ID)
+		if err != nil {
+			continue
+		}
+
 		tables, err := s.tablesForWorkspace(ws.ID.String())
 		if err != nil {
 			continue
 		}
 		for _, t := range tables {
+			accessLevel, err := s.permSvc.CheckTableAccess(ws.ID, roleName, t.Slug, "read")
+			if err != nil || accessLevel == permission.AccessNone {
+				// No read access: the table must not appear in the listing.
+				continue
+			}
+
 			// Schema resource — small, always safe to expose
 			resources = append(resources, map[string]interface{}{
 				"uri":         fmt.Sprintf("%s://%s/%s", uriScheme, ws.ID, t.Slug),
@@ -59,6 +77,20 @@ func (s *Server) handleResourcesList(req MCPRequest) MCPResponse {
 		Result: map[string]interface{}{
 			"resources": resources,
 		},
+	}
+}
+
+// workspacesForResources returns the workspaces the caller has access to.
+func (s *Server) workspacesForResources(ctx ToolContext) ([]metadata.Workspace, error) {
+	list, err := s.listWorkspaces(ctx)
+	if err != nil {
+		return nil, err
+	}
+	switch v := list.(type) {
+	case []metadata.Workspace:
+		return v, nil
+	default:
+		return nil, nil
 	}
 }
 
@@ -136,8 +168,9 @@ func (s *Server) readTableData(ctx ToolContext, req MCPRequest, wsID string, tab
 	}
 }
 
-// listWorkspacesResource mirrors list_workspaces but returns just IDs+names (no permission check — the
-// resources/list call itself is gated by auth and the read permissions are checked in resources/read).
+// listWorkspacesResource is kept for backwards compatibility, but it must NOT
+// be used to build a listing for a caller: it returns every workspace of the
+// instance. Use listWorkspaces (which is scoped to the caller) instead.
 func (s *Server) listWorkspacesResource() ([]metadata.Workspace, error) {
 	var ws []metadata.Workspace
 	if err := database.DB.Table("_hornero_workspaces").Find(&ws).Error; err != nil {
@@ -155,8 +188,9 @@ func (s *Server) tablesForWorkspace(wsID string) ([]metadata.Table, error) {
 }
 
 // parseResourceURI accepts:
-//   table://<ws_id>/<table_slug>
-//   table://<ws_id>/<table_slug>/data
+//
+//	table://<ws_id>/<table_slug>
+//	table://<ws_id>/<table_slug>/data
 func parseResourceURI(uri string) (wsID, tableSlug string, isData bool, err error) {
 	if !strings.HasPrefix(uri, uriScheme+"://") {
 		return "", "", false, fmt.Errorf("unsupported URI scheme; expected %s://", uriScheme)

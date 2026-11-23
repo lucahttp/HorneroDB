@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Single unified job: the Go server embeds the compiled UI (web/embed.go uses
+  # `go:embed ui/dist/*`), so the UI must be built BEFORE any Go command that
+  # compiles the web package. Splitting this into separate jobs would require
+  # passing the dist/ folder between them as an artifact.
+  build-and-test:
+    name: UI + Backend (vet, test, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: web/ui/package-lock.json
+
+      - name: Install UI dependencies
+        working-directory: web/ui
+        run: npm ci
+
+      - name: Lint UI
+        working-directory: web/ui
+        run: npm run lint
+
+      - name: Build UI (web/ui/dist, embedded by the Go binary)
+        working-directory: web/ui
+        run: npm run build
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          # Keeps CI in sync with the version declared in go.mod
+          go-version-file: go.mod
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test (race detector)
+        run: go test -race ./...
+
+      - name: Build server
+        run: go build -o ./bin/hornerodb ./cmd/server
+
+      - name: Upload server binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: hornerodb-server
+          path: ./bin/hornerodb
+          retention-days: 7
+          if-no-files-found: error
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build-and-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: hornerodb:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

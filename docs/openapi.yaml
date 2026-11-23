@@ -1,594 +1,837 @@
 openapi: "3.0.3"
+
 info:
   title: HorneroDB API
-  description: |
-    CRM-style database-as-a-service API.
-    Supports dynamic tables, columns, records, role-based permissions (Dataverse-style),
-    SSO via OIDC, and API key authentication.
   version: "1.0.0"
+  description: |
+    **HorneroDB** is a CRM-style database-as-a-service.
+
+    It exposes a dynamic, metadata-driven data model over HTTP: workspaces hold
+    tables, tables hold typed columns, and records live in the tables. Access is
+    controlled with Dataverse-style roles that combine **table-level** rights
+    (`none` / `own` / `all`), **column-level security (CLS)** and a reserved
+    `__system__` block for workspace-wide administration areas.
+
+    ## Authentication
+
+    Three credentials are accepted on the protected routes:
+
+    | Credential | Where it goes |
+    |---|---|
+    | Session JWT | `Authorization: Bearer <jwt>` |
+    | API key | `Authorization: Bearer key_…` (the key carries its own prefix) |
+    | Browser session | `Cookie: hornero_session=<jwt>` (JWT only — API keys are never accepted from a cookie) |
+
+    ## Response envelopes
+
+    Every JSON endpoint answers with one of two shapes:
+
+    ```json
+    { "success": true, "data": { }, "meta": { "count": 0, "limit": 20, "offset": 0, "has_more": false } }
+    ```
+
+    ```json
+    { "success": false, "error": { "code": "ERR_VALIDATION", "message": "…", "path": "/api/v1/…" } }
+    ```
+
+    `meta` is present on list endpoints only. `count` is always the number of
+    items in `data`; `limit`, `offset` and `has_more` are present on the
+    paginated collection endpoints (records, audit trail).
+
+    ## Errors
+
+    | HTTP | `error.code` | Meaning |
+    |---|---|---|
+    | 400 | `ERR_VALIDATION`, `ERR_BAD_REQUEST`, `ERR_INVALID_INPUT`, `ERR_MISSING_FIELD` | Malformed payload or query string |
+    | 401 | `ERR_UNAUTHORIZED` | Missing or invalid credential |
+    | 403 | `ERR_FORBIDDEN` | Authenticated but not allowed |
+    | 404 | `ERR_NOT_FOUND` | Resource does not exist **or** is not visible in this workspace |
+    | 405 | — | Known path, wrong HTTP method |
+    | 409 | `ERR_CONFLICT` | Unique violation (duplicate slug, duplicate user) |
+    | 429 | `ERR_RATE_LIMITED` | Rate limit exceeded |
+    | 500 | `ERR_INTERNAL_SERVER`, `ERR_DATABASE` | Server-side failure |
+    | 503 | `ERR_UNAVAILABLE` | Dependency (database) unreachable |
+
+    ## Pagination
+
+    List endpoints accept `?limit=` (default `20`, maximum `1000`) and
+    `?offset=` (default `0`).
+
+    ## Rate limits
+
+    OIDC and MCP OAuth endpoints are limited to **10 requests/minute per IP**;
+    MCP tool transports (`/mcp/sse`, `/mcp/message`, `/mcp/stream`) are limited
+    to **120 requests/minute per IP**. Per-API-key overrides can be configured
+    through `rate_limit_per_minute` / `rate_limit_per_hour` on the key.
+
+    ## Versions
+
+    This document describes the **v1.0 GA** surface.
+
   contact:
     name: HorneroDB
+    url: https://github.com/pelucasistemas/hornerodb
   license:
     name: MIT
 
 servers:
-  - url: http://localhost:8090/api/v1
-    description: Local development
+  - url: http://localhost:8080
+    description: Local development (default `SERVER_PORT=8080`)
+  - url: "{scheme}://{host}"
+    description: Deployed instance behind a TLS-terminating reverse proxy
+    variables:
+      scheme:
+        default: https
+        enum: [https, http]
+      host:
+        default: api.example.com
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  SECURITY
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+tags:
+  - name: System
+    description: Liveness and readiness probes
+  - name: Setup
+    description: First-run instance bootstrap
+  - name: Auth
+    description: OIDC login, session and self-service endpoints
+  - name: Instance Admin
+    description: Instance-wide user and settings administration
+  - name: Templates
+    description: Built-in workspace templates
+  - name: Workspaces
+    description: Workspace lifecycle, import and export
+  - name: Schema
+    description: Tables and columns (metadata)
+  - name: Data
+    description: Records
+  - name: Roles
+    description: Roles, permissions and workspace membership
+  - name: API Keys
+    description: Programmatic access keys
+  - name: Webhooks
+    description: Outbound subscriptions and delivery history
+  - name: Audit
+    description: Security audit trail
+  - name: MCP
+    description: Model Context Protocol transports and OAuth 2.0 authorization server
+
 security:
   - BearerAuth: []
-  - ApiKeyAuth: []
+  - SessionCookie: []
 
-components:
-  securitySchemes:
-    BearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-    ApiKeyAuth:
-      type: apiKey
-      in: header
-      name: Authorization
-      description: "API Key prefixed with `Bearer `"
-
-  # ── Schemas ──────────────────────
-  schemas:
-    Error:
-      type: object
-      properties:
-        error:
-          type: string
-      required: [error]
-
-    Message:
-      type: object
-      properties:
-        message:
-          type: string
-
-    # ── Workspace ──
-    Workspace:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        name:
-          type: string
-        slug:
-          type: string
-        owner_id:
-          type: string
-          format: uuid
-        settings:
-          type: object
-        created_at:
-          type: string
-          format: date-time
-
-    WorkspaceCreate:
-      type: object
-      required: [name, slug, owner_id]
-      properties:
-        name:
-          type: string
-        slug:
-          type: string
-        owner_id:
-          type: string
-          format: uuid
-
-    # ── Table ──
-    Table:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        workspace_id:
-          type: string
-          format: uuid
-        name:
-          type: string
-        slug:
-          type: string
-        created_at:
-          type: string
-          format: date-time
-
-    TableCreate:
-      type: object
-      required: [name]
-      properties:
-        name:
-          type: string
-        slug:
-          type: string
-        metadata:
-          type: string
-
-    # ── Column ──
-    Column:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        table_id:
-          type: string
-          format: uuid
-        name:
-          type: string
-        slug:
-          type: string
-        field_type:
-          type: string
-          enum:
-            - text
-            - long_text
-            - number
-            - integer
-            - float
-            - boolean
-            - date
-            - datetime
-            - email
-            - url
-            - select
-            - relation
-            - json
-            - file
-        meta:
-          type: object
-        order_index:
-          type: integer
-        created_at:
-          type: string
-          format: date-time
-
-    ColumnCreate:
-      type: object
-      required: [name, field_type]
-      properties:
-        name:
-          type: string
-        slug:
-          type: string
-        field_type:
-          type: string
-          enum:
-            - text
-            - long_text
-            - number
-            - integer
-            - float
-            - boolean
-            - date
-            - datetime
-            - email
-            - url
-            - select
-            - relation
-            - json
-            - file
-        meta:
-          type: string
-        order_index:
-          type: integer
-
-    # ── Record ──
-    Record:
-      type: object
-      additionalProperties: true
-      description: Dynamic key-value map. Keys match column slugs.
-
-    RecordList:
-      type: object
-      properties:
-        data:
-          type: array
-          items:
-            $ref: "#/components/schemas/Record"
-        limit:
-          type: integer
-        offset:
-          type: integer
-
-    # ── Role ──
-    Role:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        workspace_id:
-          type: string
-          format: uuid
-        name:
-          type: string
-        description:
-          type: string
-        permissions:
-          type: object
-          description: |
-            Dataverse-style permissions map.
-            Keys are table slugs (or "*" for all).
-            Values: { create: "all"|"own"|"none", read: ..., update: ..., delete: ... }
-        is_default:
-          type: boolean
-        created_at:
-          type: string
-          format: date-time
-
-    RoleCreate:
-      type: object
-      required: [name]
-      properties:
-        name:
-          type: string
-        description:
-          type: string
-        permissions:
-          type: object
-
-    # ── UserRole ──
-    UserRole:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        workspace_id:
-          type: string
-          format: uuid
-        user_id:
-          type: string
-        role_id:
-          type: string
-          format: uuid
-
-    # ── Permission (legacy) ──
-    Permission:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        workspace_id:
-          type: string
-          format: uuid
-        table_id:
-          type: string
-          format: uuid
-          nullable: true
-        column_id:
-          type: string
-          format: uuid
-          nullable: true
-        role:
-          type: string
-        scope:
-          type: string
-          enum: [table, column, row]
-        row_filter:
-          type: object
-        allow_read:
-          type: boolean
-        allow_create:
-          type: boolean
-        allow_update:
-          type: boolean
-        allow_delete:
-          type: boolean
-        created_at:
-          type: string
-          format: date-time
-
-    # ── API Key ──
-    APIKey:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        workspace_id:
-          type: string
-          format: uuid
-        name:
-          type: string
-        prefix:
-          type: string
-        masked_key:
-          type: string
-        role_id:
-          type: string
-          format: uuid
-        last_used_at:
-          type: string
-          format: date-time
-          nullable: true
-        expires_at:
-          type: string
-          format: date-time
-          nullable: true
-        created_at:
-          type: string
-          format: date-time
-
-    APIKeyCreate:
-      type: object
-      required: [name]
-      properties:
-        name:
-          type: string
-        prefix:
-          type: string
-        role_id:
-          type: string
-          format: uuid
-        expires_in_days:
-          type: integer
-
-    APIKeyCreated:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-        workspace_id:
-          type: string
-          format: uuid
-        name:
-          type: string
-        key:
-          type: string
-          description: "Full API key — shown only once at creation"
-        prefix:
-          type: string
-        role_id:
-          type: string
-          format: uuid
-        expires_at:
-          type: string
-          format: date-time
-          nullable: true
-        created_at:
-          type: string
-          format: date-time
-
-    # ── Auth ──
-    CurrentUser:
-      type: object
-      properties:
-        id:
-          type: string
-        user_id:
-          type: string
-        email:
-          type: string
-        role:
-          type: string
-        workspace_id:
-          type: string
-        auth_source:
-          type: string
-
-  # ── Parameters ──────────────────
-  parameters:
-    WorkspaceId:
-      name: workspace_id
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    TableId:
-      name: table_id
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    TableSlug:
-      name: table_slug
-      in: path
-      required: true
-      schema:
-        type: string
-    ColumnId:
-      name: column_id
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    RecordId:
-      name: id
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    RoleId:
-      name: role_id
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    PermissionId:
-      name: permission_id
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    UserId:
-      name: user_id
-      in: path
-      required: true
-      schema:
-        type: string
-    KeyId:
-      name: key_id
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  PATHS
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 paths:
 
-  # ── Health ──
+  # ───────────────────────────── System ─────────────────────────────
+
   /health:
     get:
       tags: [System]
-      summary: Health check
+      operationId: getHealth
+      summary: Liveness probe
+      description: |
+        Returns `200` as long as the HTTP process is able to serve traffic.
+        It does **not** touch the database — use `/ready` for that.
+
+        Designed to be used as a Kubernetes/Docker `livenessProbe`.
       security: []
       responses:
         "200":
-          description: OK
+          description: The process is alive.
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  status:
-                    type: string
-                  service:
-                    type: string
+                  status: { type: string, example: ok }
+                  service: { type: string, example: hornerodb }
 
-  # ══════════════════════════════════
-  #  AUTH
-  # ══════════════════════════════════
-  /auth/oidc/login:
+  /ready:
     get:
-      tags: [Auth]
-      summary: Start OIDC login flow
+      tags: [System]
+      operationId: getReady
+      summary: Readiness probe
+      description: |
+        Pings PostgreSQL with a 2 second timeout and returns `503` when the
+        database is unreachable. Designed to be used as a Kubernetes/Docker
+        `readinessProbe`: traffic must only be routed to a ready replica.
       security: []
       responses:
-        "302":
-          description: Redirect to OIDC provider
+        "200":
+          description: The service is ready to accept traffic.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ready }
+                  service: { type: string, example: hornerodb }
+        "503":
+          description: The database is unreachable.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: unavailable }
+                  error: { type: string, example: database unreachable }
 
-  /auth/oidc/callback:
+  # ───────────────────────────── Setup ─────────────────────────────
+
+  /api/v1/setup/status:
+    get:
+      tags: [Setup]
+      operationId: getSetupStatus
+      summary: Initial setup status
+      description: |
+        Reports whether the instance still needs its first administrator.
+        `needs_setup` is `true` while no user has `can_create_workspaces = true`.
+      responses:
+        "200":
+          description: Setup status.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          needs_setup: { type: boolean }
+                          is_admin: { type: boolean }
+                          instance_admins_count: { type: integer }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/setup/complete:
+    post:
+      tags: [Setup]
+      operationId: completeSetup
+      summary: Complete the initial instance setup
+      description: |
+        Promotes the calling user to instance administrator and stores the
+        instance settings. It only succeeds while the instance has no
+        administrator; afterwards it answers `400`.
+
+        When `HORNERO_SETUP_TOKEN` is configured on the server, the request
+        **must** carry the token either in the `X-Setup-Token` header or in the
+        `setup_token` body field (compared in constant time). Otherwise the
+        request is rejected with `403`.
+
+        The operation is serialised with a PostgreSQL advisory lock, so two
+        concurrent calls can never create two administrators.
+      parameters:
+        - name: X-Setup-Token
+          in: header
+          required: false
+          description: Bootstrap token. Required when `HORNERO_SETUP_TOKEN` is set.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [instance_name]
+              properties:
+                instance_name:
+                  type: string
+                  maxLength: 100
+                  example: Acme Corp
+                contact_email:
+                  type: string
+                  format: email
+                pocketid_enabled:
+                  type: boolean
+                pocketid_url:
+                  type: string
+                  format: uri
+                  description: Required when `pocketid_enabled` is `true`.
+                default_rate_limit:
+                  type: integer
+                  minimum: 10
+                  maximum: 10000
+                  default: 120
+                max_workspaces:
+                  type: integer
+                  minimum: 1
+                  maximum: 100
+                  default: 20
+                setup_token:
+                  type: string
+                  description: Alternative to the `X-Setup-Token` header.
+      responses:
+        "200":
+          description: Setup completed.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message: { type: string, example: Initial setup completed successfully }
+                          is_admin: { type: boolean, example: true }
+                          instance_name: { type: string }
+                          contact_email: { type: string }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  # ───────────────────────────── Auth ─────────────────────────────
+
+  /api/v1/auth/oidc/login:
     get:
       tags: [Auth]
-      summary: OIDC callback
+      operationId: startOidcLogin
+      summary: Start the OIDC login flow
+      description: |
+        Redirects (HTTP `302`) to the identity provider. The server stores
+        `state`, `code_verifier` and the post-login redirect target in
+        short-lived cookies.
+
+        The optional `redirect` query parameter must point at an allowed origin
+        (the configured `VITE_SERVER_PUBLIC_URL` host, or `localhost` during
+        development); anything else is rejected with `400`.
+      security: []
+      parameters:
+        - name: redirect
+          in: query
+          required: false
+          description: Post-login redirect target (must be an allowed origin).
+          schema: { type: string, format: uri }
+      responses:
+        "302":
+          description: Redirect to the identity provider.
+          headers:
+            Location:
+              description: Identity provider authorization URL.
+              schema: { type: string, format: uri }
+            Set-Cookie:
+              description: "`oidc_state`, `oidc_code_verifier` and `oidc_redirect` cookies."
+              schema: { type: string }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/v1/auth/oidc/callback:
+    get:
+      tags: [Auth]
+      operationId: completeOidcLogin
+      summary: OIDC redirect callback
+      description: |
+        Completes the authorization-code flow: validates the `state` against the
+        cookie, exchanges the code for tokens and issues a HorneroDB session
+        JWT. On success the browser is redirected to the post-login target with
+        the session cookie set (`hornero_session`, `HttpOnly`).
       security: []
       parameters:
         - name: code
           in: query
           required: true
-          schema:
-            type: string
+          schema: { type: string }
         - name: state
           in: query
           required: true
-          schema:
-            type: string
+          schema: { type: string }
       responses:
         "302":
-          description: Redirect with JWT token
+          description: Redirect to the post-login target with the session cookie set.
+          headers:
+            Set-Cookie:
+              description: "`hornero_session` session cookie (HttpOnly)."
+              schema: { type: string }
+        "400":
+          $ref: "#/components/responses/ValidationError"
 
-  /auth/me:
-    get:
+  /api/v1/auth/logout:
+    post:
       tags: [Auth]
-      summary: Get current authenticated user
-      description: "Requires User Session (OIDC) or API Key."
+      operationId: logout
+      summary: End the current session
+      description: |
+        Clears the `hornero_session` cookie. Stateless JWTs cannot be revoked
+        server-side, so removing the cookie is what terminates the browser
+        session. API keys are unaffected — delete them explicitly if needed.
       responses:
         "200":
-          description: Current user info
+          description: Session closed.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CurrentUser"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message: { type: string, example: logged out }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
-  /auth/permissions:
+  /api/v1/auth/me:
     get:
       tags: [Auth]
-      summary: Get permissions for current user
-      description: "Requires User Session (OIDC) or API Key."
+      operationId: getCurrentUser
+      summary: Profile of the authenticated user
+      description: |
+        Returns the profile resolved from the session credential, including the
+        effective role, the workspace the credential is bound to and the
+        authentication source (`session`, `apikey`).
       responses:
         "200":
-          description: List of permissions
+          description: Current user profile.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Permission"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/CurrentUser" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
-  # ══════════════════════════════════
-  #  WORKSPACES
-  # ══════════════════════════════════
-  /workspaces:
+  /api/v1/auth/permissions:
+    get:
+      tags: [Auth]
+      operationId: getMyPermissions
+      summary: Effective permissions of the authenticated user
+      description: |
+        Resolves the role of the caller inside a workspace and returns the
+        effective table-level access, the column-level restrictions and the
+        `__system__` areas.
+
+        The workspace is taken from the `workspace_id` query parameter, or from
+        the workspace bound to the credential (API keys are pinned to their own
+        workspace).
+      parameters:
+        - name: workspace_id
+          in: query
+          required: false
+          description: Workspace to resolve the permissions for.
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Effective permissions.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/EffectivePermissions" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/auth/qr:
+    get:
+      tags: [Auth]
+      operationId: getSystemLoginQR
+      summary: QR code of the login portal
+      description: |
+        Returns a base64-encoded PNG QR code pointing at the PocketID login
+        portal, so the operator can log in from another device.
+      responses:
+        "200":
+          description: Login portal QR code.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          qr_code: { type: string, description: Base64-encoded PNG. }
+                          url: { type: string, format: uri }
+                          message: { type: string }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/users/{user_id}/recovery-qr:
+    get:
+      tags: [Auth]
+      operationId: getUserRecoveryQR
+      summary: Personalised recovery QR code
+      description: |
+        Returns a QR code that embeds a single-use one-time access token (OTAT)
+        allowing the user to log in without a password.
+
+        The OTAT is a bearer credential: it is never written to the logs nor to
+        the audit trail. Only instance administrators may request the code of
+        another user; a user may always request their own.
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: Recovery QR code.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          qr_code: { type: string, description: Base64-encoded PNG. }
+                          url: { type: string }
+                          message: { type: string }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ───────────────────────── Instance admin ─────────────────────────
+
+  /api/v1/admin/users:
+    get:
+      tags: [Instance Admin]
+      operationId: listInstanceUsers
+      summary: List every user of the instance
+      description: Restricted to instance administrators (`can_create_workspaces = true`).
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Instance users.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/InstanceUser" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/users/{user_id}:
+    get:
+      tags: [Instance Admin]
+      operationId: getInstanceUser
+      summary: Get one instance user
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: Instance user.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/InstanceUser" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Instance Admin]
+      operationId: updateInstanceUser
+      summary: Update the global permissions of an instance user
+      description: |
+        The only mutable field is `can_create_workspaces` (instance administrator
+        flag). An administrator cannot revoke their own flag when they are the
+        last administrator — the request is rejected with `400`.
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                can_create_workspaces: { type: boolean }
+      responses:
+        "200":
+          description: Updated user.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/InstanceUser" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/settings:
+    get:
+      tags: [Instance Admin]
+      operationId: getInstanceSettings
+      summary: Instance counters and settings
+      description: Restricted to instance administrators.
+      responses:
+        "200":
+          description: Instance settings.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          total_users: { type: integer }
+                          total_admins: { type: integer }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  # ───────────────────────────── Templates ─────────────────────────────
+
+  /api/v1/templates:
+    get:
+      tags: [Templates]
+      operationId: listTemplates
+      summary: List the built-in workspace templates
+      description: |
+        Returns the metadata of every template shipped with the server. Use
+        `filename` as the `{name}` of `GET /api/v1/templates/{name}`.
+      responses:
+        "200":
+          description: Template catalogue.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/TemplateMeta" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/templates/{name}:
+    get:
+      tags: [Templates]
+      operationId: getTemplate
+      summary: Get a single template
+      description: |
+        Returns the full template payload — the exact body accepted by
+        `POST /api/v1/workspaces/import`. The `_template` metadata block is
+        stripped from the response.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: Template filename without the `.json` extension.
+          schema: { type: string, example: crm-simple }
+      responses:
+        "200":
+          description: Template payload.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/WorkspaceDump" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ───────────────────────────── Workspaces ─────────────────────────────
+
+  /api/v1/workspaces:
     get:
       tags: [Workspaces]
-      summary: List all workspaces
-      description: "Requires User Session (OIDC). Instance-level API Keys (WorkspaceID = Nil) are allowed, standard API Keys are blocked."
+      operationId: listWorkspaces
+      summary: List the workspaces visible to the caller
+      description: |
+        Instance administrators see every workspace. Any other caller sees the
+        workspaces they own plus the ones where a role has been assigned.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
       responses:
         "200":
-          description: Array of workspaces
+          description: Workspaces.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Workspace"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Workspace" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
     post:
       tags: [Workspaces]
+      operationId: createWorkspace
       summary: Create a workspace
       description: |
-        Requires User Session (OIDC) or an Instance-Level API Key.
-        Also creates default admin and user roles, assigns admin role to owner.
+        Restricted to instance administrators.
+
+        The workspace is created together with two roles — `admin` (full access)
+        and `user` (`own` access, no delete) — and the `admin` role is assigned
+        to the owner, all inside a single transaction.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/WorkspaceCreate"
+              type: object
+              required: [name, slug, owner_id]
+              properties:
+                name: { type: string, example: Ventas }
+                slug:
+                  type: string
+                  description: Unique workspace slug.
+                  example: ventas
+                owner_id: { type: string, format: uuid }
       responses:
         "201":
-          description: Created
+          description: Workspace created.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Workspace"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/Workspace" }
         "400":
-          description: Validation error
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/workspaces/import:
+    post:
+      tags: [Workspaces]
+      operationId: importWorkspace
+      summary: Import a workspace schema
+      description: |
+        Restricted to instance administrators.
+
+        Accepts a `WorkspaceSchemaDump` — the same body produced by
+        `GET /api/v1/workspaces/{workspace_id}/export` — and recreates it under
+        a **new workspace id**. Tables and columns are re-mapped to fresh UUIDs
+        and the physical tables are recreated. The importing user is assigned
+        the `admin` role and a fresh API key is generated.
+
+        The raw API key is returned **once**, in this response only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkspaceDump" }
+      responses:
+        "200":
+          description: Workspace imported.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message: { type: string, example: Workspace imported successfully }
+                          workspace_id: { type: string, format: uuid }
+                          api_key:
+                            type: string
+                            description: Raw API key. Returned only in this response.
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
-  /workspaces/{workspace_id}:
+  /api/v1/workspaces/{workspace_id}:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"
     get:
       tags: [Workspaces]
+      operationId: getWorkspace
       summary: Get a workspace
-      description: "Requires User Session or API Key assigned to the workspace."
       responses:
         "200":
+          description: Workspace.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Workspace"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/Workspace" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
+          $ref: "#/components/responses/NotFound"
     put:
       tags: [Workspaces]
+      operationId: updateWorkspace
       summary: Update a workspace
-      description: "Requires 'admin' role within the workspace."
+      description: |
+        Only `name` and `settings` are mutable — `owner_id` and `slug` are
+        ignored (mass-assignment protection). Requires the `settings`
+        permission of the workspace.
       requestBody:
         required: true
         content:
@@ -596,82 +839,198 @@ paths:
             schema:
               type: object
               properties:
-                name:
-                  type: string
-                settings:
-                  type: object
+                name: { type: string }
+                settings: { type: object, additionalProperties: true }
       responses:
         "200":
+          description: Workspace updated.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Message"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message: { type: string, example: workspace updated }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     delete:
       tags: [Workspaces]
+      operationId: deleteWorkspace
       summary: Delete a workspace
-      description: "Requires 'admin' role within the workspace."
+      description: |
+        Restricted to the workspace `admin` role (or the instance owner). This
+        removes the workspace metadata; export the schema first if the
+        definitions must be preserved.
       responses:
         "200":
+          description: Workspace deleted.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Message"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message: { type: string, example: workspace deleted }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
-  # ══════════════════════════════════
-  #  TABLES
-  # ══════════════════════════════════
-  /workspaces/{workspace_id}/tables:
+  /api/v1/workspaces/{workspace_id}/export:
+    get:
+      tags: [Workspaces]
+      operationId: exportWorkspace
+      summary: Export the workspace schema
+      description: |
+        Returns the complete architecture of the workspace (tables, columns and
+        roles with their permissions). The payload can be replayed into
+        `POST /api/v1/workspaces/import` to recreate it.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: Workspace dump.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/WorkspaceDump" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ───────────────────────────── Tables ─────────────────────────────
+
+  /api/v1/workspaces/{workspace_id}/tables:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"
     get:
-      tags: [Tables]
-      summary: List tables in workspace
-      description: "Requires any assigned role within the workspace."
+      tags: [Schema]
+      operationId: listTables
+      summary: List the tables of a workspace
+      description: The tables are returned with their columns preloaded.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
       responses:
         "200":
+          description: Tables.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Table"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Table" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
     post:
-      tags: [Tables]
+      tags: [Schema]
+      operationId: createTable
       summary: Create a table
       description: |
-        Requires 'admin' role within the workspace.
-        Creates metadata entry and physical PostgreSQL table with id, created_by, created_at, updated_at.
+        Requires the `tables` permission of the workspace (`__system__.tables`).
+
+        The slug is derived from `name` when it is omitted. It must match
+        `^[a-z][a-z0-9_]*$` and be unique inside the workspace. The physical
+        table (`data_<workspace_id>_<slug>`) is created in the same transaction
+        as the metadata row.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/TableCreate"
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, example: Clientes }
+                slug: { type: string, example: clientes }
+                metadata: { type: string, description: Free-form JSON stored with the table. }
       responses:
         "201":
+          description: Table created.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Table"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/Table" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
 
-  /workspaces/{workspace_id}/tables/{table_id}:
+  /api/v1/workspaces/{workspace_id}/tables/{table_id}:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"
       - $ref: "#/components/parameters/TableId"
     get:
-      tags: [Tables]
+      tags: [Schema]
+      operationId: getTable
       summary: Get a table
-      description: "Requires any assigned role within the workspace."
       responses:
         "200":
+          description: Table.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Table"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/Table" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     put:
-      tags: [Tables]
-      summary: Update table metadata
-      description: "Requires 'admin' role within the workspace."
+      tags: [Schema]
+      operationId: updateTable
+      summary: Update a table
+      description: |
+        Requires the `tables` permission. Renaming the slug also renames the
+        physical table inside the same transaction, so the data is never
+        orphaned. A slug that is already taken inside the workspace answers
+        `409`.
       requestBody:
         required: true
         content:
@@ -679,92 +1038,165 @@ paths:
             schema:
               type: object
               properties:
-                name:
-                  type: string
+                name: { type: string }
+                slug: { type: string }
+                description: { type: string }
       responses:
         "200":
+          description: Table updated.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Message"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message: { type: string, example: table updated }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
     delete:
-      tags: [Tables]
+      tags: [Schema]
+      operationId: deleteTable
       summary: Delete a table
       description: |
-        Requires 'admin' role within the workspace.
-        Drops the physical PostgreSQL table and removes metadata.
+        Drops the physical table and deletes its column metadata in a single
+        transaction. **All records of the table are lost.**
       responses:
         "200":
+          description: Table deleted.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Message"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message: { type: string, example: table deleted }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
-  # ══════════════════════════════════
-  #  COLUMNS
-  # ══════════════════════════════════
-  /workspaces/{workspace_id}/tables/{table_id}/columns:
+  # ───────────────────────────── Columns ─────────────────────────────
+
+  /api/v1/workspaces/{workspace_id}/tables/{table_id}/columns:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"
       - $ref: "#/components/parameters/TableId"
     get:
-      tags: [Columns]
-      summary: List columns of a table
-      description: "Requires any assigned role within the workspace."
+      tags: [Schema]
+      operationId: listColumns
+      summary: List the columns of a table
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
       responses:
         "200":
+          description: Columns, ordered by `order_index`.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Column"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Column" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     post:
-      tags: [Columns]
+      tags: [Schema]
+      operationId: createColumn
       summary: Create a column
       description: |
-        Requires 'admin' role within the workspace.
-        Adds column metadata and ALTER TABLEs the physical table.
-        Supported field_type values and their SQL mappings:
+        Requires the `tables` permission.
 
-        | field_type | PostgreSQL type |
-        |------------|----------------|
-        | text | VARCHAR(255) |
-        | long_text | TEXT |
-        | number | DECIMAL(10,2) |
-        | integer | INTEGER |
-        | float | DOUBLE PRECISION |
-        | boolean | BOOLEAN |
-        | date | DATE |
-        | datetime | TIMESTAMPTZ |
-        | email | VARCHAR(255) |
-        | url | VARCHAR(500) |
-        | select | VARCHAR(100) |
-        | relation | UUID |
-        | json | JSONB |
-        | file | JSONB |
+        `field_type` must be one of `text`, `long_text`, `number`, `integer`,
+        `boolean`, `date`, `datetime`, `email`, `url`, `attachment`, `select`,
+        `relation`, `json`.
+
+        `select` and `relation` columns accept a `cardinality` of `one`
+        (default) or `many`.
+
+        `meta.choices` is the canonical shape for a `select` column:
+        an array of `{ "value": "...", "label": "..." }` objects with unique,
+        non-empty `value`s. The legacy `meta.options` array of plain strings is
+        still accepted by the API but is deprecated — use `choices`.
+
+        `meta` of a `relation` column holds `target_table` (slug of the target
+        table inside the same workspace), `display_column` (slug of the column
+        shown when expanding) and `cardinality`.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ColumnCreate"
+              type: object
+              required: [name, field_type]
+              properties:
+                name: { type: string, example: Estado }
+                slug: { type: string, example: estado }
+                field_type:
+                  type: string
+                  enum: [text, long_text, number, integer, boolean, date, datetime, email, url, attachment, select, relation, json]
+                order_index: { type: integer, default: 0 }
+                meta: { $ref: "#/components/schemas/ColumnMeta" }
       responses:
         "201":
+          description: Column created.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Column"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/Column" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
 
-  /workspaces/{workspace_id}/tables/{table_id}/columns/{column_id}:
+  /api/v1/workspaces/{workspace_id}/tables/{table_id}/columns/{column_id}:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"
       - $ref: "#/components/parameters/TableId"
       - $ref: "#/components/parameters/ColumnId"
     put:
-      tags: [Columns]
-      summary: Update column metadata
-      description: "Requires 'admin' role within the workspace."
+      tags: [Schema]
+      operationId: updateColumn
+      summary: Update a column
+      description: |
+        Requires the `tables` permission. `field_type` **cannot** be changed
+        after creation (it would require a data migration) and is rejected with
+        `400`. Renaming the slug also renames the physical column.
       requestBody:
         required: true
         content:
@@ -772,184 +1204,430 @@ paths:
             schema:
               type: object
               properties:
-                name:
+                name: { type: string }
+                slug: { type: string }
+                field_type:
                   type: string
-                order_index:
-                  type: integer
+                  description: Must stay equal to the current type.
+                meta: { $ref: "#/components/schemas/ColumnMeta" }
       responses:
         "200":
+          description: Column updated.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Message"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message: { type: string, example: column updated }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
     delete:
-      tags: [Columns]
+      tags: [Schema]
+      operationId: deleteColumn
       summary: Delete a column
       description: |
-        Requires 'admin' role within the workspace.
-        Drops the physical column and removes metadata.
+        Drops the physical column and deletes its metadata in a single
+        transaction. **All values of the column are lost.**
       responses:
         "200":
+          description: Column deleted.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Message"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message: { type: string, example: column deleted }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
-  # ══════════════════════════════════
-  #  DATA (RECORDS)
-  # ══════════════════════════════════
-  /workspaces/{workspace_id}/data/{table_slug}:
+  # ───────────────────────────── Data ─────────────────────────────
+
+  /api/v1/workspaces/{workspace_id}/data/{table_slug}:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"
       - $ref: "#/components/parameters/TableSlug"
     get:
-      tags: [Records]
-      summary: List records
-      description: "Requires 'read' permission (all/own) on the table. AccessOwn filters by created_by."
+      tags: [Data]
+      operationId: listRecords
+      summary: List the records of a table
+      description: |
+        The result set is filtered by the effective role: a table-level `own`
+        access restricts the rows to those created by the caller
+        (`created_by`), and the column-level security strips the columns the
+        caller may not read.
+
+        `meta.count` is the **total** number of matching rows, not the size of
+        the page; use `has_more` to know whether another page exists.
       parameters:
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 100
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            default: 0
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Expand"
+        - $ref: "#/components/parameters/Search"
+        - $ref: "#/components/parameters/Order"
+        - $ref: "#/components/parameters/Filter"
       responses:
         "200":
+          description: Records.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/RecordList"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Record" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "403":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     post:
-      tags: [Records]
+      tags: [Data]
+      operationId: createRecord
       summary: Create a record
-      description: "Requires 'create' permission (all/own) on the table."
+      description: |
+        The body is a flat object of column slug → value. The `select` and
+        `relation` columns are validated: a `select` value must be one of the
+        `meta.choices` values and a `relation` value must be a UUID (or an
+        array of UUIDs for `cardinality: many`).
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: "#/components/schemas/Record"
+            schema: { $ref: "#/components/schemas/RecordInput" }
       responses:
         "201":
+          description: Record created.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Record"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/Record" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "403":
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
-  /workspaces/{workspace_id}/data/{table_slug}/{id}:
+  /api/v1/workspaces/{workspace_id}/data/{table_slug}/{id}:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"
       - $ref: "#/components/parameters/TableSlug"
       - $ref: "#/components/parameters/RecordId"
     get:
-      tags: [Records]
-      summary: Get a single record
-      description: "Requires 'read' permission (all/own) on the table."
+      tags: [Data]
+      operationId: getRecord
+      summary: Get a record
       responses:
         "200":
+          description: Record.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Record"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/Record" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Data]
+      operationId: updateRecord
+      summary: Update a record
+      description: |
+        Partial update: only the supplied columns are written. The system
+        columns (`id`, `created_at`, `created_by`) are immutable and are
+        stripped from the payload.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RecordInput" }
+      responses:
+        "200":
+          description: Record updated.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
-    put:
-      tags: [Records]
-      summary: Update a record
-      description: "Requires 'update' permission (all/own) on the table."
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message: { type: string, example: record updated }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Data]
+      operationId: deleteRecord
+      summary: Delete a record
+      responses:
+        "200":
+          description: Record deleted.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message: { type: string, example: record deleted }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/workspaces/{workspace_id}/data/{table_slug}/bulk:
+    parameters:
+      - $ref: "#/components/parameters/WorkspaceId"
+      - $ref: "#/components/parameters/TableSlug"
+    post:
+      tags: [Data]
+      operationId: bulkCreateRecords
+      summary: Create several records atomically
+      description: |
+        Inserts a batch of records in a single transaction: either every record
+        is written or none is. The same column-level security and
+        `select`/`relation` validation of a single create apply to every item.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/Record"
+              type: object
+              required: [records]
+              properties:
+                records:
+                  type: array
+                  minItems: 1
+                  maxItems: 1000
+                  items: { $ref: "#/components/schemas/RecordInput" }
       responses:
-        "200":
+        "201":
+          description: Records created.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Message"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          inserted: { type: integer, example: 3 }
+                          records:
+                            type: array
+                            items: { $ref: "#/components/schemas/Record" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     delete:
-      tags: [Records]
-      summary: Delete a record
-      description: "Requires 'delete' permission (all/own) on the table."
+      tags: [Data]
+      operationId: bulkDeleteRecords
+      summary: Delete several records atomically
+      description: |
+        Deletes the given records in a single transaction: either every record
+        is removed or none is.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 1000
+                  items: { type: string, format: uuid }
       responses:
         "200":
+          description: Records deleted.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Message"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          deleted: { type: integer, example: 3 }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
-  # ══════════════════════════════════
-  #  ROLES (Dataverse-style)
-  # ══════════════════════════════════
-  /workspaces/{workspace_id}/roles:
+  # ───────────────────────────── Roles ─────────────────────────────
+
+  /api/v1/workspaces/{workspace_id}/roles:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"
     get:
       tags: [Roles]
-      summary: List roles
-      description: "Requires any assigned role within the workspace."
+      operationId: listRoles
+      summary: List the roles of a workspace
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
       responses:
         "200":
+          description: Roles.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Role"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Role" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
     post:
       tags: [Roles]
+      operationId: createRole
       summary: Create a role
-      description: "Requires 'admin' role within the workspace."
+      description: |
+        Requires the `roles` permission (`__system__.roles`).
+
+        The `permissions` document is described in
+        [RolePermissions](#/components/schemas/RolePermissions).
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/RoleCreate"
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, example: vendedor }
+                description: { type: string }
+                permissions: { $ref: "#/components/schemas/RolePermissions" }
       responses:
         "201":
+          description: Role created.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Role"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/Role" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
-  /workspaces/{workspace_id}/roles/{role_id}:
+  /api/v1/workspaces/{workspace_id}/roles/{role_id}:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"
       - $ref: "#/components/parameters/RoleId"
     get:
       tags: [Roles]
+      operationId: getRole
       summary: Get a role
-      description: "Requires any assigned role within the workspace."
       responses:
         "200":
+          description: Role.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Role"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/Role" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     put:
       tags: [Roles]
+      operationId: updateRole
       summary: Update a role
-      description: "Requires 'admin' role within the workspace."
+      description: |
+        Requires the `roles` permission.
+
+        `permissions` are **deep-merged** with the stored document: nested
+        objects are merged key by key, so sending only one table updates only
+        that table. Removing a permission therefore requires sending the whole
+        permission block explicitly.
       requestBody:
         required: true
         content:
@@ -957,56 +1635,136 @@ paths:
             schema:
               type: object
               properties:
-                name:
-                  type: string
-                description:
-                  type: string
-                permissions:
-                  type: object
+                name: { type: string }
+                description: { type: string }
+                permissions: { $ref: "#/components/schemas/RolePermissions" }
       responses:
         "200":
+          description: Role updated.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Message"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message: { type: string, example: role updated }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     delete:
       tags: [Roles]
+      operationId: deleteRole
       summary: Delete a role
-      description: "Requires 'admin' role within the workspace. Cannot delete default roles."
       responses:
         "200":
+          description: Role deleted.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Message"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message: { type: string, example: role deleted }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
-  # ══════════════════════════════════
-  #  USER ROLES
-  # ══════════════════════════════════
-  /workspaces/{workspace_id}/users:
+  /api/v1/workspaces/{workspace_id}/users:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"
     get:
-      tags: [UserRoles]
-      summary: List user-role assignments
-      description: "Requires 'admin' role within the workspace."
+      tags: [Roles]
+      operationId: listWorkspaceUsers
+      summary: List the members of a workspace
+      description: |
+        Returns the users that hold a role in the workspace, together with the
+        name of that role.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
       responses:
         "200":
+          description: Workspace members.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/UserRole"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/WorkspaceMember" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Roles]
+      operationId: importWorkspaceUser
+      summary: Add a user to the workspace
+      description: |
+        Requires the `roles` permission.
 
-  /workspaces/{workspace_id}/users/{user_id}/role:
+        The user is looked up by email; when it does not exist locally it is
+        created in PocketID (or locally when PocketID is disabled) and then
+        assigned the given role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, role_id]
+              properties:
+                email: { type: string, format: email }
+                role_id: { type: string, format: uuid }
+      responses:
+        "201":
+          description: User added to the workspace.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/UserRoleAssignment" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/workspaces/{workspace_id}/users/{user_id}/role:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"
       - $ref: "#/components/parameters/UserId"
     post:
-      tags: [UserRoles]
-      summary: Assign role to user
-      description: "Requires 'admin' role within the workspace."
+      tags: [Roles]
+      operationId: assignRoleToUser
+      summary: Assign (or replace) the role of a user
+      description: |
+        Requires the `roles` permission. The role must belong to the workspace
+        of the URL, otherwise it answers `404`. When the user already holds a
+        role in the workspace it is replaced.
       requestBody:
         required: true
         content:
@@ -1015,72 +1773,196 @@ paths:
               type: object
               required: [role_id]
               properties:
-                role_id:
-                  type: string
-                  format: uuid
+                role_id: { type: string, format: uuid }
       responses:
+        "200":
+          description: Role replaced.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/UserRoleAssignment" }
         "201":
+          description: Role assigned.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UserRole"
-        "200":
-          description: Updated existing assignment
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/UserRole"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/UserRoleAssignment" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     delete:
-      tags: [UserRoles]
-      summary: Remove role from user
-      description: "Requires 'admin' role within the workspace."
+      tags: [Roles]
+      operationId: removeRoleFromUser
+      summary: Remove the role of a user
+      description: Requires the `roles` permission.
       responses:
         "200":
+          description: Role removed.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Message"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message: { type: string, example: role removed }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
-  # ══════════════════════════════════
-  #  PERMISSIONS (legacy)
-  # ══════════════════════════════════
-  /workspaces/{workspace_id}/permissions:
+  /api/v1/workspaces/{workspace_id}/users/{user_id}:
+    delete:
+      tags: [Roles]
+      operationId: removeWorkspaceUser
+      summary: Remove a user from the workspace
+      description: |
+        Alias of `DELETE /api/v1/workspaces/{workspace_id}/users/{user_id}/role`:
+        it removes the role assignment of the user inside the workspace.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: User removed.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message: { type: string, example: role removed }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ───────────────────────────── API keys ─────────────────────────────
+
+  /api/v1/workspaces/{workspace_id}/keys:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"
     get:
-      tags: [Permissions]
-      summary: List permissions
+      tags: [API Keys]
+      operationId: listApiKeys
+      summary: List the API keys of a workspace
+      description: |
+        Requires the `api_keys` permission. The raw key is never returned:
+        only the prefix and a masked form (`<prefix>****************`).
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
       responses:
         "200":
+          description: API keys.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Permission"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/APIKey" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
     post:
-      tags: [Permissions]
-      summary: Create a permission
+      tags: [API Keys]
+      operationId: createApiKey
+      summary: Create an API key
+      description: |
+        Requires the `api_keys` permission.
+
+        The raw key is returned **once**, in this response only. It is stored
+        hashed (SHA-256) and cannot be recovered afterwards — use
+        `POST /keys/{key_id}/rotate` to issue a new one.
+
+        The key inherits the role it is bound to; the effective permissions of
+        the key are exactly the permissions of that role.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/Permission"
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, example: Integración n8n }
+                prefix:
+                  type: string
+                  pattern: "^[a-zA-Z0-9_]{2,16}$"
+                  description: Custom key prefix. Defaults to `key_<workspace prefix>`.
+                role_id:
+                  type: string
+                  format: uuid
+                  description: Role the key acts with.
+                expires_in_days: { type: integer, minimum: 1 }
+                rate_limit_per_minute: { type: integer, minimum: 0 }
+                rate_limit_per_hour: { type: integer, minimum: 0 }
+                allowed_origins:
+                  type: array
+                  items: { type: string, format: uri }
+                  description: Origins allowed to use this key (CORS).
+                allowed_referers:
+                  type: array
+                  items: { type: string }
+                  description: Referer domains allowed to use this key.
       responses:
         "201":
+          description: API key created. The raw key is present only here.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Permission"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/APIKeyCreated" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
-  /workspaces/{workspace_id}/permissions/{permission_id}:
+  /api/v1/workspaces/{workspace_id}/keys/{key_id}:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"
-      - $ref: "#/components/parameters/PermissionId"
+      - $ref: "#/components/parameters/KeyId"
     put:
-      tags: [Permissions]
-      summary: Update a permission
+      tags: [API Keys]
+      operationId: updateApiKey
+      summary: Update an API key
+      description: |
+        Requires the `api_keys` permission. The raw key cannot be changed here
+        — use the rotate endpoint for that.
       requestBody:
         required: true
         content:
@@ -1088,78 +1970,1425 @@ paths:
             schema:
               type: object
               properties:
-                allow_read:
-                  type: boolean
-                allow_create:
-                  type: boolean
-                allow_update:
-                  type: boolean
-                allow_delete:
-                  type: boolean
+                name: { type: string }
+                prefix: { type: string, pattern: "^[a-zA-Z0-9_]{2,16}$" }
+                role_id: { type: string, format: uuid }
+                rate_limit_per_minute: { type: integer, minimum: 0 }
+                rate_limit_per_hour: { type: integer, minimum: 0 }
+                allowed_origins:
+                  type: array
+                  items: { type: string, format: uri }
+                allowed_referers:
+                  type: array
+                  items: { type: string }
       responses:
         "200":
+          description: API key updated.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Message"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/APIKey" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
     delete:
-      tags: [Permissions]
-      summary: Delete a permission
+      tags: [API Keys]
+      operationId: deleteApiKey
+      summary: Delete an API key
+      description: |
+        Requires the `api_keys` permission. The revocation is immediate: any
+        request using the key starts failing with `401`.
       responses:
         "200":
+          description: API key deleted.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Message"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message: { type: string, example: API key deleted }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
-  # ══════════════════════════════════
-  #  API KEYS
-  # ══════════════════════════════════
-  /workspaces/{workspace_id}/keys:
+  /api/v1/workspaces/{workspace_id}/keys/{key_id}/rotate:
+    post:
+      tags: [API Keys]
+      operationId: rotateApiKey
+      summary: Rotate an API key
+      description: |
+        Requires the `api_keys` permission. Issues a new secret for the same
+        key, keeping its name, prefix and role, and resets `last_used_at`.
+
+        The new raw key is returned **once**. Every client using the previous
+        secret stops working immediately.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/KeyId"
+      responses:
+        "200":
+          description: Key rotated.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message: { type: string, example: API key successfully rotated }
+                          id: { type: string, format: uuid }
+                          new_key:
+                            type: string
+                            description: New raw key. Returned only in this response.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ───────────────────────────── Webhooks ─────────────────────────────
+
+  /api/v1/workspaces/{workspace_id}/webhooks:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"
     get:
-      tags: [APIKeys]
-      summary: List API keys (masked)
-      description: "Requires 'admin' role within the workspace."
+      tags: [Webhooks]
+      operationId: listWebhooks
+      summary: List the webhook subscriptions
+      description: Requires the `webhooks` permission.
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
       responses:
         "200":
+          description: Webhook subscriptions.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/APIKey"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/Webhook" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
     post:
-      tags: [APIKeys]
-      summary: Create an API key
+      tags: [Webhooks]
+      operationId: createWebhook
+      summary: Subscribe to a webhook
       description: |
-        Requires 'admin' role within the workspace.
-        Returns the full key only once at creation time.
+        Requires the `webhooks` permission.
+
+        `resource` is the id of the table to watch and `change_type` the kind of
+        change (`create`, `update`, `delete`).
+
+        The `notification_url` is validated against SSRF: only `http`/`https`
+        URLs pointing to a public host are accepted (private, loopback and
+        link-local addresses are rejected).
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/APIKeyCreate"
+              type: object
+              required: [resource, change_type, notification_url]
+              properties:
+                resource: { type: string, format: uuid, description: Table id to watch. }
+                change_type: { type: string, example: create }
+                notification_url: { type: string, format: uri }
+                client_state:
+                  type: string
+                  description: Shared secret used to sign the delivery.
       responses:
         "201":
+          description: Subscription created.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/APIKeyCreated"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/Webhook" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
-  /workspaces/{workspace_id}/keys/{key_id}:
+  /api/v1/workspaces/{workspace_id}/webhooks/{webhook_id}:
     parameters:
       - $ref: "#/components/parameters/WorkspaceId"
-      - $ref: "#/components/parameters/KeyId"
-    delete:
-      tags: [APIKeys]
-      summary: Delete an API key
-      description: "Requires 'admin' role within the workspace."
+      - $ref: "#/components/parameters/WebhookId"
+    get:
+      tags: [Webhooks]
+      operationId: getWebhook
+      summary: Get a webhook subscription
       responses:
         "200":
+          description: Subscription.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Message"
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data: { $ref: "#/components/schemas/Webhook" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Webhooks]
+      operationId: updateWebhook
+      summary: Update a webhook subscription
+      description: |
+        Only `change_type`, `notification_url`, `client_state` and `expires_at`
+        are mutable; any other field is silently ignored. A new
+        `notification_url` is validated against SSRF again.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                change_type: { type: string }
+                notification_url: { type: string, format: uri }
+                client_state: { type: string }
+                expires_at: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Subscription updated.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message: { type: string, example: webhook updated }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Webhooks]
+      operationId: deleteWebhook
+      summary: Delete a webhook subscription
+      responses:
+        "200":
+          description: Subscription deleted.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message: { type: string, example: webhook deleted }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/workspaces/{workspace_id}/webhooks/events:
+    get:
+      tags: [Webhooks]
+      operationId: listWebhookEvents
+      summary: List the webhook delivery attempts
+      description: |
+        Requires the `webhooks` permission. Returns the outbox entries with
+        their delivery status (`pending`, `processing`, `completed`, `failed`),
+        the number of attempts and the last error, so an operator can diagnose
+        a failing consumer.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: status
+          in: query
+          required: false
+          description: Filter by delivery status.
+          schema:
+            type: string
+            enum: [pending, processing, completed, failed]
+        - name: webhook_id
+          in: query
+          required: false
+          description: Filter by subscription.
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Delivery events.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/WebhookEvent" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/workspaces/{workspace_id}/webhooks/events/{event_id}/retry:
+    post:
+      tags: [Webhooks]
+      operationId: retryWebhookEvent
+      summary: Requeue a failed webhook delivery
+      description: |
+        Requires the `webhooks` permission. Resets the attempt counter of the
+        event and puts it back in the queue so the background dispatcher sends
+        it again.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/EventId"
+      responses:
+        "200":
+          description: Event requeued.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message: { type: string, example: webhook event requeued }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ───────────────────────────── Audit ─────────────────────────────
+
+  /api/v1/workspaces/{workspace_id}/audit:
+    get:
+      tags: [Audit]
+      operationId: listAuditLog
+      summary: Read the audit trail of a workspace
+      description: |
+        Returns the append-only audit trail: every mutation of a sensitive
+        resource (API keys, roles, webhooks, recovery credentials) leaves a
+        trace.
+
+        Entries whose `metadata` would contain a secret are sanitised before
+        being stored, so no credential ever reaches the trail.
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: action
+          in: query
+          required: false
+          description: Filter by action (e.g. `api_key.created`, `role.updated`).
+          schema: { type: string }
+        - name: resource_type
+          in: query
+          required: false
+          description: Filter by resource type (e.g. `api_key`, `role`, `webhook`).
+          schema: { type: string }
+        - name: actor_id
+          in: query
+          required: false
+          description: Filter by the id of the actor that performed the action.
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Audit entries.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/AuditLog" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  # ───────────────────────────── MCP ─────────────────────────────
+
+  /.well-known/oauth-authorization-server:
+    get:
+      tags: [MCP]
+      operationId: getOauthAuthorizationServerMetadata
+      summary: OAuth 2.0 authorization server metadata (RFC 8414)
+      description: |
+        The discovery document an MCP client fetches before starting the
+        authorization-code flow with PKCE. The URLs are resolved from the
+        public URL of the deployment, honouring `X-Forwarded-Proto` when the
+        request comes from a trusted proxy.
+      security: []
+      responses:
+        "200":
+          description: Authorization server metadata.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  issuer: { type: string, format: uri }
+                  authorization_endpoint: { type: string, format: uri }
+                  token_endpoint: { type: string, format: uri }
+                  registration_endpoint: { type: string, format: uri }
+                  revocation_endpoint: { type: string, format: uri }
+                  scopes_supported:
+                    type: array
+                    items: { type: string }
+                  response_types_supported:
+                    type: array
+                    items: { type: string }
+                  grant_types_supported:
+                    type: array
+                    items: { type: string }
+                  code_challenge_methods_supported:
+                    type: array
+                    items: { type: string }
+                  token_endpoint_auth_methods_supported:
+                    type: array
+                    items: { type: string }
+
+  /api/v1/mcp/oauth/register:
+    post:
+      tags: [MCP]
+      operationId: registerMcpClient
+      summary: Dynamic client registration (RFC 7591)
+      description: |
+        Registers an MCP client on the fly and returns its `client_id` and
+        `client_secret`. `redirect_uris` must be absolute URLs; `http` is only
+        accepted for `localhost` / `127.0.0.1` / `::1`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [redirect_uris]
+              properties:
+                client_name: { type: string }
+                redirect_uris:
+                  type: array
+                  minItems: 1
+                  items: { type: string, format: uri }
+                grant_types:
+                  type: array
+                  items: { type: string, example: authorization_code }
+                response_types:
+                  type: array
+                  items: { type: string, example: code }
+                token_endpoint_auth_method: { type: string, example: client_secret_post }
+                scope: { type: string }
+      responses:
+        "201":
+          description: Client registered.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  client_id: { type: string }
+                  client_secret: { type: string }
+                  client_id_issued_at: { type: integer }
+                  client_secret_expires_at: { type: integer }
+                  redirect_uris:
+                    type: array
+                    items: { type: string, format: uri }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/mcp/oauth/authorize:
+    get:
+      tags: [MCP]
+      operationId: authorizeMcpClient
+      summary: Start the MCP authorization-code flow
+      description: |
+        Redirects the user to the identity provider to authenticate, then to
+        the client redirect URI with the authorization code. PKCE is mandatory
+        (`code_challenge` + `code_challenge_method=S256`).
+      security: []
+      parameters:
+        - name: response_type
+          in: query
+          required: true
+          schema: { type: string, enum: [code] }
+        - name: client_id
+          in: query
+          required: true
+          schema: { type: string }
+        - name: redirect_uri
+          in: query
+          required: true
+          schema: { type: string, format: uri }
+        - name: code_challenge
+          in: query
+          required: true
+          schema: { type: string }
+        - name: code_challenge_method
+          in: query
+          required: true
+          schema: { type: string, enum: [S256] }
+        - name: state
+          in: query
+          required: false
+          schema: { type: string }
+        - name: scope
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "302":
+          description: Redirect to the identity provider.
+          headers:
+            Location:
+              schema: { type: string, format: uri }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/mcp/oauth/callback:
+    get:
+      tags: [MCP]
+      operationId: mcpOidcCallback
+      summary: Identity provider callback for the MCP OAuth flow
+      description: |
+        Receives the authorization code from the identity provider, exchanges it
+        and redirects to the client redirect URI with the HorneroDB
+        authorization code.
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema: { type: string }
+        - name: state
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "302":
+          description: Redirect to the client with the authorization code.
+          headers:
+            Location:
+              schema: { type: string, format: uri }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/mcp/oauth/token:
+    post:
+      tags: [MCP]
+      operationId: mcpOAuthToken
+      summary: Exchange the authorization code for an access token
+      description: |
+        Standard OAuth 2.0 token endpoint. Supports the
+        `authorization_code` grant with PKCE and the `refresh_token` grant.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [grant_type]
+              properties:
+                grant_type:
+                  type: string
+                  enum: [authorization_code, refresh_token]
+                code: { type: string }
+                redirect_uri: { type: string, format: uri }
+                client_id: { type: string }
+                client_secret: { type: string }
+                code_verifier: { type: string }
+                refresh_token: { type: string }
+      responses:
+        "200":
+          description: Token issued.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token: { type: string }
+                  token_type: { type: string, example: Bearer }
+                  expires_in: { type: integer }
+                  refresh_token: { type: string }
+                  scope: { type: string }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/mcp/sse:
+    get:
+      tags: [MCP]
+      operationId: mcpSse
+      summary: MCP Server-Sent Events transport
+      description: |
+        Opens the legacy MCP SSE channel. The first event carries the endpoint
+        the client must post its messages to.
+      responses:
+        "200":
+          description: Event stream.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/mcp/message:
+    post:
+      tags: [MCP]
+      operationId: mcpMessage
+      summary: MCP message endpoint (SSE transport)
+      description: |
+        Receives a JSON-RPC message and answers on the open SSE channel of the
+        session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                jsonrpc: { type: string, example: "2.0" }
+                id: { type: integer }
+                method: { type: string }
+                params: { type: object, additionalProperties: true }
+      responses:
+        "202":
+          description: Message accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: accepted }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/mcp/stream:
+    post:
+      tags: [MCP]
+      operationId: mcpStream
+      summary: MCP Streamable HTTP transport
+      description: |
+        The preferred transport (MCP 2025-03-26). A single POST carries the
+        JSON-RPC message and the response is returned on the same request, or
+        on a server-sent event stream when the client accepts one.
+
+        The session id is returned in the `Mcp-Session-Id` response header and
+        must be echoed on the following requests of the same session.
+      parameters:
+        - name: Mcp-Session-Id
+          in: header
+          required: false
+          description: Session identifier returned by the first request of the session.
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                jsonrpc: { type: string, example: "2.0" }
+                id: { type: integer }
+                method: { type: string }
+                params: { type: object, additionalProperties: true }
+      responses:
+        "200":
+          description: JSON-RPC response (or an SSE stream).
+          headers:
+            Mcp-Session-Id:
+              description: Identifier of the MCP session.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+            text/event-stream:
+              schema: { type: string }
+        "202":
+          description: Notification accepted (no response expected).
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/mcp/schema.yaml:
+    get:
+      tags: [MCP]
+      operationId: getMcpSchemaYaml
+      summary: OpenAPI schema of the MCP tools
+      description: |
+        Public endpoint (no authentication required) that serves the OpenAPI
+        definition of the MCP tools. It is the document imported as a custom
+        connector in Power Apps / Power Automate.
+      security: []
+      responses:
+        "200":
+          description: OpenAPI schema of the MCP tools.
+          content:
+            application/yaml:
+              schema: { type: string }
+            text/yaml:
+              schema: { type: string }
+
+  /api/v1/mcp/schema:
+    get:
+      tags: [MCP]
+      operationId: getMcpSchema
+      summary: OpenAPI schema of the MCP tools (alias)
+      description: Alias of `GET /api/v1/mcp/schema.yaml`.
+      security: []
+      responses:
+        "200":
+          description: OpenAPI schema of the MCP tools.
+          content:
+            application/yaml:
+              schema: { type: string }
+            text/yaml:
+              schema: { type: string }
+
+components:
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Accepts a HorneroDB session JWT **or** an API key.
+
+        * Session JWT — `Authorization: Bearer <jwt>`. Issued by the OIDC
+          callback and stored in the `hornero_session` cookie.
+        * API key — `Authorization: Bearer key_<...>`. The key carries its own
+          prefix and is bound to a workspace and a role.
+
+        Both are sent in the same header, so the server tells them apart by
+        their format.
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: hornero_session
+      description: |
+        Browser session cookie set by the OIDC callback (`HttpOnly`, `SameSite=Lax`,
+        `Secure` in production).
+
+        Only JWTs are accepted from the cookie: an API key must always travel
+        in the `Authorization` header, never in an ambient credential.
+
+  parameters:
+    WorkspaceId:
+      name: workspace_id
+      in: path
+      required: true
+      description: Workspace UUID.
+      schema: { type: string, format: uuid }
+    TableId:
+      name: table_id
+      in: path
+      required: true
+      description: Table UUID.
+      schema: { type: string, format: uuid }
+    ColumnId:
+      name: column_id
+      in: path
+      required: true
+      description: Column UUID.
+      schema: { type: string, format: uuid }
+    RoleId:
+      name: role_id
+      in: path
+      required: true
+      description: Role UUID.
+      schema: { type: string, format: uuid }
+    KeyId:
+      name: key_id
+      in: path
+      required: true
+      description: API key UUID.
+      schema: { type: string, format: uuid }
+    WebhookId:
+      name: webhook_id
+      in: path
+      required: true
+      description: Webhook subscription UUID.
+      schema: { type: string, format: uuid }
+    EventId:
+      name: event_id
+      in: path
+      required: true
+      description: Webhook delivery event UUID.
+      schema: { type: string, format: uuid }
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      description: User UUID.
+      schema: { type: string, format: uuid }
+    TableSlug:
+      name: table_slug
+      in: path
+      required: true
+      description: Slug of the table inside the workspace.
+      schema: { type: string, example: clientes }
+    RecordId:
+      name: id
+      in: path
+      required: true
+      description: Record UUID.
+      schema: { type: string, format: uuid }
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of items to return.
+      schema: { type: integer, minimum: 1, maximum: 1000, default: 20 }
+    Offset:
+      name: offset
+      in: query
+      required: false
+      description: Number of items to skip.
+      schema: { type: integer, minimum: 0, default: 0 }
+    Expand:
+      name: expand
+      in: query
+      required: false
+      description: |
+        Comma-separated list of `relation` column slugs to expand. Each expanded
+        column is resolved to the value of its `display_column` in the target
+        table and returned under the `expand` object of the record.
+
+        The expansion is skipped (silently) when the role cannot read the
+        target table or the display column.
+      schema: { type: string, example: cliente_id }
+    Search:
+      name: search
+      in: query
+      required: false
+      description: |
+        Free-text search across the readable text columns of the table. The
+        searchable columns are whitelisted and the search never reaches a
+        column the role may not read.
+      schema: { type: string }
+    Order:
+      name: order
+      in: query
+      required: false
+      description: |
+        Comma-separated ordering directives, e.g. `-created_at,nombre`. A `-`
+        prefix means descending. `sort` is accepted as an alias.
+      schema: { type: string, example: -created_at }
+    Filter:
+      name: filter
+      in: query
+      required: false
+      style: deepObject
+      explode: true
+      description: |
+        Field filters in the `filter[<column>][<operator>]=<value>` form, e.g.
+        `filter[estado][eq]=ganado&filter[valor][gte]=1000`.
+
+        Supported operators: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `like`,
+        `in`, `isnull`. Only the columns the role may read can be filtered,
+        and the values are bound as parameters (never interpolated).
+      schema: { type: object, additionalProperties: true }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid credential.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    Forbidden:
+      description: Authenticated but not allowed to perform the operation.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    NotFound:
+      description: Resource not found (or not visible in this workspace).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    ValidationError:
+      description: The request could not be validated.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    Conflict:
+      description: The operation conflicts with the current state (duplicate slug, duplicate user).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    RateLimited:
+      description: Too many requests.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    InternalError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  schemas:
+
+    # ── Envelopes ──────────────────────────────────────────────
+
+    SuccessEnvelope:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          description: Payload of the operation.
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    ErrorResponse:
+      type: object
+      required: [success, error]
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          $ref: "#/components/schemas/ErrorDetail"
+
+    ErrorDetail:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Machine-readable error code.
+          example: ERR_VALIDATION
+        message:
+          type: string
+          description: Human-readable description. Never leaks internal details.
+        path:
+          type: string
+          description: Path of the request that failed.
+
+    Meta:
+      type: object
+      description: |
+        Pagination metadata. `count` is always present on list endpoints;
+        `limit`, `offset` and `has_more` are present on the paginated
+        collections (records and audit trail).
+      properties:
+        count:
+          type: integer
+          description: Number of items in `data` (total matching rows on paginated collections).
+        limit:
+          type: integer
+          description: Maximum number of items requested.
+        offset:
+          type: integer
+          description: Number of items skipped.
+        has_more:
+          type: boolean
+          description: Whether more items exist after this page.
+
+    # ── Workspace ──────────────────────────────────────────────
+
+    Workspace:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        owner_id: { type: string, format: uuid }
+        settings: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    WorkspaceDump:
+      type: object
+      description: |
+        Full architecture of a workspace. The same structure is used by the
+        export endpoint, the template endpoint and the import endpoint.
+      properties:
+        workspace: { $ref: "#/components/schemas/Workspace" }
+        tables:
+          type: array
+          items: { $ref: "#/components/schemas/Table" }
+        columns:
+          type: array
+          items: { $ref: "#/components/schemas/Column" }
+        roles:
+          type: array
+          items: { $ref: "#/components/schemas/Role" }
+
+    # ── Schema ──────────────────────────────────────────────
+
+    Table:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        metadata: { type: object, additionalProperties: true }
+        columns:
+          type: array
+          description: Columns of the table (preloaded on the list endpoint).
+          items: { $ref: "#/components/schemas/Column" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    Column:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        table_id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        field_type:
+          type: string
+          enum: [text, long_text, number, integer, boolean, date, datetime, email, url, attachment, select, relation, json]
+        meta: { $ref: "#/components/schemas/ColumnMeta" }
+        order_index: { type: integer }
+        created_at: { type: string, format: date-time }
+
+    ColumnMeta:
+      type: object
+      description: |
+        Free-form metadata of a column. The following keys have a meaning for
+        the server:
+
+        * `required` (boolean) — the value cannot be empty.
+        * `unique` (boolean) — the value must be unique inside the table.
+        * `cardinality` (`one` | `many`) — shape of a `select` or `relation`
+          column. Defaults to `one`.
+        * `choices` (array) — canonical options of a `select` column.
+        * `options` (array of strings) — deprecated legacy shape of `choices`.
+        * `target_table` (string) — slug of the target table of a `relation`.
+        * `display_column` (string) — slug of the column shown when expanding
+          the relation.
+      properties:
+        required: { type: boolean }
+        unique: { type: boolean }
+        cardinality:
+          type: string
+          enum: [one, many]
+          default: one
+        choices:
+          type: array
+          description: Canonical options of a `select` column.
+          items: { $ref: "#/components/schemas/Choice" }
+        options:
+          type: array
+          description: Deprecated legacy options of a `select` column.
+          items: { type: string }
+        target_table: { type: string }
+        display_column: { type: string }
+
+    Choice:
+      type: object
+      required: [value]
+      properties:
+        value:
+          type: string
+          description: Stored value. Must be unique inside the column.
+          example: ganado
+        label:
+          type: string
+          description: Text shown to the user.
+          example: Ganado
+        color:
+          type: string
+          description: Optional colour hint for the UI.
+          example: "#22c55e"
+
+    # ── Data ──────────────────────────────────────────────
+
+    Record:
+      type: object
+      description: |
+        A row of a table. The shape is dynamic: every column of the table
+        appears as a property, plus the system columns `id`, `created_at`,
+        `created_by` and `updated_at`.
+
+        When a record is returned with `?expand=`, an extra `expand` object
+        holds the resolved display value of each expanded relation.
+      properties:
+        id: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        created_by: { type: string }
+      additionalProperties: true
+
+    RecordInput:
+      type: object
+      description: |
+        Payload used to create or update a record: a flat object of column
+        slug → value. The system columns (`id`, `created_at`, `created_by`) are
+        ignored.
+      additionalProperties: true
+      example:
+        nombre: "Acme Corp"
+        estado: "ganado"
+        valor: 15000
+
+    # ── Roles ──────────────────────────────────────────────
+
+    Role:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        permissions: { $ref: "#/components/schemas/RolePermissions" }
+        is_default: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    RolePermissions:
+      type: object
+      description: |
+        Permission document of a role.
+
+        Each key is a table slug (or the wildcard `*`) mapped to the
+        operations allowed on it:
+
+        * `create`, `read`, `update`, `delete` — `none`, `own` or `all`.
+          `own` restricts the rows to those created by the caller
+          (`created_by`).
+        * `columns` — the column-level security (CLS). Each operation holds
+          the list of column slugs allowed for it. An absent list means "every
+          column"; an empty list means "no column". Use `["*"]` to allow all
+          columns explicitly.
+
+        The reserved key `__system__` holds the workspace-wide areas
+        (`webhooks`, `roles`, `api_keys`, `tables`, `settings`, `mcp`), each
+        one of `none`, `view`, `manage` or `all`.
+
+        The role named `admin` always keeps the full system access.
+
+        Precedence: the rule of a concrete table wins over the `*` wildcard; a
+        table rule that inherits (`inherit` or empty) falls back to the
+        wildcard; when neither decides, access is denied.
+      additionalProperties: true
+      example:
+        __system__:
+          tables: manage
+          roles: manage
+          api_keys: manage
+          webhooks: manage
+        clientes:
+          create: all
+          read: all
+          update: all
+          delete: none
+          columns:
+            read: [nombre, industria]
+            create: [nombre]
+            update: [nombre]
+            delete: []
+        oportunidades:
+          create: own
+          read: own
+          update: own
+          delete: none
+
+    UserRoleAssignment:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        user_id: { type: string }
+        role_id: { type: string, format: uuid }
+        assigned_at: { type: string, format: date-time }
+
+    WorkspaceMember:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string, format: email }
+        name: { type: string }
+        picture: { type: string }
+        role_id: { type: string, format: uuid }
+        role_name: { type: string }
+        assigned_at: { type: string, format: date-time }
+
+    # ── Users ──────────────────────────────────────────────
+
+    InstanceUser:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string, format: email }
+        name: { type: string }
+        picture: { type: string }
+        can_create_workspaces:
+          type: boolean
+          description: Whether the user is an instance administrator.
+
+    CurrentUser:
+      type: object
+      properties:
+        id: { type: string }
+        user_id: { type: string }
+        email: { type: string, format: email }
+        name: { type: string }
+        picture: { type: string }
+        can_create_workspaces: { type: boolean }
+        role:
+          type: string
+          description: Effective role inside the bound workspace.
+        workspace_id:
+          type: string
+          format: uuid
+          description: Workspace the credential is bound to.
+        auth_source:
+          type: string
+          enum: [session, apikey]
+
+    EffectivePermissions:
+      type: object
+      properties:
+        workspace_id: { type: string, format: uuid }
+        role: { type: string }
+        tables:
+          type: object
+          description: Effective table-level access, indexed by table slug.
+          additionalProperties:
+            type: object
+            properties:
+              create: { type: string, enum: [none, own, all, inherit] }
+              read: { type: string, enum: [none, own, all, inherit] }
+              update: { type: string, enum: [none, own, all, inherit] }
+              delete: { type: string, enum: [none, own, all, inherit] }
+              columns:
+                type: object
+                properties:
+                  read:
+                    type: array
+                    items: { type: string }
+                  create:
+                    type: array
+                    items: { type: string }
+                  update:
+                    type: array
+                    items: { type: string }
+                  delete:
+                    type: array
+                    items: { type: string }
+        system:
+          type: object
+          description: Effective `__system__` access.
+          properties:
+            webhooks: { type: string, enum: [none, view, manage, all] }
+            roles: { type: string, enum: [none, view, manage, all] }
+            api_keys: { type: string, enum: [none, view, manage, all] }
+            tables: { type: string, enum: [none, view, manage, all] }
+            settings: { type: string, enum: [none, view, manage, all] }
+            mcp: { type: string, enum: [none, view, manage, all] }
+
+    # ── API keys ──────────────────────────────────────────────
+
+    APIKey:
+      type: object
+      description: |
+        An API key as returned by the list and update endpoints. The raw secret
+        is never part of this representation.
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        name: { type: string }
+        prefix: { type: string }
+        masked_key:
+          type: string
+          description: Masked representation of the key, e.g. `key_ab12****************`.
+        role_id: { type: string, format: uuid }
+        last_used_at: { type: string, format: date-time, nullable: true }
+        expires_at: { type: string, format: date-time, nullable: true }
+        rate_limit_per_minute: { type: integer }
+        rate_limit_per_hour: { type: integer }
+        allowed_origins:
+          type: array
+          items: { type: string }
+        allowed_referers:
+          type: array
+          items: { type: string }
+        created_at: { type: string, format: date-time }
+
+    APIKeyCreated:
+      type: object
+      description: |
+        Response of the create endpoint. The raw `key` is present **only** in
+        this response.
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        name: { type: string }
+        key:
+          type: string
+          description: Raw API key. Shown only once.
+        prefix: { type: string }
+        role_id: { type: string, format: uuid }
+        expires_at: { type: string, format: date-time, nullable: true }
+        rate_limit_per_minute: { type: integer }
+        rate_limit_per_hour: { type: integer }
+        allowed_origins:
+          type: array
+          items: { type: string }
+        allowed_referers:
+          type: array
+          items: { type: string }
+        created_at: { type: string, format: date-time }
+
+    # ── Webhooks ──────────────────────────────────────────────
+
+    Webhook:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        resource:
+          type: string
+          format: uuid
+          description: Table the subscription watches.
+        change_type: { type: string, example: create }
+        notification_url: { type: string, format: uri }
+        client_state:
+          type: string
+          description: Shared secret used to sign the delivery.
+        expires_at: { type: string, format: date-time, nullable: true }
+        created_by: { type: string }
+        created_at: { type: string, format: date-time }
+
+    WebhookEvent:
+      type: object
+      description: |
+        A delivery attempt of a webhook subscription. Every delivery to the
+        subscriber carries the headers `X-Hornero-Delivery` (unique id of the
+        attempt, used for deduplication) and `X-Hornero-Signature` (signature
+        of the payload, computed with the `client_state` of the subscription).
+      properties:
+        id: { type: string, format: uuid }
+        webhook_id: { type: string, format: uuid }
+        notification_url: { type: string, format: uri }
+        payload: { type: object, additionalProperties: true }
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        attempts: { type: integer }
+        next_attempt_at: { type: string, format: date-time }
+        processing_timeout: { type: string, format: date-time, nullable: true }
+        last_error: { type: string }
+        last_status_code: { type: integer }
+        last_attempt_at: { type: string, format: date-time, nullable: true }
+        completed_at: { type: string, format: date-time, nullable: true }
+        failed_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    # ── Audit ──────────────────────────────────────────────
+
+    AuditLog:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid, nullable: true }
+        actor_id:
+          type: string
+          description: Identifier of the user or API key that performed the action.
+        actor_email: { type: string }
+        auth_source: { type: string, example: session }
+        action: { type: string, example: api_key.created }
+        resource_type: { type: string, example: api_key }
+        resource_id: { type: string }
+        metadata:
+          type: object
+          additionalProperties: true
+          description: |
+            Extra context of the action. Keys that look like a credential
+            (`secret`, `password`, `token`, `key_hash`) are removed before
+            being stored.
+        ip_address: { type: string }
+        created_at: { type: string, format: date-time }
+
+    # ── Templates ──────────────────────────────────────────────
+
+    TemplateMeta:
+      type: object
+      properties:
+        name: { type: string, example: CRM Simple }
+        description: { type: string }
+        icon: { type: string }
+        category: { type: string }
+        filename:
+          type: string
+          description: Identifier to use on `GET /api/v1/templates/{name}`.
+          example: crm-simple

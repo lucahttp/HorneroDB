@@ -58,7 +58,15 @@
       "name": "Categoría",
       "slug": "categoria",
       "field_type": "select",
-      "meta": { "options": ["Electrónica", "Ropa", "Alimentos", "Herramientas", "Otro"] },
+      "meta": {
+        "choices": [
+          { "value": "electronica", "label": "Electrónica" },
+          { "value": "ropa", "label": "Ropa" },
+          { "value": "alimentos", "label": "Alimentos" },
+          { "value": "herramientas", "label": "Herramientas" },
+          { "value": "otro", "label": "Otro" }
+        ]
+      },
       "order_index": 2
     },
     {
@@ -112,7 +120,13 @@
       "name": "Tipo",
       "slug": "tipo",
       "field_type": "select",
-      "meta": { "options": ["Entrada", "Salida", "Ajuste"] },
+      "meta": {
+        "choices": [
+          { "value": "entrada", "label": "Entrada" },
+          { "value": "salida", "label": "Salida" },
+          { "value": "ajuste", "label": "Ajuste" }
+        ]
+      },
       "order_index": 0
     },
     {
@@ -141,6 +155,32 @@
       "field_type": "text",
       "meta": {},
       "order_index": 3
+    },
+    {
+      "id": "22222222-0002-0002-0002-000000000013",
+      "table_id": "11111111-0002-0002-0002-000000000003",
+      "name": "Producto",
+      "slug": "producto_id",
+      "field_type": "relation",
+      "meta": {
+        "target_table": "productos",
+        "display_column": "nombre",
+        "cardinality": "one"
+      },
+      "order_index": 4
+    },
+    {
+      "id": "22222222-0002-0002-0002-000000000014",
+      "table_id": "11111111-0002-0002-0002-000000000003",
+      "name": "Proveedor",
+      "slug": "proveedor_id",
+      "field_type": "relation",
+      "meta": {
+        "target_table": "proveedores",
+        "display_column": "nombre",
+        "cardinality": "one"
+      },
+      "order_index": 5
     }
   ],
   "roles": [
@@ -148,9 +188,16 @@
       "id": "33333333-0002-0002-0002-000000000001",
       "workspace_id": "00000000-0000-0000-0000-000000000000",
       "name": "admin",
-      "description": "Acceso completo",
+      "description": "Acceso completo a los datos y a la configuración del workspace",
       "permissions": {
-        "__system__": { "tables": "manage", "roles": "manage", "api_keys": "manage" },
+        "__system__": {
+          "tables": "manage",
+          "roles": "manage",
+          "api_keys": "manage",
+          "webhooks": "manage",
+          "settings": "manage",
+          "mcp": "manage"
+        },
         "productos": { "create": "all", "read": "all", "update": "all", "delete": "all" },
         "proveedores": { "create": "all", "read": "all", "update": "all", "delete": "all" },
         "movimientos": { "create": "all", "read": "all", "update": "all", "delete": "all" }
@@ -161,11 +208,52 @@
       "id": "33333333-0002-0002-0002-000000000002",
       "workspace_id": "00000000-0000-0000-0000-000000000000",
       "name": "Operador",
-      "description": "Puede registrar movimientos y consultar stock",
+      "description": "Consulta el catálogo y registra movimientos propios; la CLS limita las columnas que puede escribir",
       "permissions": {
-        "productos": { "create": "none", "read": "all", "update": "none", "delete": "none" },
-        "proveedores": { "create": "none", "read": "all", "update": "none", "delete": "none" },
-        "movimientos": { "create": "all", "read": "all", "update": "own", "delete": "none" }
+        "__system__": {
+          "tables": "none",
+          "roles": "none",
+          "api_keys": "none",
+          "webhooks": "none",
+          "settings": "none",
+          "mcp": "none"
+        },
+        "productos": {
+          "create": "none",
+          "read": "all",
+          "update": "none",
+          "delete": "none",
+          "columns": {
+            "read": ["nombre", "sku", "categoria", "stock"],
+            "create": [],
+            "update": [],
+            "delete": []
+          }
+        },
+        "proveedores": {
+          "create": "none",
+          "read": "all",
+          "update": "none",
+          "delete": "none",
+          "columns": {
+            "read": ["nombre", "email"],
+            "create": [],
+            "update": [],
+            "delete": []
+          }
+        },
+        "movimientos": {
+          "create": "own",
+          "read": "own",
+          "update": "own",
+          "delete": "none",
+          "columns": {
+            "read": ["tipo", "cantidad", "fecha", "notas", "producto_id", "proveedor_id"],
+            "create": ["tipo", "cantidad", "fecha", "notas", "producto_id", "proveedor_id"],
+            "update": ["tipo", "cantidad", "fecha", "notas"],
+            "delete": []
+          }
+        }
       },
       "is_default": true
     }

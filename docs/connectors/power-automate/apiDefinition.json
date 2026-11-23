@@ -525,8 +525,8 @@
     "oauth2-auth": {
       "type": "oauth2",
       "flow": "accessCode",
-      "authorizationUrl": "https://pocketid-sso.pelucasistemas.com.ar/authorize",
-      "tokenUrl": "https://pocketid-sso.pelucasistemas.com.ar/api/oidc/token",
+      "authorizationUrl": "https://YOUR-OIDC-PROVIDER.example.com/authorize",
+      "tokenUrl": "https://YOUR-OIDC-PROVIDER.example.com/api/oidc/token",
       "scopes": {
         "openid": "openid",
         "profile": "profile",

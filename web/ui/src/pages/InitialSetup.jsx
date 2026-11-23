@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import axios from 'axios'
 import { API_URL } from '../constants'
 import { useAuth } from '../context/AuthContext'
 import { Button } from '../components/index.jsx'
-import { notify } from '../components/Toast.jsx'
+import { notify } from '../components/toast.js'
 import { Settings, CheckCircle, Shield } from 'iconoir-react'
 
 export default function InitialSetup() {
@@ -25,11 +25,7 @@ export default function InitialSetup() {
   const [defaultRateLimit, setDefaultRateLimit] = useState(60)
   const [maxWorkspaces, setMaxWorkspaces] = useState(10)
 
-  useEffect(() => {
-    checkSetupStatus()
-  }, [])
-
-  const checkSetupStatus = async () => {
+  const checkSetupStatus = useCallback(async () => {
     try {
       const res = await axios.get(`${API_URL}/setup/status`)
       const { needs_setup, is_admin } = res.data.data
@@ -52,7 +48,11 @@ export default function InitialSetup() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [navigate, t])
+
+  useEffect(() => {
+    checkSetupStatus()
+  }, [checkSetupStatus])
 
   const handleSubmit = async (e) => {
     e.preventDefault()

@@ -2,12 +2,14 @@ package middleware
 
 import (
 	"fmt"
+	"log/slog"
+
 	"hornerodb/internal/database"
 	"hornerodb/internal/response"
-	"log/slog"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // ResourceValidator ensures resource belongs to workspace and user has access
@@ -19,13 +21,12 @@ type ResourceValidator struct {
 func NewResourceValidator() *ResourceValidator {
 	return &ResourceValidator{
 		tableNames: map[string]string{
-			"table":      "_hornero_tables",
-			"column":     "_hornero_columns",
-			"permission": "_hornero_permissions",
-			"role":       "_hornero_roles",
-			"api_key":    "_hornero_api_keys",
-			"user":       "_hornero_users",
-			"user_role":  "_hornero_user_roles",
+			"table":     "_hornero_tables",
+			"column":    "_hornero_columns",
+			"role":      "_hornero_roles",
+			"api_key":   "_hornero_api_keys",
+			"user":      "_hornero_users",
+			"user_role": "_hornero_user_roles",
 		},
 	}
 }
@@ -64,16 +65,43 @@ func (v *ResourceValidator) ValidateResourceAccess(c *gin.Context, resourceType 
 		return fmt.Errorf("invalid resource type")
 	}
 
-	// Query: Does this resource belong to this workspace?
 	var count int64
-	result := database.DB.
-		Table(tableName).
-		Where("id = ? AND workspace_id = ?", resID, wsID).
-		Count(&count)
+	var query *gorm.DB
 
-	if result.Error != nil {
+	switch resourceType {
+	case "column":
+		// SECURITY: _hornero_columns has no workspace_id column; it belongs to
+		// the workspace through its table (_hornero_columns.table_id ->
+		// _hornero_tables.id).
+		query = database.DB.
+			Table("_hornero_columns c").
+			Joins("JOIN _hornero_tables t ON t.id = c.table_id").
+			Where("c.id = ? AND t.workspace_id = ?", resID, wsID)
+
+		// If the route also carries a table_id, the column must belong to it.
+		if tableID := c.Param("table_id"); tableID != "" {
+			parsedTableID, err := uuid.Parse(tableID)
+			if err != nil {
+				return fmt.Errorf("invalid table_id format")
+			}
+			query = query.Where("c.table_id = ?", parsedTableID)
+		}
+	case "user":
+		// _hornero_users has no workspace_id either: the user belongs to the
+		// workspace through its role assignment.
+		query = database.DB.
+			Table("_hornero_user_roles").
+			Where("user_id = ? AND workspace_id = ?", resourceID, wsID)
+	default:
+		// Query: Does this resource belong to this workspace?
+		query = database.DB.
+			Table(tableName).
+			Where("id = ? AND workspace_id = ?", resID, wsID)
+	}
+
+	if err := query.Count(&count).Error; err != nil {
 		slog.Error("resource validation query failed",
-			"error", result.Error,
+			"error", err,
 			"resource_type", resourceType,
 			"workspace_id", workspaceID,
 			"resource_id", resourceID,
@@ -122,6 +150,7 @@ func ValidateColumnAccess() gin.HandlerFunc {
 			slog.Warn("column access denied",
 				"error", err,
 				"column_id", columnID,
+				"table_id", c.Param("table_id"),
 				"workspace_id", c.Param("workspace_id"),
 				"user_id", c.GetString("user_id"),
 			)

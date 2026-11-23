@@ -267,6 +267,29 @@ body {
   border-bottom: var(--border-thick) solid var(--border-color);
 }
 
+/*
+  Sticky table headers.
+  The grid scrolls inside its own container, so the header row stays pinned
+  to the top while the records scroll underneath it. The background has to be
+  opaque, otherwise the rows shine through the header.
+*/
+.data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg-surface);
+}
+
+/*
+  The data grid scrolls on its own (vertical + horizontal): that is what makes
+  the sticky header possible, and it keeps the bulk toolbar and the
+  pagination always reachable.
+*/
+.data-table-scroll {
+  max-height: 70vh;
+  overflow: auto;
+}
+
 .table td {
   padding: 0.875rem 1.25rem;
   border-bottom: 1px solid var(--border-light);
@@ -792,6 +815,44 @@ body {
   white-space: nowrap;
 }
 
+/* Sortable column name — a button that asks the server for a sorted page. */
+.column-header-sort {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.column-sort-indicator {
+  font-size: 0.85rem;
+  line-height: 1;
+  color: var(--text-muted);
+  opacity: 0.5;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.column-header-sort:hover .column-sort-indicator {
+  opacity: 1;
+  color: var(--text);
+}
+
+.column-header-sort.is-asc .column-sort-indicator,
+.column-header-sort.is-desc .column-sort-indicator {
+  opacity: 1;
+  color: var(--primary);
+}
+
 /* "⋮" trigger — visible on hover */
 .column-menu-trigger {
   opacity: 0;
@@ -1018,6 +1079,86 @@ th:hover .column-menu-trigger,
   border-bottom-color: var(--primary) !important;
   background: var(--bg-elevated) !important;
   font-weight: 500;
+}
+
+/* ── CLS permission awareness ──────────────────── */
+
+/* A column the role may not write: the cell is not editable. */
+.cell-locked {
+  cursor: not-allowed;
+  opacity: 0.75;
+}
+
+/* A column the role may not read: the value is hidden by the API. */
+.cell-restricted {
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 6px,
+    var(--bg-subtle) 6px,
+    var(--bg-subtle) 12px
+  );
+}
+
+.cell-restricted-placeholder {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.col-restricted-badge {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+  vertical-align: middle;
+}
+
+.cell-select {
+  background: var(--primary-light);
+  color: var(--primary);
+  border-radius: 4px;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+/* ── Pagination ──────────────────────────────── */
+
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.75rem 0.25rem 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.pagination-info {
+  font-weight: 600;
+}
+
+.pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pagination-page-size {
+  width: auto;
+  padding: 0.25rem 1.75rem 0.25rem 0.5rem;
+  font-size: 0.8125rem;
+  height: auto;
+}
+
+.pagination-page-indicator {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text-muted);
+  min-width: 3.5rem;
+  text-align: center;
 }
 
 /* ── Bulk Actions Toolbar ───────────────────── */
@@ -1261,4 +1402,32 @@ th:hover .column-menu-trigger,
 /* Dark mode adjustments for diagram */
 .dark .erd-canvas-wrap {
   background: #111111;
-}
+}
+
+/* ═══════════════════════════════════════════
+   ACCESSIBILITY
+   ═══════════════════════════════════════════ */
+
+/*
+  Keyboard users must always be able to see where the focus is. The outline
+  is only painted for keyboard navigation (`:focus-visible`), so a mouse
+  click does not leave a ring behind.
+*/
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/*
+  Users that ask the operating system to reduce the motion get almost no
+  animation: the durations are collapsed instead of removing the rules, so
+  the `animationend` / `transitionend` events still fire.
+*/
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

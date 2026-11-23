@@ -7,6 +7,7 @@ import (
 
 	"hornerodb/internal/config"
 	"hornerodb/internal/middleware"
+	"hornerodb/internal/response"
 	"hornerodb/internal/services/auth"
 
 	"github.com/gin-gonic/gin"
@@ -52,8 +53,10 @@ func LoginPocketID(c *gin.Context) {
 		return
 	}
 
-	// Load config to get Public URL if available, or default to localhost
-	cfg, _ := config.Load()
+	// Load config to get Public URL if available, or default to localhost.
+	// config.Get() returns the cached process-wide configuration, so this does
+	// not re-parse the environment on every request.
+	cfg := config.Get()
 	baseURL := "http://localhost:5173"
 	if cfg.Server.PublicURL != "" {
 		baseURL = cfg.Server.PublicURL
@@ -118,8 +121,9 @@ func CallbackPocketID(c *gin.Context) {
 		redirectURL = redirectURI
 	}
 
-	// SECURITY: Validate redirect URL again to prevent open redirect attacks
-	cfg, _ := config.Load()
+	// SECURITY: Validate redirect URL again to prevent open redirect attacks.
+	// config.Get() returns the cached configuration: no re-parsing per request.
+	cfg := config.Get()
 	allowedDomains := []string{}
 	if cfg.Server.PublicURL != "" {
 		publicURL := cfg.Server.PublicURL
@@ -148,7 +152,11 @@ func CallbackPocketID(c *gin.Context) {
 	}
 }
 
+// Logout invalidates the browser session by clearing every credential cookie
+// the server may have issued (the HttpOnly OIDC session and the legacy
+// `token` cookie).
 func Logout(c *gin.Context) {
+	middleware.ClearCookie(c, "hornero_session")
 	middleware.ClearCookie(c, "token")
-	c.JSON(200, gin.H{"message": "logged out"})
+	response.Success(c, gin.H{"message": "logged out"})
 }

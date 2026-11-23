@@ -30,8 +30,26 @@ type WebhookOutboxEvent struct {
 	Status          string    `gorm:"type:varchar(50);default:'pending';index" json:"status"` // pending, processing, completed, failed
 	Attempts        int       `gorm:"default:0" json:"attempts"`
 	NextAttemptAt   time.Time `gorm:"index" json:"next_attempt_at"`
-	CreatedAt       time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt       time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+
+	// ProcessingTimeout is the lease deadline of an event claimed by a worker.
+	// When it expires the reaper returns the event to "pending" so a crashed
+	// replica does not strand the delivery forever.
+	ProcessingTimeout *time.Time `gorm:"column:processing_timeout" json:"processing_timeout,omitempty"`
+
+	// LastError holds the (sanitized) error of the most recent delivery attempt.
+	LastError string `gorm:"column:last_error;type:text" json:"last_error,omitempty"`
+
+	// LastStatusCode holds the HTTP status returned by the target on the last attempt.
+	LastStatusCode int `gorm:"column:last_status_code" json:"last_status_code,omitempty"`
+
+	// LastAttemptAt is the timestamp of the most recent delivery attempt.
+	LastAttemptAt *time.Time `gorm:"column:last_attempt_at" json:"last_attempt_at,omitempty"`
+
+	CompletedAt *time.Time `gorm:"column:completed_at" json:"completed_at,omitempty"`
+	FailedAt    *time.Time `gorm:"column:failed_at" json:"failed_at,omitempty"`
+
+	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }
 
 func (w *WebhookOutboxEvent) TableName() string {

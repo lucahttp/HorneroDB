@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -35,21 +37,38 @@ type LoginResult struct {
 	CodeVerifier string
 }
 
+// generateCodeVerifier returns a PKCE code_verifier.
+//
+// RFC 7636 requires the verifier to be 43-128 characters taken from the
+// unreserved set [A-Z] / [a-z] / [0-9] / "-" / "." / "_" / "~".
+//
+// base64.URLEncoding produces PADDED output (a trailing "="), and "=" is NOT
+// part of the unreserved set, so strict providers reject it. Pocket ID
+// answers the token request with:
+//
+//	"The PKCE code verifier must only contain [a-Z], [0-9], '-', '.', '_', '~'."
+//
+// which makes every authorization-code exchange fail. RawURLEncoding omits the
+// padding and yields exactly 43 characters for 32 random bytes.
 func generateCodeVerifier() string {
 	b := make([]byte, 32)
 	rand.Read(b)
-	return base64.URLEncoding.EncodeToString(b)
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
+// generateCodeChallenge derives the S256 code_challenge from a code_verifier.
+//
+// RFC 7636 section 4.2 defines it as BASE64URL-ENCODE(SHA256(ASCII(verifier)))
+// with the padding omitted, so RawURLEncoding is used here as well.
 func generateCodeChallenge(verifier string) string {
 	h := sha256.Sum256([]byte(verifier))
-	return base64.URLEncoding.EncodeToString(h[:])
+	return base64.RawURLEncoding.EncodeToString(h[:])
 }
 
+// GenerateCodeVerifier returns a fresh PKCE code_verifier for the OIDC flows
+// (browser login and the MCP OAuth flow).
 func GenerateCodeVerifier() string {
-	b := make([]byte, 32)
-	rand.Read(b)
-	return base64.URLEncoding.EncodeToString(b)
+	return generateCodeVerifier()
 }
 
 func NewPocketIDAuth(cfg *config.OIDCProvider) (*OIDCAuth, error) {
@@ -65,12 +84,14 @@ func NewPocketIDAuth(cfg *config.OIDCProvider) (*OIDCAuth, error) {
 	jwksURL := cfg.IssuerURL + "/.well-known/jwks.json"
 	keySet := oidc.NewRemoteKeySet(ctx, jwksURL)
 
-	// Bypassing expiry checks is only safe and necessary in DEV to avoid Docker clock-drift errors.
-	isDev := os.Getenv("NODE_ENV") != "production" && os.Getenv("ENV") != "production" && os.Getenv("HORNERO_ENV") != "production"
+	// SECURITY (P1-13): expiry verification is fail-closed. It is only skipped
+	// when the operator explicitly opts in via HORNERO_ALLOW_EXPIRED_TOKENS=true
+	// (useful for local dev with clock drift). NEVER enabled by default.
+	allowExpiredTokens := strings.EqualFold(strings.TrimSpace(os.Getenv("HORNERO_ALLOW_EXPIRED_TOKENS")), "true")
 
 	verifier := oidc.NewVerifier(cfg.PublicURL, keySet, &oidc.Config{
 		ClientID:        cfg.ClientID,
-		SkipExpiryCheck: isDev,
+		SkipExpiryCheck: allowExpiredTokens,
 	})
 
 	return &OIDCAuth{
@@ -86,20 +107,21 @@ func (o *OIDCAuth) GetLoginURL(state, codeVerifier string) string {
 
 // GetLoginURLWithRedirect is like GetLoginURL but with an explicit redirect_uri,
 // used by the MCP OAuth flow to send the callback to its own endpoint.
+//
+// SECURITY (P1-14): only the PKCE challenge is sent to the authorization
+// endpoint. The code_verifier MUST stay on the client side, otherwise the
+// verifier leaks through logs, proxies and browser history.
 func (o *OIDCAuth) GetLoginURLWithRedirect(state, codeVerifier, redirectURI string) string {
-	codeChallenge := generateCodeChallenge(codeVerifier)
+	q := url.Values{}
+	q.Set("client_id", o.config.ClientID)
+	q.Set("redirect_uri", redirectURI)
+	q.Set("response_type", "code")
+	q.Set("scope", "openid profile email")
+	q.Set("state", state)
+	q.Set("code_challenge", generateCodeChallenge(codeVerifier))
+	q.Set("code_challenge_method", "S256")
 
-	url := o.config.PublicURL + "/authorize?" +
-		"client_id=" + o.config.ClientID +
-		"&redirect_uri=" + redirectURI +
-		"&response_type=code" +
-		"&scope=openid+profile+email" +
-		"&state=" + state +
-		"&code_verifier=" + codeVerifier +
-		"&code_challenge=" + codeChallenge +
-		"&code_challenge_method=S256"
-
-	return url
+	return o.config.PublicURL + "/authorize?" + q.Encode()
 }
 
 type TokenResponse struct {
@@ -111,28 +133,30 @@ type TokenResponse struct {
 }
 
 func (o *OIDCAuth) ExchangeCode(ctx context.Context, code, codeVerifier string) (*TokenResponse, error) {
-	var data *strings.Reader
+	// Build the form body with url.Values so every value is properly escaped
+	// (string concatenation allowed injection of extra parameters).
+	form := url.Values{}
+	form.Set("grant_type", "authorization_code")
+	form.Set("code", code)
+	form.Set("redirect_uri", o.config.RedirectURL)
+	form.Set("client_id", o.config.ClientID)
+	form.Set("client_secret", o.config.ClientSecret)
 	if codeVerifier != "" {
-		data = strings.NewReader(fmt.Sprintf(
-			"grant_type=authorization_code&code=%s&redirect_uri=%s&client_id=%s&client_secret=%s&code_verifier=%s",
-			code, o.config.RedirectURL, o.config.ClientID, o.config.ClientSecret, codeVerifier,
-		))
-	} else {
-		data = strings.NewReader(fmt.Sprintf(
-			"grant_type=authorization_code&code=%s&redirect_uri=%s&client_id=%s&client_secret=%s",
-			code, o.config.RedirectURL, o.config.ClientID, o.config.ClientSecret,
-		))
+		form.Set("code_verifier", codeVerifier)
 	}
 
 	// We still use IssuerURL for internal container-to-container calls to fetch the token
-	req, err := http.NewRequestWithContext(ctx, "POST", o.config.IssuerURL+"/api/oidc/token", data)
+	req, err := http.NewRequestWithContext(ctx, "POST", o.config.IssuerURL+"/api/oidc/token", strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, err
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := http.DefaultClient.Do(req)
+	// Dedicated client with a timeout: never rely on http.DefaultClient, which
+	// has no timeout and could hang the request forever.
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -186,14 +210,48 @@ func (o *OIDCAuth) ExtractClaims(rawIDToken string) (*UserClaims, error) {
 	return &claims, nil
 }
 
+// SessionTokenAudience is the `aud` claim embedded in every HorneroDB session
+// JWT. Binding the token to a single audience means a token minted for another
+// service (or another HorneroDB instance sharing the secret) is not accepted.
+const SessionTokenAudience = "hornerodb"
+
+// SessionTokenClaims are the claims embedded in a HorneroDB session JWT.
+//
+// SECURITY (GA-3): besides the legacy custom claims, the token now carries the
+// registered claims `jti` (a unique token id, which makes future revocation
+// lists possible) and `aud` (the audience the token was minted for). Both are
+// produced through jwt.RegisteredClaims so they are signed like any other
+// claim and cannot be tampered with.
+type SessionTokenClaims struct {
+	Email       string   `json:"email"`
+	Roles       []string `json:"roles,omitempty"`
+	Role        string   `json:"role"`
+	WorkspaceID string   `json:"workspace_id"`
+	Source      string   `json:"source"`
+	jwt.RegisteredClaims
+}
+
+// newSessionTokenClaims builds the registered claims shared by every session
+// token issuer in this package.
+func newSessionTokenClaims(userID string, expiresIn time.Duration) jwt.RegisteredClaims {
+	now := time.Now()
+	return jwt.RegisteredClaims{
+		Subject:   userID,
+		Audience:  jwt.ClaimStrings{SessionTokenAudience},
+		ExpiresAt: jwt.NewNumericDate(now.Add(expiresIn)),
+		IssuedAt:  jwt.NewNumericDate(now),
+		// jti: unique per token, so a single session can be revoked/audited.
+		ID: uuid.NewString(),
+	}
+}
+
 func GenerateJWT(secret string, userID, email string, roles []string, workspaceID string, expiresIn time.Duration) (string, error) {
-	claims := jwt.MapClaims{
-		"sub":          userID,
-		"email":        email,
-		"roles":        roles,
-		"workspace_id": workspaceID,
-		"exp":          time.Now().Add(expiresIn).Unix(),
-		"iat":          time.Now().Unix(),
+	claims := &SessionTokenClaims{
+		Email:            email,
+		Roles:            roles,
+		WorkspaceID:      workspaceID,
+		Source:           "oidc",
+		RegisteredClaims: newSessionTokenClaims(userID, expiresIn),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -202,6 +260,52 @@ func GenerateJWT(secret string, userID, email string, roles []string, workspaceI
 
 func GenerateState() string {
 	return uuid.New().String()
+}
+
+// upsertUserProfile writes the profile fields of a user coming from the OIDC
+// provider.
+//
+// SECURITY (P1-18): it must NEVER write the whole row with Save(&user), because
+// that would reset `can_create_workspaces` to false on every OIDC login and
+// silently demote instance admins. Only the profile columns are updated; the
+// instance-level flag is left untouched.
+func upsertUserProfile(user metadata.User) {
+	if database.DB == nil {
+		return
+	}
+
+	updates := map[string]interface{}{
+		"email":         user.Email,
+		"name":          user.Name,
+		"picture":       user.Picture,
+		"last_login_at": user.LastLoginAt,
+	}
+
+	res := database.DB.Table("_hornero_users").
+		Where("id = ?", user.ID).
+		Updates(updates)
+	if res.Error != nil {
+		// Log error but don't fail - user can still get a token.
+		// SECURITY: Only logging the user ID, not sensitive data.
+		slog.Warn("failed to update OIDC user profile", "error", res.Error, "user_id", user.ID)
+		return
+	}
+
+	if res.RowsAffected > 0 {
+		return
+	}
+
+	// First login: create the row. can_create_workspaces keeps its DB default (false).
+	newUser := metadata.User{
+		ID:          user.ID,
+		Email:       user.Email,
+		Name:        user.Name,
+		Picture:     user.Picture,
+		LastLoginAt: user.LastLoginAt,
+	}
+	if err := database.DB.Table("_hornero_users").Create(&newUser).Error; err != nil {
+		slog.Warn("failed to create OIDC user profile", "error", err, "user_id", user.ID)
+	}
 }
 
 func (o *OIDCAuth) HandleCallback(c *gin.Context, jwtSecret string) error {
@@ -251,11 +355,7 @@ func handleUserWithClaims(c *gin.Context, jwtSecret string, claims UserClaims, t
 		LastLoginAt: time.Now(),
 	}
 
-	if err := database.DB.Table("_hornero_users").Save(&user).Error; err != nil {
-		// Log error but don't fail - user can still get token
-		// SECURITY: Only logging user ID, not sensitive data
-		_ = err
-	}
+	upsertUserProfile(user)
 
 	// Resolve user role and workspace using shared function
 	roleName, workspaceID, _, _ := middleware.ResolveUserRole(claims.Sub)
@@ -326,7 +426,15 @@ func (o *OIDCAuth) HandleCallbackAndRedirect(c *gin.Context, jwtSecret, redirect
 		return fmt.Errorf("failed to generate JWT: %w", err)
 	}
 
-	c.Redirect(302, redirectURL+"?token="+appToken)
+	// SECURITY (GA-3): the session lives in an HttpOnly cookie so the token is
+	// never exposed to JavaScript (no localStorage, no XSS token theft). The
+	// `Secure` flag follows the server configuration.
+	middleware.SetSecureCookie(c, "hornero_session", appToken, 86400, true)
+
+	// The cookie is the primary credential; the `?token=` query parameter is
+	// only kept for cross-origin redirects (Vite dev server).
+	includeToken := redirectNeedsTokenInURL(redirectURL)
+	c.Redirect(302, buildRedirectURL(redirectURL, appToken, includeToken))
 	return nil
 }
 
@@ -380,16 +488,70 @@ func (o *OIDCAuth) ExchangeCodeForAppJWT(ctx context.Context, code, codeVerifier
 }
 
 func GenerateJWTWithRole(secret string, userID, email, role, workspaceID string, expiresIn time.Duration) (string, error) {
-	claims := jwt.MapClaims{
-		"sub":          userID,
-		"email":        email,
-		"role":         role,
-		"workspace_id": workspaceID,
-		"source":       "oidc",
-		"exp":          time.Now().Add(expiresIn).Unix(),
-		"iat":          time.Now().Unix(),
+	claims := &SessionTokenClaims{
+		Email:            email,
+		Role:             role,
+		WorkspaceID:      workspaceID,
+		Source:           "oidc",
+		RegisteredClaims: newSessionTokenClaims(userID, expiresIn),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(secret))
+}
+
+// redirectNeedsTokenInURL reports whether the session token has to be carried
+// in the redirect URL query string.
+//
+// The `hornero_session` cookie is the real credential, but during development
+// the SPA is served by the Vite dev server on a different origin
+// (localhost:5173), where the cookie is not attached to API requests. In that
+// case the `?token=` fallback is kept so the development flow keeps working.
+//
+// In production the SPA is served by the same origin as the API, so the cookie
+// is sent automatically and the token is NOT placed in the URL (the URL ends
+// up in browser history, proxy logs and referrer headers).
+func redirectNeedsTokenInURL(redirectURL string) bool {
+	if !config.IsProduction() {
+		return true
+	}
+
+	target, err := url.Parse(redirectURL)
+	if err != nil || target.Host == "" {
+		return true
+	}
+
+	// The dev server is always cross-origin, even when the process runs with
+	// production settings (e.g. a production-like build on a laptop).
+	host := strings.ToLower(target.Hostname())
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return true
+	}
+
+	base, err := url.Parse(config.Get().Server.PublicURL)
+	if err != nil || base.Host == "" {
+		return true
+	}
+
+	// Same origin as the API server: the cookie travels with every request.
+	return !strings.EqualFold(base.Host, target.Host)
+}
+
+// buildRedirectURL appends the session token to the redirect URL when needed.
+func buildRedirectURL(redirectURL, token string, includeToken bool) string {
+	target, err := url.Parse(redirectURL)
+	if err != nil {
+		if includeToken {
+			return redirectURL + "?token=" + url.QueryEscape(token)
+		}
+		return redirectURL
+	}
+
+	if includeToken {
+		q := target.Query()
+		q.Set("token", token)
+		target.RawQuery = q.Encode()
+	}
+
+	return target.String()
 }

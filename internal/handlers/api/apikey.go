@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"time"
 
 	"hornerodb/internal/database"
@@ -14,11 +15,30 @@ import (
 	"hornerodb/internal/models/metadata"
 	"hornerodb/internal/query"
 	"hornerodb/internal/response"
+	"hornerodb/internal/services/audit"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
+
+// apiKeyPrefixPattern restricts custom key prefixes to a safe, unambiguous charset.
+var apiKeyPrefixPattern = regexp.MustCompile(`^[a-zA-Z0-9_]{2,16}$`)
+
+// apiKeyFormatPattern matches the full generated key: <prefix><48 hex chars>.
+var apiKeyFormatPattern = regexp.MustCompile(`^[a-zA-Z0-9_]{2,16}[0-9a-f]{48}$`)
+
+// validateAPIPrefix ensures a caller-supplied prefix is safe to store and to use
+// as part of the generated key material.
+func validateAPIPrefix(prefix string) error {
+	if prefix == "" {
+		return fmt.Errorf("prefix is required")
+	}
+	if !apiKeyPrefixPattern.MatchString(prefix) {
+		return fmt.Errorf("prefix must match ^[a-zA-Z0-9_]{2,16}$")
+	}
+	return nil
+}
 
 // generateAPIKey creates a cryptographically secure random key with the given prefix.
 // 24 random bytes → 48 hex chars, giving 192 bits of entropy.
@@ -138,6 +158,10 @@ func CreateAPIKey(c *gin.Context) {
 
 	prefix := "key_" + workspaceID[:8]
 	if input.Prefix != "" {
+		if err := validateAPIPrefix(input.Prefix); err != nil {
+			response.ValidationError(c, "Invalid prefix: "+err.Error())
+			return
+		}
 		prefix = input.Prefix
 	}
 
@@ -182,6 +206,19 @@ func CreateAPIKey(c *gin.Context) {
 	}
 
 	slog.Info("API key created", "workspace_id", workspaceID, "user_id", userID, "key_name", input.Name)
+
+	// Audit trail. NEVER store the key itself nor its hash: only metadata
+	// that identifies the created key in a non sensitive way.
+	auditMeta := map[string]interface{}{
+		"name":            input.Name,
+		"prefix":          prefix,
+		"expires_in_days": input.ExpiresIn,
+	}
+	if roleID != uuid.Nil {
+		auditMeta["role_id"] = roleID.String()
+	}
+	audit.LogFromContext(c, &wsID, "api_key.create", "api_key", apiKey.ID.String(), auditMeta)
+
 	response.Created(c, gin.H{
 		"id":                    apiKey.ID,
 		"workspace_id":          apiKey.WorkspaceID,
@@ -199,6 +236,7 @@ func CreateAPIKey(c *gin.Context) {
 }
 
 func DeleteAPIKey(c *gin.Context) {
+	workspaceID := c.Param("workspace_id")
 	keyID := c.Param("key_id")
 	userID, err := middleware.GetUserIDSafe(c)
 	if err != nil {
@@ -206,11 +244,15 @@ func DeleteAPIKey(c *gin.Context) {
 		return
 	}
 
-	result := database.DB.Table("_hornero_api_keys").Delete(&metadata.APIKey{}, "id = ?", keyID)
+	// SECURITY (P0-4): always scope the deletion to the workspace from the URL
+	// so a key of another workspace cannot be deleted (IDOR).
+	result := database.DB.Table("_hornero_api_keys").
+		Delete(&metadata.APIKey{}, "id = ? AND workspace_id = ?", keyID, workspaceID)
 	if result.Error != nil {
 		slog.Error("failed to delete API key",
 			"error", result.Error,
 			"key_id", keyID,
+			"workspace_id", workspaceID,
 			"user_id", userID,
 		)
 		response.DatabaseError(c, result.Error, "deleting API key")
@@ -222,11 +264,15 @@ func DeleteAPIKey(c *gin.Context) {
 		return
 	}
 
-	slog.Info("API key deleted", "key_id", keyID, "user_id", userID)
+	slog.Info("API key deleted", "key_id", keyID, "workspace_id", workspaceID, "user_id", userID)
+
+	audit.LogFromContext(c, auditWorkspacePtr(workspaceID), "api_key.delete", "api_key", keyID, nil)
+
 	response.Success(c, map[string]interface{}{"message": "API key deleted"})
 }
 
 func UpdateAPIKey(c *gin.Context) {
+	workspaceID := c.Param("workspace_id")
 	keyID := c.Param("key_id")
 	userID, err := middleware.GetUserIDSafe(c)
 	if err != nil {
@@ -236,6 +282,7 @@ func UpdateAPIKey(c *gin.Context) {
 
 	var input struct {
 		Name             string   `json:"name"`
+		Prefix           string   `json:"prefix"`
 		RoleID           string   `json:"role_id"`
 		RateLimitPerMin  *int     `json:"rate_limit_per_minute"`
 		RateLimitPerHour *int     `json:"rate_limit_per_hour"`
@@ -248,66 +295,145 @@ func UpdateAPIKey(c *gin.Context) {
 		return
 	}
 
-	// Find existing key
+	// SECURITY (P0-4): the key must belong to the workspace in the URL.
 	var apiKey metadata.APIKey
-	err = database.DB.Table("_hornero_api_keys").Where("id = ?", keyID).First(&apiKey).Error
+	err = database.DB.Table("_hornero_api_keys").
+		Where("id = ? AND workspace_id = ?", keyID, workspaceID).
+		First(&apiKey).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			response.NotFoundError(c, "API key")
 			return
 		}
-		slog.Error("failed to fetch API key", "error", err, "key_id", keyID)
+		slog.Error("failed to fetch API key", "error", err, "key_id", keyID, "workspace_id", workspaceID)
 		response.DatabaseError(c, err, "fetching API key")
 		return
 	}
 
-	// Update fields
+	// Build an explicit update map. Using Save(&apiKey) would write every column
+	// of the struct (including ones the caller never sent).
+	updates := make(map[string]interface{})
+
 	if input.Name != "" {
-		apiKey.Name = input.Name
+		updates["name"] = input.Name
+	}
+
+	if input.Prefix != "" {
+		if err := validateAPIPrefix(input.Prefix); err != nil {
+			response.ValidationError(c, "Invalid prefix: "+err.Error())
+			return
+		}
+		updates["prefix"] = input.Prefix
 	}
 
 	if input.RoleID != "" {
 		roleID, err := uuid.Parse(input.RoleID)
-		if err == nil {
-			apiKey.RoleID = roleID
+		if err != nil {
+			response.ValidationError(c, "invalid role_id format")
+			return
 		}
+		// The role must belong to the same workspace.
+		var roleCount int64
+		if err := database.DB.Table("_hornero_roles").
+			Where("id = ? AND workspace_id = ?", roleID, workspaceID).
+			Count(&roleCount).Error; err != nil {
+			response.DatabaseError(c, err, "validating role")
+			return
+		}
+		if roleCount == 0 {
+			response.NotFoundError(c, "role")
+			return
+		}
+		updates["role_id"] = roleID
 	}
 
 	if input.RateLimitPerMin != nil {
-		apiKey.RateLimitPerMin = input.RateLimitPerMin
+		if *input.RateLimitPerMin < 0 {
+			response.ValidationError(c, "rate_limit_per_minute must be >= 0")
+			return
+		}
+		updates["rate_limit_per_minute"] = *input.RateLimitPerMin
 	}
 
 	if input.RateLimitPerHour != nil {
-		apiKey.RateLimitPerHour = input.RateLimitPerHour
+		if *input.RateLimitPerHour < 0 {
+			response.ValidationError(c, "rate_limit_per_hour must be >= 0")
+			return
+		}
+		updates["rate_limit_per_hour"] = *input.RateLimitPerHour
 	}
 
 	if input.AllowedOrigins != nil {
 		originsJSON, _ := json.Marshal(input.AllowedOrigins)
-		apiKey.AllowedOrigins = metadata.JSON(originsJSON)
+		updates["allowed_origins"] = metadata.JSON(originsJSON)
 	}
 
 	if input.AllowedReferers != nil {
 		referersJSON, _ := json.Marshal(input.AllowedReferers)
-		apiKey.AllowedReferers = metadata.JSON(referersJSON)
+		updates["allowed_referers"] = metadata.JSON(referersJSON)
 	}
 
-	// Use Save to update the whole struct safely - GORM will use model metadata
-	result := database.DB.Table("_hornero_api_keys").Save(&apiKey)
+	if len(updates) == 0 {
+		response.ValidationError(c, "No fields to update")
+		return
+	}
+
+	result := database.DB.Table("_hornero_api_keys").
+		Where("id = ? AND workspace_id = ?", keyID, workspaceID).
+		Updates(updates)
 	if result.Error != nil {
 		slog.Error("failed to update API key",
 			"error", result.Error,
 			"key_id", keyID,
+			"workspace_id", workspaceID,
 			"user_id", userID,
 		)
 		response.DatabaseError(c, result.Error, "updating API key")
 		return
 	}
 
-	slog.Info("API key updated", "key_id", keyID, "user_id", userID)
-	response.Success(c, apiKey)
+	if result.RowsAffected == 0 {
+		response.NotFoundError(c, "API key")
+		return
+	}
+
+	slog.Info("API key updated", "key_id", keyID, "workspace_id", workspaceID, "user_id", userID)
+
+	// Audit trail: only the names of the changed fields are recorded, never
+	// the key material.
+	changedFields := make([]string, 0, len(updates))
+	for k := range updates {
+		changedFields = append(changedFields, k)
+	}
+	audit.LogFromContext(c, auditWorkspacePtr(workspaceID), "api_key.update", "api_key", keyID, map[string]interface{}{
+		"changed_fields": changedFields,
+	})
+
+	// Re-read the row so the response reflects the stored values.
+	var updated metadata.APIKey
+	if err := database.DB.Table("_hornero_api_keys").
+		Where("id = ? AND workspace_id = ?", keyID, workspaceID).
+		First(&updated).Error; err == nil {
+		apiKey = updated
+	}
+
+	response.Success(c, gin.H{
+		"id":                    apiKey.ID,
+		"workspace_id":          apiKey.WorkspaceID,
+		"name":                  apiKey.Name,
+		"prefix":                apiKey.Prefix,
+		"role_id":               apiKey.RoleID,
+		"expires_at":            apiKey.ExpiresAt,
+		"rate_limit_per_minute": apiKey.RateLimitPerMin,
+		"rate_limit_per_hour":   apiKey.RateLimitPerHour,
+		"allowed_origins":       apiKey.AllowedOrigins,
+		"allowed_referers":      apiKey.AllowedReferers,
+		"created_at":            apiKey.CreatedAt,
+	})
 }
 
 func RotateAPIKey(c *gin.Context) {
+	workspaceID := c.Param("workspace_id")
 	keyID := c.Param("key_id")
 	userID, err := middleware.GetUserIDSafe(c)
 	if err != nil {
@@ -315,35 +441,54 @@ func RotateAPIKey(c *gin.Context) {
 		return
 	}
 
-	// Find existing key
+	// SECURITY (P0-4): the key must belong to the workspace in the URL.
 	var apiKey metadata.APIKey
-	err = database.DB.Table("_hornero_api_keys").Where("id = ?", keyID).First(&apiKey).Error
+	err = database.DB.Table("_hornero_api_keys").
+		Where("id = ? AND workspace_id = ?", keyID, workspaceID).
+		First(&apiKey).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			response.NotFoundError(c, "API key")
 			return
 		}
-		slog.Error("failed to fetch API key for rotation", "error", err, "key_id", keyID)
+		slog.Error("failed to fetch API key for rotation",
+			"error", err, "key_id", keyID, "workspace_id", workspaceID)
 		response.DatabaseError(c, err, "fetching API key")
 		return
 	}
 
 	// Generate new key
 	newKeyString, newKeyHash := generateAPIKey(apiKey.Prefix)
-	apiKey.KeyHash = newKeyHash
 
-	result := database.DB.Table("_hornero_api_keys").Save(&apiKey)
+	result := database.DB.Table("_hornero_api_keys").
+		Where("id = ? AND workspace_id = ?", keyID, workspaceID).
+		Updates(map[string]interface{}{
+			"key_hash":     newKeyHash,
+			"last_used_at": nil,
+		})
 	if result.Error != nil {
 		slog.Error("failed to rotate API key",
 			"error", result.Error,
 			"key_id", keyID,
+			"workspace_id", workspaceID,
 			"user_id", userID,
 		)
 		response.DatabaseError(c, result.Error, "rotating API key")
 		return
 	}
 
-	slog.Info("API key rotated", "key_id", keyID, "user_id", userID)
+	if result.RowsAffected == 0 {
+		response.NotFoundError(c, "API key")
+		return
+	}
+
+	slog.Info("API key rotated", "key_id", keyID, "workspace_id", workspaceID, "user_id", userID)
+
+	// Audit trail. NEVER store the new key nor its hash.
+	audit.LogFromContext(c, auditWorkspacePtr(workspaceID), "api_key.rotate", "api_key", keyID, map[string]interface{}{
+		"prefix": apiKey.Prefix,
+	})
+
 	response.Success(c, gin.H{
 		"message": "API key successfully rotated",
 		"id":      apiKey.ID,
@@ -352,6 +497,12 @@ func RotateAPIKey(c *gin.Context) {
 }
 
 func VerifyAPIKey(key string) (*metadata.APIKey, error) {
+	// Cheap format check to avoid a DB round-trip for arbitrary bearer tokens
+	// (e.g. JWTs). A valid key is "<prefix><48 hex chars>".
+	if !apiKeyFormatPattern.MatchString(key) {
+		return nil, fmt.Errorf("invalid API key")
+	}
+
 	hash := sha256.Sum256([]byte(key))
 	keyHash := hex.EncodeToString(hash[:])
 

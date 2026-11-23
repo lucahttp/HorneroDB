@@ -7,19 +7,15 @@ import { Folder, EditPencil, Trash, Xmark } from 'iconoir-react'
 import { API_URL } from '../constants'
 import { useAuth } from '../context/AuthContext'
 import { Button, Badge } from '../components/index.jsx'
-import { notify } from '../components/Toast.jsx'
+import { notify } from '../components/toast.js'
 import TopNavbar from '../components/TopNavbar.jsx'
 
 export default function Dashboard() {
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [workspaces, setWorkspaces] = useState([])
   const [loading, setLoading] = useState(true)
-  const [isModalOpen, setIsModalOpen] = useState(false)
-  const [newWorkspaceName, setNewWorkspaceName] = useState('')
-  const [isNamingModalOpen, setIsNamingModalOpen] = useState(false)
-  const [importFile, setImportFile] = useState(null)
   const [canCreateWorkspaces, setCanCreateWorkspaces] = useState(false)
 
   const importInputRef = useRef(null)
@@ -35,7 +31,7 @@ export default function Dashboard() {
     // Fetch workspaces
     axios.get(`${API_URL}/workspaces`)
       .then(res => setWorkspaces(Array.isArray(res.data.data) ? res.data.data : []))
-      .catch((err) => {
+      .catch(() => {
         setWorkspaces([])
         notify(t('error_fetching_workspaces'), 'error')
       })
@@ -61,7 +57,7 @@ export default function Dashboard() {
         console.error('Error fetching templates:', err)
         setTemplates([])
       })
-  }, [])
+  }, [t])
 
   const handleCreate = async () => {
     if (!newName.trim()) return

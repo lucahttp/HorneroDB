@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { SunLight, MoonSat as MoonSaturn } from 'iconoir-react'
+import { useTranslation } from 'react-i18next'
 
 
 export function ThemeToggle() {
@@ -29,6 +30,7 @@ export function ThemeToggle() {
       onClick={toggle}
       whileTap={{ scale: 0.95 }}
       title={theme === 'light' ? 'Modo oscuro' : 'Modo claro'}
+      aria-label={theme === 'light' ? 'Modo oscuro' : 'Modo claro'}
       style={{ fontSize: '1.1rem', padding: '0.4rem 0.6rem' }}
     >
       {theme === 'light' ? <MoonSaturn width="1rem" height="1rem" /> : <SunLight width="1rem" height="1rem" />}
@@ -104,6 +106,8 @@ export function Badge({ children, variant = 'primary', className = '' }) {
 }
 
 export function Modal({ isOpen, onClose, title, children, footer }) {
+  const { t } = useTranslation()
+
   if (!isOpen) return null
 
   return (
@@ -127,6 +131,8 @@ export function Modal({ isOpen, onClose, title, children, footer }) {
             className="btn btn-ghost btn-sm"
             onClick={onClose}
             style={{ borderRadius: '8px' }}
+            aria-label={t('aria_close_modal')}
+            title={t('aria_close_modal')}
           >
             <svg style={{ width: '1.25rem', height: '1.25rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

@@ -7,8 +7,24 @@ import { useTranslation } from 'react-i18next'
  * Dropdown menu for column header actions.
  * Shows on hover (desktop) via a "⋮" trigger button.
  * Dismisses on click outside or Escape.
+ *
+ * `canManage` is false when the role may not alter the schema: the trigger is
+ * not rendered at all, because every action behind it would be rejected by
+ * the API.
+ *
+ * `onSort` (optional): when provided, the column name becomes a button that
+ * asks the parent to sort by this column. `sortState` is the current
+ * `{ column, direction }` so the arrow indicator can be rendered.
  */
-export function ColumnHeaderMenu({ column, icon, onRename, onDelete }) {
+export function ColumnHeaderMenu({
+  column,
+  icon,
+  onRename,
+  onDelete,
+  canManage = true,
+  onSort = null,
+  sortState = null,
+}) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -16,6 +32,9 @@ export function ColumnHeaderMenu({ column, icon, onRename, onDelete }) {
   const [menuCoords, setMenuCoords] = useState(null)
   const menuRef = useRef(null)
   const inputRef = useRef(null)
+
+  const isSorted = !!sortState && sortState.column === column.slug
+  const sortDirection = isSorted ? sortState.direction : 'none'
 
   // Close on click outside
   useEffect(() => {
@@ -78,23 +97,43 @@ export function ColumnHeaderMenu({ column, icon, onRename, onDelete }) {
 
   return (
     <div className="column-header-wrapper" ref={menuRef}>
-      <span className="column-header-label">{icon} {column.name}</span>
-      <button
-        className="column-menu-trigger"
-        onClick={(e) => { 
-          e.stopPropagation(); 
-          if (!open) {
-            const rect = menuRef.current.getBoundingClientRect()
-            setMenuCoords({ top: rect.bottom + 4, left: rect.left })
-            setOpen(true)
-          } else {
-            setOpen(false)
-          }
-        }}
-        aria-label={t('options_for', { name: column.name })}
-      >
-        ⋮
-      </button>
+      {onSort ? (
+        <button
+          type="button"
+          className={`column-header-sort ${isSorted ? `is-${sortDirection}` : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onSort(column.slug);
+          }}
+          aria-label={t('sort_by_column', { name: column.name })}
+          title={t('sort_by_column', { name: column.name })}
+        >
+          {icon} <span className="column-header-label">{column.name}</span>
+          <span className="column-sort-indicator" aria-hidden="true">
+            {sortDirection === 'asc' ? '↑' : sortDirection === 'desc' ? '↓' : '↕'}
+          </span>
+        </button>
+      ) : (
+        <span className="column-header-label">{icon} {column.name}</span>
+      )}
+      {canManage && (
+        <button
+          className="column-menu-trigger"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!open) {
+              const rect = menuRef.current.getBoundingClientRect()
+              setMenuCoords({ top: rect.bottom + 4, left: rect.left })
+              setOpen(true)
+            } else {
+              setOpen(false)
+            }
+          }}
+          aria-label={t('options_for', { name: column.name })}
+        >
+          ⋮
+        </button>
+      )}
 
       {open && window.document && window.document.body && createPortal(
         <div className="column-menu" style={{ position: 'fixed', top: menuCoords?.top, left: menuCoords?.left, zIndex: 9999, textTransform: 'none', fontWeight: 400, letterSpacing: 'normal' }}>

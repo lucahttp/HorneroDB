@@ -1,4 +1,48 @@
+# ---- Secrets / local configuration ----
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ---- Git / VCS ----
 .git
-web/ui/node_modules/
+.gitignore
+.github
+
+# ---- Build artifacts ----
+*.exe
+*.dll
+*.so
+*.dylib
+bin/
+dist/
 web/ui/dist/
+web/ui/node_modules/
+node_modules/
+
+# ---- Runtime data ----
+data/
+postgres_data/
+*.log
+logs/
+
+# ---- Tests / reports ----
+web/ui/test-results/
+web/ui/playwright-report/
+web/ui/final-test-results.json
+coverage/
+*.out
+
+# ---- Local tooling / plans ----
+.plans/
+.tmp/
+tmp/
+misc/
+*.tmp
+*.bak
+*.swp
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

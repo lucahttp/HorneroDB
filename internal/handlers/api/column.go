@@ -15,6 +15,55 @@ import (
 	"gorm.io/gorm"
 )
 
+// loadTableForWorkspace loads a table scoped to the workspace (IDOR guard).
+// Returns (table, true) on success; writes the HTTP error and returns (_, false)
+// when the table does not exist in that workspace.
+func loadTableForWorkspace(c *gin.Context) (metadata.Table, bool) {
+	tableID := c.Param("table_id")
+	workspaceID := c.Param("workspace_id")
+
+	var table metadata.Table
+	if err := database.DB.Table("_hornero_tables").
+		Where("id = ? AND workspace_id = ?", tableID, workspaceID).
+		First(&table).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			response.NotFoundError(c, "table")
+			return metadata.Table{}, false
+		}
+		slog.Error("failed to fetch table",
+			"error", err,
+			"table_id", tableID,
+			"user_id", c.GetString("user_id"),
+		)
+		response.DatabaseError(c, err, "fetching table")
+		return metadata.Table{}, false
+	}
+	return table, true
+}
+
+// loadColumnForTable loads a column ensuring it belongs to the given table (IDOR guard).
+func loadColumnForTable(c *gin.Context, tableID uuid.UUID) (metadata.Column, bool) {
+	columnID := c.Param("column_id")
+
+	var column metadata.Column
+	if err := database.DB.Table("_hornero_columns").
+		Where("id = ? AND table_id = ?", columnID, tableID).
+		First(&column).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			response.NotFoundError(c, "column")
+			return metadata.Column{}, false
+		}
+		slog.Error("failed to fetch column",
+			"error", err,
+			"column_id", columnID,
+			"user_id", c.GetString("user_id"),
+		)
+		response.DatabaseError(c, err, "fetching column")
+		return metadata.Column{}, false
+	}
+	return column, true
+}
+
 func ListColumns(c *gin.Context) {
 	tableID := c.Param("table_id")
 	userID, err := middleware.GetUserIDSafe(c)
@@ -23,8 +72,14 @@ func ListColumns(c *gin.Context) {
 		return
 	}
 
+	// P0-4: the table must exist inside the workspace of the request.
+	table, ok := loadTableForWorkspace(c)
+	if !ok {
+		return
+	}
+
 	var columns []metadata.Column
-	q := database.DB.Table("_hornero_columns").Where("table_id = ?", tableID).Order("order_index")
+	q := database.DB.Table("_hornero_columns").Where("table_id = ?", table.ID).Order("order_index")
 	q = query.ApplyPagination(q, c)
 
 	result := q.Find(&columns)
@@ -127,19 +182,27 @@ func CreateColumn(c *gin.Context) {
 		return
 	}
 
-	// Get table info
-	var table metadata.Table
-	if err := database.DB.Table("_hornero_tables").First(&table, "id = ?", tableID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			response.NotFoundError(c, "table")
-			return
-		}
-		slog.Error("failed to fetch table",
+	// P0-4: the table must exist inside the workspace of the request.
+	table, ok := loadTableForWorkspace(c)
+	if !ok {
+		return
+	}
+
+	// P0-10: the (table_id, slug) pair must be unique.
+	var existing int64
+	if err := database.DB.Table("_hornero_columns").
+		Where("table_id = ? AND slug = ?", table.ID, slug).
+		Count(&existing).Error; err != nil {
+		slog.Error("failed to check column slug conflict",
 			"error", err,
 			"table_id", tableID,
-			"user_id", userID,
+			"slug", slug,
 		)
-		response.DatabaseError(c, err, "fetching table")
+		response.DatabaseError(c, err, "creating column")
+		return
+	}
+	if existing > 0 {
+		response.ConflictError(c, "A column with this slug already exists in this table")
 		return
 	}
 
@@ -149,48 +212,53 @@ func CreateColumn(c *gin.Context) {
 		Slug:      slug,
 		FieldType: input.FieldType,
 		Meta:      input.Meta,
+		OrderIndex: input.OrderIndex,
 	}
 
-	result := database.DB.Table("_hornero_columns").Create(&column)
-	if result.Error != nil {
-		slog.Error("failed to create column",
-			"error", result.Error,
-			"table_id", tableID,
-			"user_id", userID,
+	// Physical SQL type of the column (empty for unknown types).
+	colSQL := GetColumnSQL(input.FieldType, input.Meta)
+
+	// P0-3: the physical table name is validated and quoted before being used
+	// in DDL statements.
+	safeTableName, err := ValidateAndQuoteTableName(workspaceID, table.Slug)
+	if err != nil {
+		slog.Error("invalid table name",
+			"error", err,
+			"workspace_id", workspaceID,
+			"table_slug", table.Slug,
 		)
-		response.DatabaseError(c, result.Error, "creating column")
+		response.ValidationError(c, "invalid table name")
+		return
+	}
+	safeColumnName, err := ValidateAndQuoteColumn(slug)
+	if err != nil {
+		response.ValidationError(c, "invalid column name")
 		return
 	}
 
-	// Add column to physical table
-	colSQL := GetColumnSQL(input.FieldType, input.Meta)
-	if colSQL != "" {
-		// Validate table name for safety
-		safeTableName, err := ValidateTableName(workspaceID, table.Slug)
-		if err != nil {
-			// Rollback: delete the metadata column
-			database.DB.Table("_hornero_columns").Delete(&column)
-			slog.Error("invalid table name",
-				"error", err,
-				"workspace_id", workspaceID,
-				"table_slug", table.Slug,
-			)
-			response.ValidationError(c, "invalid table name")
-			return
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Table("_hornero_columns").Create(&column).Error; err != nil {
+			return err
 		}
 
-		alterSQL := `ALTER TABLE "` + safeTableName + `" ADD COLUMN IF NOT EXISTS "` + slug + `" ` + colSQL
-		if err := database.DB.Exec(alterSQL).Error; err != nil {
-			// Rollback: delete the metadata column if physical column creation fails
-			database.DB.Table("_hornero_columns").Delete(&column)
-			slog.Error("failed to add physical column",
-				"error", err,
-				"table_id", tableID,
-				"user_id", userID,
-			)
-			response.DatabaseError(c, err, "creating column")
-			return
+		if colSQL != "" {
+			alterSQL := `ALTER TABLE ` + safeTableName + ` ADD COLUMN IF NOT EXISTS ` + safeColumnName + ` ` + colSQL
+			if err := tx.Exec(alterSQL).Error; err != nil {
+				return err
+			}
 		}
+
+		return nil
+	})
+
+	if err != nil {
+		slog.Error("failed to create column (transaction rolled back)",
+			"error", err,
+			"table_id", tableID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, err, "creating column")
+		return
 	}
 
 	slog.Info("column created", "column_id", column.ID, "name", column.Name, "user_id", userID)
@@ -311,6 +379,8 @@ func ValidateFieldType(fieldType string) bool {
 }
 
 func UpdateColumn(c *gin.Context) {
+	tableID := c.Param("table_id")
+	workspaceID := c.Param("workspace_id")
 	columnID := c.Param("column_id")
 	userID, err := middleware.GetUserIDSafe(c)
 	if err != nil {
@@ -330,24 +400,60 @@ func UpdateColumn(c *gin.Context) {
 		return
 	}
 
+	// P0-4: the table must exist inside the workspace and the column must
+	// belong to that table.
+	table, ok := loadTableForWorkspace(c)
+	if !ok {
+		return
+	}
+	column, ok := loadColumnForTable(c, table.ID)
+	if !ok {
+		return
+	}
+
 	// Construir mapa solo con campos proporcionados
 	updates := make(map[string]interface{})
 	if input.Name != "" {
 		updates["name"] = input.Name
 	}
-	if input.Slug != "" {
-		updates["slug"] = input.Slug
-	}
-	if input.FieldType != "" {
-		// Validar field type
-		if !ValidateFieldType(input.FieldType) {
-			response.ValidationError(c, "invalid field_type")
-			return
-		}
-		updates["field_type"] = input.FieldType
-	}
 	if input.Meta != nil {
 		updates["meta"] = input.Meta
+	}
+
+	// P1-1: changing the field type would require a data migration on the
+	// physical table. It is rejected instead of silently corrupting data.
+	if input.FieldType != "" && input.FieldType != column.FieldType {
+		response.ValidationError(c, "field_type cannot be changed after creation")
+		return
+	}
+
+	// P0-10: renaming a column must rename the PHYSICAL column too.
+	newSlug := ""
+	if input.Slug != "" {
+		newSlug = SanitizeSlug(input.Slug)
+		if !ValidateSlug(newSlug) {
+			response.ValidationError(c, "invalid slug: must start with letter, only alphanumeric and underscores")
+			return
+		}
+		if newSlug != column.Slug {
+			var existing int64
+			if err := database.DB.Table("_hornero_columns").
+				Where("table_id = ? AND slug = ?", table.ID, newSlug).
+				Count(&existing).Error; err != nil {
+				slog.Error("failed to check column slug conflict",
+					"error", err,
+					"table_id", tableID,
+					"slug", newSlug,
+				)
+				response.DatabaseError(c, err, "updating column")
+				return
+			}
+			if existing > 0 {
+				response.ConflictError(c, "A column with this slug already exists in this table")
+				return
+			}
+			updates["slug"] = newSlug
+		}
 	}
 
 	if len(updates) == 0 {
@@ -355,19 +461,56 @@ func UpdateColumn(c *gin.Context) {
 		return
 	}
 
-	result := database.DB.Table("_hornero_columns").Where("id = ?", columnID).Updates(updates)
-	if result.Error != nil {
-		slog.Error("failed to update column",
-			"error", result.Error,
+	var renameSQL string
+	if newSlug != "" && newSlug != column.Slug {
+		safeTableName, err := ValidateAndQuoteTableName(workspaceID, table.Slug)
+		if err != nil {
+			response.ValidationError(c, "invalid table name")
+			return
+		}
+		oldColumn, err := ValidateAndQuoteColumn(column.Slug)
+		if err != nil {
+			response.ValidationError(c, "invalid column name")
+			return
+		}
+		newColumn, err := ValidateAndQuoteColumn(newSlug)
+		if err != nil {
+			response.ValidationError(c, "invalid column name")
+			return
+		}
+		renameSQL = "ALTER TABLE " + safeTableName + " RENAME COLUMN " + oldColumn + " TO " + newColumn
+	}
+
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		if renameSQL != "" {
+			if err := tx.Exec(renameSQL).Error; err != nil {
+				return err
+			}
+		}
+
+		result := tx.Table("_hornero_columns").
+			Where("id = ? AND table_id = ?", columnID, table.ID).
+			Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return nil
+	})
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			response.NotFoundError(c, "column")
+			return
+		}
+		slog.Error("failed to update column (transaction rolled back)",
+			"error", err,
 			"column_id", columnID,
 			"user_id", userID,
 		)
-		response.DatabaseError(c, result.Error, "updating column")
-		return
-	}
-
-	if result.RowsAffected == 0 {
-		response.NotFoundError(c, "column")
+		response.DatabaseError(c, err, "updating column")
 		return
 	}
 
@@ -375,6 +518,7 @@ func UpdateColumn(c *gin.Context) {
 }
 
 func DeleteColumn(c *gin.Context) {
+	workspaceID := c.Param("workspace_id")
 	columnID := c.Param("column_id")
 	userID, err := middleware.GetUserIDSafe(c)
 	if err != nil {
@@ -382,61 +526,48 @@ func DeleteColumn(c *gin.Context) {
 		return
 	}
 
-	// Get column info
-	var column metadata.Column
-	if err := database.DB.Table("_hornero_columns").First(&column, "id = ?", columnID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			response.NotFoundError(c, "column")
-			return
+	// P0-4: the table must exist inside the workspace and the column must
+	// belong to that table.
+	table, ok := loadTableForWorkspace(c)
+	if !ok {
+		return
+	}
+	column, ok := loadColumnForTable(c, table.ID)
+	if !ok {
+		return
+	}
+
+	safeTableName, err := ValidateAndQuoteTableName(workspaceID, table.Slug)
+	if err != nil {
+		response.ValidationError(c, "invalid table name")
+		return
+	}
+	safeColumnName, err := ValidateAndQuoteColumn(column.Slug)
+	if err != nil {
+		response.ValidationError(c, "invalid column name")
+		return
+	}
+
+	// The physical DROP and the metadata DELETE run in the same transaction:
+	// if one fails the other is rolled back, so the schema never drifts.
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		dropSQL := `ALTER TABLE ` + safeTableName + ` DROP COLUMN IF EXISTS ` + safeColumnName
+		if err := tx.Exec(dropSQL).Error; err != nil {
+			return err
 		}
-		slog.Error("failed to fetch column",
+
+		return tx.Table("_hornero_columns").
+			Where("id = ? AND table_id = ?", columnID, table.ID).
+			Delete(&metadata.Column{}).Error
+	})
+
+	if err != nil {
+		slog.Error("failed to delete column (transaction rolled back)",
 			"error", err,
 			"column_id", columnID,
 			"user_id", userID,
 		)
-		response.DatabaseError(c, err, "fetching column")
-		return
-	}
-
-	// Get table info
-	var table metadata.Table
-	if err := database.DB.Table("_hornero_tables").First(&table, "id = ?", column.TableID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			response.NotFoundError(c, "table")
-			return
-		}
-		slog.Error("failed to fetch table",
-			"error", err,
-			"column_id", columnID,
-			"user_id", userID,
-		)
-		response.DatabaseError(c, err, "fetching table")
-		return
-	}
-
-	// Fix #1: drop physical column FIRST.
-	// If this fails, metadata remains intact and the schema stays consistent.
-	// Only delete metadata after confirming the physical drop succeeded.
-	safeTableName := "data_" + table.WorkspaceID.String() + "_" + table.Slug
-	if err := database.DB.Exec(`ALTER TABLE "` + safeTableName + `" DROP COLUMN IF EXISTS "` + column.Slug + `"`).Error; err != nil {
-		slog.Error("failed to drop physical column",
-			"error", err,
-			"column_id", columnID,
-			"user_id", userID,
-		)
-		response.DatabaseError(c, err, "dropping physical column")
-		return
-	}
-
-	// Physical drop succeeded — now remove the metadata row
-	result := database.DB.Table("_hornero_columns").Delete(&metadata.Column{}, "id = ?", columnID)
-	if result.Error != nil {
-		slog.Error("failed to delete column metadata",
-			"error", result.Error,
-			"column_id", columnID,
-			"user_id", userID,
-		)
-		response.DatabaseError(c, result.Error, "deleting column")
+		response.DatabaseError(c, err, "deleting column")
 		return
 	}
 

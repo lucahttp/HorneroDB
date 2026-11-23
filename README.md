@@ -10,7 +10,7 @@
 ### Wanna vibecode an e-commerce, or build it by hand?
 But... What about the website's data? The actual database? Permissions and access control?
 
-Your *vibecoded* app can have its **data protected just like large enterprises (enterprise grade)** using the highest security standards. That's what **HorneroDB** is for.
+Your *vibecoded* app can get **production-grade security controls** — fine-grained permissions, SSO and API keys — without paying for an "Enterprise" plan. That's what **HorneroDB** is for.
 
 **Built with Go + React (Optional).** A CRM / database in the style of Airtable, NocoDB, or PocketBase, but with an absolute focus on security: SSO using OIDC, and table, column, and row-level permissions (Dataverse style).
 
@@ -20,11 +20,14 @@ Your *vibecoded* app can have its **data protected just like large enterprises (
 
 ## ✨ Why use HorneroDB
 
-* **BYOIdP Security (Bring Your Own Identity Provider)** — Modern authentication (SSO/OIDC) and native support for Passkeys. Your security shouldn't be locked behind an "Enterprise" plan.
+HorneroDB is a **security-first, self-hosted** PostgreSQL backend: a REST API, an MCP server and reliable webhooks, with Dataverse-style permissions on top of plain PostgreSQL.
+
+* **BYOIdP Security (Bring Your Own Identity Provider)** — Modern authentication (SSO/OIDC) with your own identity provider. Your security shouldn't be locked behind an "Enterprise" plan. *OIDC is implemented and tested with [Pocket ID](https://pocket-id.org); Entra ID and Keycloak connectors are on the v1.1 roadmap. Passkeys/WebAuthn are **not** implemented yet — use your IdP's passkey support in the meantime.*
 * **PostgreSQL at its core** — Rich data types and the flexibility of a professional relational database.
 * **Granular Permissions (APIs and Staff)** — Strict control for your APIs (for your public frontend or *customer-facing* AI agents) and for your users (business staff).
   * *Column-level security per operation* (control who reads, creates, updates, or deletes each field).
-  * *Row-level security* (filter data by owner or custom conditions).
+  * *Row-level security by owner* — in v1.0 the `own` level filters rows by `created_by`. Arbitrary custom conditions (visual rule builder) land in v1.1.
+* **Webhooks you can trust** — Transactional outbox, HMAC-signed payloads (`X-Hornero-Signature`) and SSRF protection on delivery.
 * **Excel-like Experience** — Inline cell editing, full keyboard navigation, and seamless copy/paste support.
 
 ## 🛠️ Developer Tools
@@ -74,6 +77,8 @@ docker-compose up -d
 
 Visit `http://localhost:5173` to access the UI.
 
+The Compose stack ships three services (`postgres`, `pocket-id`, `hornerodb-server`) with `restart: unless-stopped` and health checks, and the image runs as a **non-root user** (`hornero`). The bundled PostgreSQL lives on the internal Compose network, so `docker-compose.yml` sets `DB_ALLOW_INSECURE_SSL=true` and `DB_ALLOW_INSECURE_DB=true` by default — **turn both off (and use a real password + TLS) for any internet-facing deployment**.
+
 ### Manual Setup (Development)
 
 ```bash
@@ -82,8 +87,12 @@ go build -o bin/hornerodb ./cmd/server
 ./bin/hornerodb
 
 # Run the Frontend
-cd web/ui && npm install && npm run dev
+cd web/ui && npm ci && npm run dev
 ```
+
+### Continuous Integration
+
+Every push to `main` and every pull request runs a single unified CI job (`.github/workflows/ci.yml`): the UI is linted and built with `npm ci` first (the Go binary embeds `web/ui/dist`), then `go vet ./...`, `go test -race ./...` and `go build ./cmd/server`. A second job builds the hardened Docker image (no push).
 
 ---
 
@@ -159,7 +168,7 @@ The MCP server now includes full authentication and authorization:
 * **Authentication Required**: All MCP tools require valid JWT/API Key authentication
 * **Workspace Isolation**: Users can only access workspaces they have permission for
 * **Permission Enforcement**: Row-level and column-level security applied to all MCP operations
-* **Audit Trail**: All MCP operations are logged with user context
+* **Structured Logging**: All MCP operations are logged with user context (see [Audit Trail](#audit-trail-status) for what is *not* persisted yet)
 
 Example secure MCP usage:
 ```javascript
@@ -174,6 +183,33 @@ Example secure MCP usage:
   // Automatically filtered by user's permissions
 }
 ```
+
+### Webhooks (v1.0 pillar)
+
+Webhooks are a first-class feature of HorneroDB, not a "coming soon" item:
+
+* **Transactional outbox** — events are written to `_hornero_webhook_events` inside the same transaction that mutates the record, so a delivery can never be lost by a crash between commit and HTTP call.
+* **At-least-once delivery with exponential backoff** — 15s × attempt, up to 5 attempts.
+* **HMAC signature** — every delivery carries `X-Hornero-Delivery: <delivery-id>` and, when the webhook has a `client_state` secret, `X-Hornero-Signature: t=<unix>,v1=<hex>` (HMAC-SHA256 of `"<timestamp>.<raw body>"` keyed with the secret) so the receiver can verify authenticity and deduplicate.
+* **Permission-aware payloads** — the payload is filtered with the *creator's* read permissions (row-level and column-level) before it leaves the server.
+* **SSRF protection** — notification URLs are validated against private/loopback ranges and redirects are re-checked.
+
+See [`docs/SECURITY.md`](docs/SECURITY.md) for the full contract.
+
+### Audit Trail Status
+
+Being explicit about what exists today:
+
+* **v1.0 GA (shipped)**: persistent, queryable `_hornero_audit_log` table (`GET /api/v1/workspaces/:id/audit` + Settings → Activity tab) capturing API key, role, webhook and recovery QR events, alongside structured JSON `log/slog` logs for auth, permission checks and MCP data calls.
+* **Not implemented yet (v1.1)**: PostgreSQL-native Row Level Security and automated audit retention/export policies. v1.0 enforces row ownership in the application layer (`own` / `created_by`); native RLS and custom visual conditions are planned for v1.1.
+
+### Row-Level Security Scope
+
+| Level | Behaviour in v1.0 | Planned for v1.1 |
+|---|---|---|
+| `all` | Every row of the table | — |
+| `own` | Rows whose `created_by` equals the current user | Visual custom conditions (e.g. `status = 'open' AND owner_team = 'X'`) |
+| `none` | No rows | — |
 
 ---
 
@@ -212,6 +248,40 @@ JWT_SECRET=your-super-secret-random-string-min-32-chars
 # JWT_SECRET=dev-secret-change-in-production
 ```
 
+The development secret is generated **once per process** and reused, so restarting the server is the only thing that invalidates your sessions.
+
+### Trusted Proxies
+
+HorneroDB ignores `X-Forwarded-For` / `X-Forwarded-Proto` unless the request comes from a proxy you trust. Declare them explicitly (comma-separated IPs or CIDRs):
+
+```bash
+# .env file
+TRUSTED_PROXIES=172.16.0.0/12,10.0.0.1
+```
+
+Leave it empty when the server is exposed directly — the default is to trust nobody.
+
+### Initial Setup Token
+
+A fresh deployment requires the first administrator to be created through the setup flow. Set a shared token so that only someone holding it can complete that first step:
+
+```bash
+# .env file
+HORNERO_SETUP_TOKEN=$(openssl rand -base64 32)
+```
+
+### Production Fail-Fast
+
+When `HORNERO_ENV=production` (or `ENV`/`NODE_ENV=production`), the server refuses to start with an insecure configuration:
+
+| Check | Requirement | Escape hatch |
+|---|---|---|
+| `JWT_SECRET` | Set, ≥ 32 chars, not the default value | — |
+| `DB_PASSWORD` | Not empty and not `postgres` | `DB_ALLOW_INSECURE_DB=true` |
+| `DB_SSLMODE` | Not `disable` | `DB_ALLOW_INSECURE_SSL=true` |
+
+The escape hatches exist for internal/trusted networks (for example the bundled Docker Compose network, where Postgres is not exposed). Never enable them on an internet-facing deployment.
+
 ---
 
 ## 🆚 Comparison
@@ -219,7 +289,7 @@ JWT_SECRET=your-super-secret-random-string-min-32-chars
 | Feature | 🐦 HorneroDB | 🟢 Supabase | 🧊 PocketBase | ⚡ NocoDB | 🧩 Airtable |
 | --- | --- | --- | --- | --- | --- |
 | **Permissions** | **Granular (Row/Col)** | PG RLS | Collection | Table | Base |
-| **Security** | **SSO + Passkeys (BYOIdP)** | Enterprise | Email/Pass | Enterprise | Enterprise |
+| **Security** | **SSO OIDC (BYOIdP)** | Enterprise | Email/Pass | Enterprise | Enterprise |
 | **API** | **Auto-Secure** | REST/GQL | SDK | REST/GQL | REST |
 | **Self-Host** | **Docker / Local** | Docker | Binary | Docker | ❌ |
 | **Cost** | **Free / Open Source** | Free Tier | Free | Free | $$$ |
@@ -228,16 +298,23 @@ JWT_SECRET=your-super-secret-random-string-min-32-chars
 
 ## 🗺 Roadmap
 
-* [x] Full REST API (30+ endpoints)
-* [x] OIDC Auth & RBAC Permissions
-* [x] Nice style UI
-* [x] Granular column-level permissions
-* [x] API key rate limiting & domain restrictions
-* [x] MCP Server for AI Assistants (with full security)
-* [x] Webhooks with Outbox Pattern (reliable delivery)
-* [ ] (WIP) Table Relations UI
-* [ ] Advanced Filters and Search
-* [ ] Data Import/Export
+**Shipped (v1.0 GA)**
+* [x] Full REST API (70+ endpoints, complete [`docs/openapi.yaml`](docs/openapi.yaml))
+* [x] OIDC Auth (tested with Pocket ID) + `HttpOnly` session cookie + `POST /auth/logout`
+* [x] Granular column-level permissions (CLS) + `__system__` permissions (`none`/`view`/`manage`/`all`)
+* [x] Row-level security by owner (`own` / `created_by`)
+* [x] Server-side filtering, sorting and search (`?filter`, `?order`, `?search`, CLS-safe) + atomic Bulk Create/Delete API
+* [x] Persistent audit trail (`_hornero_audit_log` + `GET /audit` + Activity UI)
+* [x] API key rate limiting (minute + hour windows) & domain restrictions
+* [x] MCP Server for AI Assistants (Streamable HTTP, SSE, stdio, OAuth2 PKCE S256 & strict workspace isolation)
+* [x] Webhooks with transactional outbox, HMAC signatures (`X-Hornero-Signature`), SSRF protection, delivery history & retry UI
+* [x] Hardened Docker image (non-root, healthcheck, `/ready`), GitHub Actions CI, backup/restore scripts and [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
+
+**v1.1**
+* [ ] Entra ID and Keycloak OIDC connectors
+* [ ] Custom row-level conditions (visual rule builder) and PostgreSQL-native RLS
+* [ ] Distributed Redis rate limiting for multi-replica deployments
+* [ ] S3-compatible file/attachment storage and lightweight Realtime (SSE + `LISTEN/NOTIFY`)
 
 ---
 
@@ -255,7 +332,7 @@ The **Hornero** is Argentina's national bird. They are master builders, crafting
 ### ¿Querés vibecodear un e-commerce, o construirlo a mano?
 Pero... ¿Qué pasa con los datos de la web? ¿La base de datos real? ¿Permisos y control de acceso?
 
-Tu app *vibecodeada* puede tener sus **datos protegidos como los de las grandes empresas (enterprise grade)** utilizando los estándares más altos de seguridad. Para eso existe **HorneroDB**.
+Tu app *vibecodeada* puede obtener **controles de seguridad de nivel producción** — permisos granulares, SSO y API keys — sin pagar un plan "Enterprise". Para eso existe **HorneroDB**.
 
 **Construido con Go + React (Opcional).** Un CRM / base de datos al estilo de Airtable, NocoDB o PocketBase, pero con un enfoque absoluto en la seguridad: SSO usando OIDC, y permisos a nivel de tabla, columna y fila (estilo Dataverse).
 
@@ -265,11 +342,14 @@ Tu app *vibecodeada* puede tener sus **datos protegidos como los de las grandes 
 
 ## ✨ Por qué usar HorneroDB
 
-* **Seguridad BYOIdP (Bring Your Own Identity Provider)** — Autenticación moderna (SSO/OIDC) y soporte nativo para Passkeys. Tu seguridad no debería estar bloqueada detrás de un plan "Enterprise".
+HorneroDB es un backend **self-hosted y security-first** sobre PostgreSQL: una API REST, un servidor MCP y webhooks confiables, con permisos estilo Dataverse sobre PostgreSQL puro.
+
+* **Seguridad BYOIdP (Bring Your Own Identity Provider)** — Autenticación moderna (SSO/OIDC) con tu propio proveedor de identidad. Tu seguridad no debería estar bloqueada detrás de un plan "Enterprise". *OIDC está implementado y probado con [Pocket ID](https://pocket-id.org); los conectores de Entra ID y Keycloak llegan en la v1.1. Passkeys/WebAuthn **todavía no** están implementados: por ahora usá el soporte de passkeys de tu IdP.*
 * **PostgreSQL en su núcleo** — Tipos de datos ricos y la flexibilidad de una base de datos relacional profesional.
 * **Permisos Granulares (APIs y Staff)** — Control estricto para tus APIs (para tu frontend público o agentes de IA *customer-facing*) y para tus usuarios (personal de la empresa).
   * *Seguridad a nivel de columna por operación* (controlá quién lee, crea, actualiza o elimina cada campo).
-  * *Seguridad a nivel de fila* (filtrá datos por dueño o condiciones personalizadas).
+  * *Seguridad a nivel de fila por dueño* — en la v1.0 el nivel `own` filtra por `created_by`. Las condiciones personalizadas (constructor visual) llegan en la v1.1.
+* **Webhooks en los que podés confiar** — Outbox transaccional, payloads firmados con HMAC (`X-Hornero-Signature`) y protección SSRF en la entrega.
 * **Experiencia tipo Excel** — Edición de celdas en línea, navegación completa por teclado y soporte fluido para copiar/pegar.
 
 ## 🛠️ Herramientas para Desarrolladores
@@ -319,6 +399,8 @@ docker-compose up -d
 
 Visitá `http://localhost:5173` para acceder a la UI.
 
+El stack de Compose incluye tres servicios (`postgres`, `pocket-id`, `hornerodb-server`) con `restart: unless-stopped` y health checks, y la imagen corre como **usuario no root** (`hornero`). El PostgreSQL incluido vive en la red interna de Compose, por eso `docker-compose.yml` define `DB_ALLOW_INSECURE_SSL=true` y `DB_ALLOW_INSECURE_DB=true` por defecto — **desactivá ambos (y usá una contraseña real + TLS) en cualquier despliegue expuesto a internet**.
+
 ### Configuración Manual (Desarrollo)
 
 ```bash
@@ -327,8 +409,12 @@ go build -o bin/hornerodb ./cmd/server
 ./bin/hornerodb
 
 # Ejecute el Frontend
-cd web/ui && npm install && npm run dev
+cd web/ui && npm ci && npm run dev
 ```
+
+### Integración Continua
+
+Cada push a `main` y cada pull request ejecuta un job único de CI (`.github/workflows/ci.yml`): primero la UI se lintea y compila con `npm ci` (el binario Go embebe `web/ui/dist`), después corren `go vet ./...`, `go test -race ./...` y `go build ./cmd/server`. Un segundo job compila la imagen Docker endurecida (sin push).
 
 ---
 
@@ -404,7 +490,7 @@ El servidor MCP ahora incluye autenticación y autorización completas:
 * **Autenticación Requerida**: Todas las herramientas MCP requieren autenticación válida mediante JWT/API Key.
 * **Aislamiento de Workspaces**: Los usuarios solo pueden acceder a los workspaces para los que tienen permiso.
 * **Aplicación de Permisos**: Seguridad a nivel de fila y columna aplicada a todas las operaciones MCP.
-* **Registro de Auditoría**: Todas las operaciones MCP se registran con el contexto del usuario.
+* **Logging Estructurado**: Todas las operaciones MCP se registran con el contexto del usuario (mirá [Estado del Audit Trail](#estado-del-audit-trail) para lo que *todavía no* se persiste).
 
 Ejemplo de uso seguro de MCP:
 ```javascript
@@ -419,6 +505,33 @@ Ejemplo de uso seguro de MCP:
   // Filtrado automáticamente por los permisos del usuario
 }
 ```
+
+### Webhooks (pilar de la v1.0)
+
+Los webhooks son una funcionalidad de primera clase de HorneroDB, no un "próximamente":
+
+* **Outbox transaccional** — los eventos se escriben en `_hornero_webhook_events` dentro de la misma transacción que modifica el registro, así una entrega nunca se pierde por un crash entre el commit y la llamada HTTP.
+* **Entrega at-least-once con backoff exponencial** — 15s × intento, hasta 5 intentos.
+* **Firma HMAC** — cada entrega incluye `X-Hornero-Delivery: <delivery-id>` y, cuando el webhook tiene un secreto `client_state`, `X-Hornero-Signature: t=<unix>,v1=<hex>` (HMAC-SHA256 de `"<timestamp>.<body crudo>"` con ese secreto como clave) para que el receptor verifique la autenticidad y deduplique.
+* **Payloads con permisos** — el payload se filtra con los permisos de lectura *del creador* (nivel fila y nivel columna) antes de salir del servidor.
+* **Protección SSRF** — las URLs de notificación se validan contra rangos privados/loopback y los redirects se vuelven a revisar.
+
+Mirá [`docs/SECURITY.md`](docs/SECURITY.md) para el contrato completo.
+
+### Estado del Audit Trail
+
+Para ser claros sobre qué existe hoy:
+
+* **v1.0 GA (entregado)**: tabla persistente y consultable `_hornero_audit_log` (`GET /api/v1/workspaces/:id/audit` + pestaña Actividad en Settings) registrando operaciones sobre API keys, roles, webhooks y recovery QR, complementada con logs JSON estructurados (`log/slog`) para auth, permisos y operaciones MCP.
+* **No implementado aún (v1.1)**: Row Level Security nativa de PostgreSQL y políticas automáticas de retención/exportación de auditoría. En la v1.0 la propiedad de la fila se aplica en la capa de aplicación (`own` / `created_by`); la RLS nativa y las condiciones visuales personalizadas están planificadas para la v1.1.
+
+### Alcance de la Seguridad a Nivel de Fila
+
+| Nivel | Comportamiento en v1.0 | Planificado para v1.1 |
+|---|---|---|
+| `all` | Todas las filas de la tabla | — |
+| `own` | Filas cuyo `created_by` es el usuario actual | Condiciones personalizadas visuales (ej. `status = 'open' AND owner_team = 'X'`) |
+| `none` | Ninguna fila | — |
 
 ---
 
@@ -457,6 +570,40 @@ JWT_SECRET=tu-string-super-secreto-aleatorio-min-32-caracteres
 # JWT_SECRET=dev-secret-change-in-production
 ```
 
+El secreto de desarrollo se genera **una vez por proceso** y se reutiliza, así que reiniciar el servidor es lo único que invalida tus sesiones.
+
+### Proxies Confiables (Trusted Proxies)
+
+HorneroDB ignora `X-Forwarded-For` / `X-Forwarded-Proto` salvo que la petición venga de un proxy en el que confías. Declaralos explícitamente (IPs o CIDRs separados por comas):
+
+```bash
+# Archivo .env
+TRUSTED_PROXIES=172.16.0.0/12,10.0.0.1
+```
+
+Dejalo vacío cuando el servidor está expuesto directamente — el default es no confiar en nadie.
+
+### Token de Setup Inicial
+
+Un deployment recién instalado requiere que se cree el primer administrador a través del flujo de setup. Definí un token compartido para que solo quien lo tenga pueda completar ese primer paso:
+
+```bash
+# Archivo .env
+HORNERO_SETUP_TOKEN=$(openssl rand -base64 32)
+```
+
+### Fail-Fast en Producción
+
+Cuando `HORNERO_ENV=production` (o `ENV`/`NODE_ENV=production`), el servidor se niega a arrancar con una configuración insegura:
+
+| Chequeo | Requisito | Escape hatch |
+|---|---|---|
+| `JWT_SECRET` | Configurado, ≥ 32 caracteres, distinto del valor por defecto | — |
+| `DB_PASSWORD` | No vacío y distinto de `postgres` | `DB_ALLOW_INSECURE_DB=true` |
+| `DB_SSLMODE` | Distinto de `disable` | `DB_ALLOW_INSECURE_SSL=true` |
+
+Los escape hatches existen para redes internas/confiables (por ejemplo la red de Docker Compose, donde Postgres no está expuesto). Nunca los habilites en un deployment expuesto a internet.
+
 ---
 
 ## 🆚 Comparativa
@@ -464,7 +611,7 @@ JWT_SECRET=tu-string-super-secreto-aleatorio-min-32-caracteres
 | Característica | 🐦 HorneroDB | 🟢 Supabase | 🧊 PocketBase | ⚡ NocoDB | 🧩 Airtable |
 | --- | --- | --- | --- | --- | --- |
 | **Permisos** | **Granular (Fila/Col)** | PG RLS | Colección | Tabla | Base |
-| **Seguridad** | **SSO + Passkeys (BYOIdP)** | Enterprise | Email/Pass | Enterprise | Enterprise |
+| **Seguridad** | **SSO OIDC (BYOIdP)** | Enterprise | Email/Pass | Enterprise | Enterprise |
 | **API** | **Auto-Segura** | REST/GQL | SDK | REST/GQL | REST |
 | **Auto-Host** | **Docker / Local** | Docker | Binario | Docker | ❌ |
 | **Costo** | **Gratis / Open Source** | Plan Gratis | Gratis | Gratis | $$$ |
@@ -473,16 +620,23 @@ JWT_SECRET=tu-string-super-secreto-aleatorio-min-32-caracteres
 
 ## 🗺 Hoja de Ruta (Roadmap)
 
-* [x] API REST completa (más de 30 endpoints)
-* [x] Autenticación OIDC y permisos RBAC
-* [x] UI con estilo moderno
-* [x] Permisos granulares a nivel de columna
-* [x] Rate limiting de API keys y restricciones de dominio
-* [x] Servidor MCP para asistentes de IA (con seguridad total)
-* [x] Webhooks con Outbox Pattern (entrega confiable)
-* [ ] (WIP) UI de relaciones entre tablas
-* [ ] Filtros y búsqueda avanzada
-* [ ] Importación/Exportación de datos
+**Entregado (v1.0 GA)**
+* [x] API REST completa (70+ endpoints, spec completo en [`docs/openapi.yaml`](docs/openapi.yaml))
+* [x] Autenticación OIDC (probado con Pocket ID) + cookie de sesión `HttpOnly` + `POST /auth/logout`
+* [x] Permisos granulares a nivel de columna (CLS) + permisos `__system__` (`none`/`view`/`manage`/`all`)
+* [x] Seguridad a nivel de fila por dueño (`own` / `created_by`)
+* [x] Filtros, ordenamiento y búsqueda en servidor (`?filter`, `?order`, `?search`, seguros contra CLS) + Bulk Create/Delete atómico
+* [x] Audit trail persistente (`_hornero_audit_log` + `GET /audit` + pestaña Actividad en UI)
+* [x] Rate limiting de API keys (ventanas por minuto y hora) y restricciones de dominio
+* [x] Servidor MCP para asistentes de IA (Streamable HTTP, SSE, stdio, OAuth2 PKCE S256 y aislamiento por workspace)
+* [x] Webhooks con outbox transaccional, firmas HMAC (`X-Hornero-Signature`), protección SSRF, historial de entregas y reintento en UI
+* [x] Imagen Docker endurecida (no root, healthcheck, `/ready`), CI en GitHub Actions, scripts de backup/restore y [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
+
+**v1.1**
+* [ ] Conectores OIDC de Entra ID y Keycloak
+* [ ] Condiciones personalizadas a nivel de fila (constructor visual) y RLS nativa de PostgreSQL
+* [ ] Rate limiting distribuido con Redis para despliegues multi-réplica
+* [ ] Storage de adjuntos S3-compatible y Realtime liviano (SSE + `LISTEN/NOTIFY`)
 
 ---
 

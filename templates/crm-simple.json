@@ -49,7 +49,15 @@
       "name": "Industria",
       "slug": "industria",
       "field_type": "select",
-      "meta": { "options": ["Tecnología", "Retail", "Salud", "Educación", "Otro"] },
+      "meta": {
+        "choices": [
+          { "value": "tecnologia", "label": "Tecnología" },
+          { "value": "retail", "label": "Retail" },
+          { "value": "salud", "label": "Salud" },
+          { "value": "educacion", "label": "Educación" },
+          { "value": "otro", "label": "Otro" }
+        ]
+      },
       "order_index": 1
     },
     {
@@ -60,6 +68,15 @@
       "field_type": "url",
       "meta": {},
       "order_index": 2
+    },
+    {
+      "id": "22222222-0001-0001-0001-000000000011",
+      "table_id": "11111111-0001-0001-0001-000000000001",
+      "name": "Email",
+      "slug": "email",
+      "field_type": "email",
+      "meta": {},
+      "order_index": 3
     },
     {
       "id": "22222222-0001-0001-0001-000000000004",
@@ -89,6 +106,19 @@
       "order_index": 2
     },
     {
+      "id": "22222222-0001-0001-0001-000000000012",
+      "table_id": "11111111-0001-0001-0001-000000000002",
+      "name": "Cliente",
+      "slug": "cliente_id",
+      "field_type": "relation",
+      "meta": {
+        "target_table": "clientes",
+        "display_column": "nombre",
+        "cardinality": "one"
+      },
+      "order_index": 3
+    },
+    {
       "id": "22222222-0001-0001-0001-000000000007",
       "table_id": "11111111-0001-0001-0001-000000000003",
       "name": "Título",
@@ -103,7 +133,15 @@
       "name": "Estado",
       "slug": "estado",
       "field_type": "select",
-      "meta": { "options": ["Prospecto", "Propuesta", "Negociación", "Ganado", "Perdido"] },
+      "meta": {
+        "choices": [
+          { "value": "prospecto", "label": "Prospecto" },
+          { "value": "propuesta", "label": "Propuesta" },
+          { "value": "negociacion", "label": "Negociación" },
+          { "value": "ganado", "label": "Ganado" },
+          { "value": "perdido", "label": "Perdido" }
+        ]
+      },
       "order_index": 1
     },
     {
@@ -123,6 +161,19 @@
       "field_type": "date",
       "meta": {},
       "order_index": 3
+    },
+    {
+      "id": "22222222-0001-0001-0001-000000000013",
+      "table_id": "11111111-0001-0001-0001-000000000003",
+      "name": "Cliente",
+      "slug": "cliente_id",
+      "field_type": "relation",
+      "meta": {
+        "target_table": "clientes",
+        "display_column": "nombre",
+        "cardinality": "one"
+      },
+      "order_index": 4
     }
   ],
   "roles": [
@@ -130,9 +181,16 @@
       "id": "33333333-0001-0001-0001-000000000001",
       "workspace_id": "00000000-0000-0000-0000-000000000000",
       "name": "admin",
-      "description": "Acceso completo",
+      "description": "Acceso completo a los datos y a la configuración del workspace",
       "permissions": {
-        "__system__": { "tables": "manage", "roles": "manage", "api_keys": "manage", "webhooks": "manage" },
+        "__system__": {
+          "tables": "manage",
+          "roles": "manage",
+          "api_keys": "manage",
+          "webhooks": "manage",
+          "settings": "manage",
+          "mcp": "manage"
+        },
         "clientes": { "create": "all", "read": "all", "update": "all", "delete": "all" },
         "contactos": { "create": "all", "read": "all", "update": "all", "delete": "all" },
         "oportunidades": { "create": "all", "read": "all", "update": "all", "delete": "all" }
@@ -143,13 +201,107 @@
       "id": "33333333-0001-0001-0001-000000000002",
       "workspace_id": "00000000-0000-0000-0000-000000000000",
       "name": "Vendedor",
-      "description": "Puede ver y editar sus propios registros",
+      "description": "Opera con RLS 'own' sobre oportunidades y contactos, con CLS que acota las columnas que puede modificar",
       "permissions": {
-        "clientes": { "create": "all", "read": "all", "update": "own", "delete": "none" },
-        "contactos": { "create": "all", "read": "all", "update": "own", "delete": "none" },
-        "oportunidades": { "create": "all", "read": "all", "update": "own", "delete": "none" }
+        "__system__": {
+          "tables": "none",
+          "roles": "none",
+          "api_keys": "none",
+          "webhooks": "none",
+          "settings": "none",
+          "mcp": "none"
+        },
+        "clientes": {
+          "create": "all",
+          "read": "all",
+          "update": "none",
+          "delete": "none",
+          "columns": {
+            "read": ["nombre", "industria", "sitio_web", "email"],
+            "create": ["nombre", "industria", "sitio_web", "email"],
+            "update": [],
+            "delete": []
+          }
+        },
+        "contactos": {
+          "create": "own",
+          "read": "all",
+          "update": "own",
+          "delete": "none",
+          "columns": {
+            "read": ["nombre", "email", "telefono", "cliente_id"],
+            "create": ["nombre", "email", "telefono", "cliente_id"],
+            "update": ["nombre", "email", "telefono"],
+            "delete": []
+          }
+        },
+        "oportunidades": {
+          "create": "own",
+          "read": "own",
+          "update": "own",
+          "delete": "none",
+          "columns": {
+            "read": ["titulo", "estado", "valor", "fecha_cierre", "cliente_id"],
+            "create": ["titulo", "estado", "valor", "fecha_cierre", "cliente_id"],
+            "update": ["titulo", "estado", "valor", "fecha_cierre"],
+            "delete": []
+          }
+        }
       },
       "is_default": true
+    },
+    {
+      "id": "33333333-0001-0001-0001-000000000003",
+      "workspace_id": "00000000-0000-0000-0000-000000000000",
+      "name": "PublicAPI",
+      "description": "Rol para integraciones públicas: lectura de columnas seguras de clientes y creación controlada de contactos",
+      "permissions": {
+        "__system__": {
+          "tables": "none",
+          "roles": "none",
+          "api_keys": "none",
+          "webhooks": "none",
+          "settings": "none",
+          "mcp": "none"
+        },
+        "clientes": {
+          "create": "none",
+          "read": "all",
+          "update": "none",
+          "delete": "none",
+          "columns": {
+            "read": ["nombre", "industria", "sitio_web"],
+            "create": [],
+            "update": [],
+            "delete": []
+          }
+        },
+        "contactos": {
+          "create": "all",
+          "read": "none",
+          "update": "none",
+          "delete": "none",
+          "columns": {
+            "read": [],
+            "create": ["nombre", "email", "telefono", "cliente_id"],
+            "update": [],
+            "delete": []
+          }
+        },
+        "oportunidades": {
+          "create": "none",
+          "read": "none",
+          "update": "none",
+          "delete": "none",
+          "columns": {
+            "read": [],
+            "create": [],
+            "update": [],
+            "delete": []
+          }
+        }
+      },
+      "is_default": false
     }
   ]
 }

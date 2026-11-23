@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { getFieldConfig } from '../fieldTypeConfig.jsx'
+import { getFieldConfig, parseColumnMeta } from '../fieldTypeConfig.js'
 import { Plus } from 'iconoir-react'
 
 import { useTranslation } from 'react-i18next'
@@ -40,7 +40,7 @@ function buildEdges(tables) {
   tables.forEach(srcTable => {
     ; (srcTable.columns || []).forEach((col, colIdx) => {
       if (col.field_type !== 'relation') return
-      const meta = typeof col.meta === 'string' ? JSON.parse(col.meta || '{}') : (col.meta || {})
+      const meta = parseColumnMeta(col)
       const targetSlug = meta.target_table
       if (!targetSlug || !tableBySlug[targetSlug]) return
       edges.push({
@@ -93,7 +93,7 @@ export function SchemaEditor({ tables, workspaceId, onEditTable, onCreateTable, 
       const next = { ...prev }
       const cols = Math.max(1, Math.floor((window.innerWidth - 100) / (NODE_WIDTH + GRID_COL_GAP)))
       const newTables = tables.filter(t => !next[t.id])
-      newTables.forEach((t, i) => {
+      newTables.forEach((t) => {
         const idx = tables.indexOf(t)
         const col = idx % cols
         const row = Math.floor(idx / cols)

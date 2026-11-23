@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -22,9 +22,98 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	// userCacheTTL is how long a resolved user id stays in the cache.
+	userCacheTTL = 5 * time.Minute
+	// userCacheMaxEntries bounds the cache size so a flood of distinct emails
+	// (e.g. spoofed/invalid tokens) cannot exhaust memory.
+	userCacheMaxEntries = 5000
+)
+
+// userCacheEntry is a cached email → user id resolution with an expiry.
+type userCacheEntry struct {
+	userID    string
+	expiresAt time.Time
+}
+
+// userCacheStore is a bounded, TTL-based cache of email → user id lookups.
+type userCacheStore struct {
+	mu      sync.Mutex
+	entries map[string]userCacheEntry
+}
+
+func newUserCacheStore() *userCacheStore {
+	return &userCacheStore{entries: make(map[string]userCacheEntry)}
+}
+
+// get returns a cached user id if it has not expired yet.
+func (s *userCacheStore) get(email string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	entry, ok := s.entries[email]
+	if !ok {
+		return "", false
+	}
+	if time.Now().After(entry.expiresAt) {
+		delete(s.entries, email)
+		return "", false
+	}
+	return entry.userID, true
+}
+
+// set stores a user id with a TTL, keeping the cache bounded.
+func (s *userCacheStore) set(email, userID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(s.entries) >= userCacheMaxEntries {
+		s.purgeLocked()
+	}
+
+	s.entries[email] = userCacheEntry{
+		userID:    userID,
+		expiresAt: time.Now().Add(userCacheTTL),
+	}
+}
+
+// purgeLocked removes expired entries; if the cache is still full the oldest
+// entries are evicted. Callers must hold the lock.
+func (s *userCacheStore) purgeLocked() {
+	now := time.Now()
+	for key, entry := range s.entries {
+		if now.After(entry.expiresAt) {
+			delete(s.entries, key)
+		}
+	}
+
+	if len(s.entries) < userCacheMaxEntries {
+		return
+	}
+
+	// Still full: evict the entries closest to their expiry (oldest first).
+	type agedEntry struct {
+		key       string
+		expiresAt time.Time
+	}
+	entries := make([]agedEntry, 0, len(s.entries))
+	for key, entry := range s.entries {
+		entries = append(entries, agedEntry{key: key, expiresAt: entry.expiresAt})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].expiresAt.Before(entries[j].expiresAt)
+	})
+
+	toRemove := len(s.entries) - userCacheMaxEntries + 1
+	for i := 0; i < toRemove && i < len(entries); i++ {
+		delete(s.entries, entries[i].key)
+	}
+}
+
 var (
-	// userCache maps email (string) to user_id (string) to prevent DB hits on every request
-	userCache sync.Map
+	// userCache maps email (string) to user_id (string) to prevent DB hits on every request.
+	// Entries expire after userCacheTTL and the cache is bounded by userCacheMaxEntries.
+	userCache = newUserCacheStore()
 
 	// pocketIDUserInfoURL is set by InitPocketIDAuth to enable OIDC token verification
 	pocketIDUserInfoURL string
@@ -35,7 +124,7 @@ var (
 func InitPocketIDAuth(issuerURL string) {
 	if issuerURL != "" {
 		pocketIDUserInfoURL = issuerURL + "/api/oidc/userinfo"
-		log.Printf("✅ Auth middleware: PocketID token verification enabled (userinfo: %s)", pocketIDUserInfoURL)
+		slog.Info("auth middleware: PocketID token verification enabled")
 	}
 }
 
@@ -57,6 +146,25 @@ func AuthRequired(secret string) gin.HandlerFunc {
 
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
+			// SECURITY (GA-3): the SPA authenticates with the HttpOnly
+			// `hornero_session` cookie, so a browser request without an
+			// Authorization header is not necessarily unauthenticated.
+			//
+			// Only JWTs are accepted from the cookie: an API key must always
+			// travel in the Authorization header, never in an ambient
+			// credential a browser attaches automatically.
+			if cookieToken, err := c.Cookie("hornero_session"); err == nil && cookieToken != "" {
+				claims, err := parseSessionToken(cookieToken, secret)
+				if err != nil {
+					c.JSON(401, gin.H{"error": "invalid session"})
+					c.Abort()
+					return
+				}
+				setSessionContext(c, claims)
+				c.Next()
+				return
+			}
+
 			c.JSON(401, gin.H{"error": "authorization header required"})
 			c.Abort()
 			return
@@ -76,14 +184,8 @@ func AuthRequired(secret string) gin.HandlerFunc {
 			return
 		}
 
-		token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-			}
-			return []byte(secret), nil
-		})
-
-		if err != nil || !token.Valid {
+		claims, err := parseSessionToken(tokenString, secret)
+		if err != nil {
 			// Fallback 1: Try PocketID access_token via userinfo endpoint
 			if pocketIDUserInfoURL != "" {
 				if handlePocketIDToken(c, tokenString, secret) {
@@ -105,45 +207,70 @@ func AuthRequired(secret string) gin.HandlerFunc {
 			return
 		}
 
-		claims, ok := token.Claims.(*Claims)
-		if !ok {
-			c.JSON(401, gin.H{"error": "invalid token claims"})
-			c.Abort()
-			return
-		}
-
-		// Resolve database ID from email (only when DB is available — guarded for unit tests)
-		if database.DB != nil {
-			// Check cache first to avoid DB bottleneck (Fix for Design Hole #7)
-			if cachedID, ok := userCache.Load(claims.Email); ok {
-				c.Set("user_id", cachedID.(string))
-			} else {
-				var user metadata.User
-				res := database.DB.Table("_hornero_users").Select("id").Where("email = ?", claims.Email).Limit(1).Find(&user)
-				if res.Error == nil && res.RowsAffected > 0 {
-					userIDStr := user.ID
-					userCache.Store(claims.Email, userIDStr)
-					c.Set("user_id", userIDStr)
-				} else {
-					// Fallback to sub if not in DB yet
-					c.Set("user_id", claims.UserID)
-				}
-			}
-		} else {
-			c.Set("user_id", claims.UserID)
-		}
-		c.Set("email", claims.Email)
-		c.Set("workspace_id", claims.WorkspaceID)
-		c.Set("role", claims.Role)
-
-		authSrc := claims.Source
-		if authSrc == "" {
-			authSrc = "oidc"
-		}
-		c.Set("auth_source", authSrc)
-
+		setSessionContext(c, claims)
 		c.Next()
 	}
+}
+
+// parseSessionToken validates a HorneroDB session JWT and returns its claims.
+//
+// The signature check is fail-closed: only HMAC signing methods are accepted
+// and the token must be signed with the server secret. Expiry/issued-at are
+// validated by the registered claims themselves.
+func parseSessionToken(tokenString, secret string) (*Claims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(secret), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if !token.Valid {
+		return nil, fmt.Errorf("invalid token")
+	}
+
+	claims, ok := token.Claims.(*Claims)
+	if !ok {
+		return nil, fmt.Errorf("invalid token claims")
+	}
+
+	return claims, nil
+}
+
+// setSessionContext populates the request context from the session claims.
+func setSessionContext(c *gin.Context, claims *Claims) {
+	// Resolve database ID from email (only when DB is available — guarded for unit tests)
+	if database.DB != nil {
+		// Check cache first to avoid DB bottleneck (Fix for Design Hole #7)
+		if cachedID, ok := userCache.get(claims.Email); ok {
+			c.Set("user_id", cachedID)
+		} else {
+			var user metadata.User
+			res := database.DB.Table("_hornero_users").Select("id").Where("email = ?", claims.Email).Limit(1).Find(&user)
+			if res.Error == nil && res.RowsAffected > 0 {
+				userIDStr := user.ID
+				userCache.set(claims.Email, userIDStr)
+				c.Set("user_id", userIDStr)
+			} else {
+				// Fallback to sub if not in DB yet
+				c.Set("user_id", claims.UserID)
+			}
+		}
+	} else {
+		c.Set("user_id", claims.UserID)
+	}
+	c.Set("email", claims.Email)
+	c.Set("workspace_id", claims.WorkspaceID)
+	c.Set("role", claims.Role)
+
+	authSrc := claims.Source
+	if authSrc == "" {
+		authSrc = "oidc"
+	}
+	c.Set("auth_source", authSrc)
 }
 
 // RequireUserSession ensures the authenticated entity is a real user or an instance-level API key
@@ -231,6 +358,10 @@ func RequireInstanceAdmin() gin.HandlerFunc {
 
 // RequireSystemPermission ensures the authenticated entity has a specific system-level permission.
 //
+// The required level depends on the HTTP method:
+//   - safe methods (GET/HEAD/OPTIONS) require at least "view"
+//   - mutating methods (POST/PUT/PATCH/DELETE) require "manage" or "all"
+//
 // Security note: this middleware MUST run after WorkspaceAuth. WorkspaceAuth injects
 // "workspace_id" from the URL param into context (overwriting any API-key-embedded workspace),
 // and rejects API keys whose workspace doesn't match the URL. Therefore GetUserWorkspace(c)
@@ -255,14 +386,64 @@ func RequireSystemPermission(action string) gin.HandlerFunc {
 
 		// Instantiate service (cheap local object)
 		permSvc := permission.NewService()
-		hasAccess, err := permSvc.CheckSystemPermission(wsUUID, role, action)
-		if err != nil || !hasAccess {
+		sysPerms, err := permSvc.GetSystemPermissions(wsUUID, role)
+		if err != nil {
+			c.JSON(403, gin.H{"error": fmt.Sprintf("Forbidden: missing '%s' permission", action)})
+			c.Abort()
+			return
+		}
+
+		level := systemAccessLevel(sysPerms, action)
+		if !systemAccessAllowed(level, isReadOnlyMethod(c.Request.Method)) {
 			c.JSON(403, gin.H{"error": fmt.Sprintf("Forbidden: missing '%s' permission", action)})
 			c.Abort()
 			return
 		}
 
 		c.Next()
+	}
+}
+
+// systemAccessLevel returns the access level configured for a system action.
+func systemAccessLevel(sysPerms permission.SystemAccess, action string) string {
+	switch action {
+	case "webhooks":
+		return string(sysPerms.Webhooks)
+	case "roles":
+		return string(sysPerms.Roles)
+	case "api_keys":
+		return string(sysPerms.APIKeys)
+	case "tables":
+		return string(sysPerms.Tables)
+	case "settings":
+		return string(sysPerms.Settings)
+	case "mcp":
+		return string(sysPerms.MCP)
+	default:
+		return ""
+	}
+}
+
+// systemAccessAllowed checks the required level against the effective level.
+// "all" and "manage" allow every method; "view" only allows safe (read) methods.
+func systemAccessAllowed(level string, isReadOnly bool) bool {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "all", "manage":
+		return true
+	case "view":
+		return isReadOnly
+	default:
+		return false
+	}
+}
+
+// isReadOnlyMethod reports whether the HTTP method does not mutate state.
+func isReadOnlyMethod(method string) bool {
+	switch strings.ToUpper(method) {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -316,6 +497,7 @@ func setAPIKeyContext(c *gin.Context, apiKey *metadata.APIKey, roleName string) 
 	c.Set("auth_source", "apikey")
 	c.Set("api_key_id", apiKey.ID.String())
 	c.Set("api_key_rate_limit", apiKey.RateLimitPerMin)
+	c.Set("api_key_rate_limit_hour", apiKey.RateLimitPerHour)
 	c.Set("api_key_allowed_origins", apiKey.AllowedOrigins)
 	c.Set("api_key_allowed_referers", apiKey.AllowedReferers)
 }
@@ -333,14 +515,13 @@ func handlePocketIDToken(c *gin.Context, accessToken, jwtSecret string) bool {
 	client := &http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("DEBUG: PocketID userinfo error: %v", err)
+		slog.Debug("pocketid userinfo request failed", "error", err)
 		return false
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		log.Printf("DEBUG: PocketID userinfo returned %d: %s", resp.StatusCode, string(body))
+		slog.Debug("pocketid userinfo returned unexpected status", "status", resp.StatusCode)
 		return false
 	}
 
@@ -357,31 +538,23 @@ func handlePocketIDToken(c *gin.Context, accessToken, jwtSecret string) bool {
 		Picture string `json:"picture"`
 	}
 	if err := json.Unmarshal(body, &userInfo); err != nil {
-		log.Printf("DEBUG: PocketID userinfo parse error: %v", err)
+		slog.Debug("pocketid userinfo parse error", "error", err)
 		return false
 	}
 
 	if userInfo.Sub == "" || userInfo.Email == "" {
-		log.Printf("DEBUG: PocketID userinfo missing sub or email")
+		slog.Debug("pocketid userinfo missing sub or email")
 		return false
 	}
 
-	log.Printf("DEBUG: PocketID token verified for user: %s (%s)", userInfo.Email, userInfo.Sub)
+	// SECURITY: never log PII (email) or the raw token. Only the opaque subject.
+	slog.Debug("pocketid token verified", "user_id", userInfo.Sub)
 
 	// Resolve user role and workspace using shared function
 	roleName, workspaceID, _, _ := ResolveUserRole(userInfo.Sub)
 
-	// Upsert user in local DB
-	if database.DB != nil {
-		user := metadata.User{
-			ID:          userInfo.Sub,
-			Email:       userInfo.Email,
-			Name:        userInfo.Name,
-			Picture:     userInfo.Picture,
-			LastLoginAt: time.Now(),
-		}
-		database.DB.Table("_hornero_users").Save(&user)
-	}
+	// Upsert user in local DB (profile only: instance privileges are preserved)
+	upsertUserProfile(userInfo.Sub, userInfo.Email, userInfo.Name, userInfo.Picture)
 
 	// Set context (same fields as HMAC JWT flow)
 	c.Set("user_id", userInfo.Sub)
@@ -391,6 +564,48 @@ func handlePocketIDToken(c *gin.Context, accessToken, jwtSecret string) bool {
 	c.Set("auth_source", "oidc")
 
 	return true
+}
+
+// upsertUserProfile writes the profile columns of a user.
+//
+// SECURITY: it must NEVER use Save(&user), because that rewrites every column
+// of the row — including `can_create_workspaces`, which would demote instance
+// admins to regular users on every login.
+func upsertUserProfile(userID, email, name, picture string) {
+	if database.DB == nil {
+		return
+	}
+
+	now := time.Now()
+	updates := map[string]interface{}{
+		"email":         email,
+		"name":          name,
+		"picture":       picture,
+		"last_login_at": now,
+	}
+
+	res := database.DB.Table("_hornero_users").
+		Where("id = ?", userID).
+		Updates(updates)
+	if res.Error != nil {
+		slog.Warn("failed to update user profile", "error", res.Error, "user_id", userID)
+		return
+	}
+	if res.RowsAffected > 0 {
+		return
+	}
+
+	// First login: create the row. can_create_workspaces keeps its DB default (false).
+	newUser := metadata.User{
+		ID:          userID,
+		Email:       email,
+		Name:        name,
+		Picture:     picture,
+		LastLoginAt: now,
+	}
+	if err := database.DB.Table("_hornero_users").Create(&newUser).Error; err != nil {
+		slog.Warn("failed to create user profile", "error", err, "user_id", userID)
+	}
 }
 
 func OptionalAuth(secret string) gin.HandlerFunc {

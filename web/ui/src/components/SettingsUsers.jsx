@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Group, UserPlus, Trash, ShieldCheck, QrCode } from 'iconoir-react'
 import axios from 'axios'
@@ -22,11 +22,7 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
     const [qrUrl, setQrUrl] = useState('')
     const [showQrModal, setShowQrModal] = useState(false)
 
-    useEffect(() => {
-        loadUsers()
-    }, [workspaceId])
-
-    const loadUsers = async () => {
+    const loadUsers = useCallback(async () => {
         setLoading(true)
         try {
             const res = await axios.get(`${API_URL}/workspaces/${workspaceId}/users`)
@@ -37,7 +33,11 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
         } finally {
             setLoading(false)
         }
-    }
+    }, [workspaceId, t, notify])
+
+    useEffect(() => {
+        loadUsers()
+    }, [loadUsers])
 
     const handleImport = async () => {
         if (!email.trim() || !selectedRole) return

@@ -14,38 +14,45 @@ export function RelationPicker({
   initialValue
 }) {
   const { t } = useTranslation()
-  const [records, setRecords] = useState([])
-  const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [error, setError] = useState(null)
 
-  const loadRecords = async () => {
-    if (!targetTableSlug) return
-    setLoading(true)
-    setError(null)
-    try {
-      const resp = await axios.get(`${API_URL}/workspaces/${workspaceId}/data/${targetTableSlug}`, {
-        params: {
-          search: search || undefined,
-          limit: 50
-        }
-      })
-      setRecords(resp.data.data || [])
-    } catch (err) {
-      console.error(err)
-      setError(t('error_loading_records'))
-    }
-    setLoading(false)
-  }
+  /**
+   * Result of the last request. `key` identifies the request the payload
+   * belongs to, so responses of a previous search are discarded instead of
+   * being rendered as the current result.
+   */
+  const [result, setResult] = useState({ key: null, records: [], errorKey: null })
+
+  const requestKey = `${targetTableSlug || ''}|${search}`
 
   useEffect(() => {
-    if (targetTableSlug) {
-      loadRecords()
-    } else {
-      setLoading(false)
-      setError(t('relation_config_incomplete'))
-    }
-  }, [targetTableSlug, search])
+    if (!targetTableSlug) return undefined
+
+    let cancelled = false
+
+    axios.get(`${API_URL}/workspaces/${workspaceId}/data/${targetTableSlug}`, {
+      params: {
+        search: search || undefined,
+        limit: 50
+      }
+    })
+      .then(resp => {
+        if (cancelled) return
+        setResult({ key: requestKey, records: resp.data.data || [], errorKey: null })
+      })
+      .catch(() => {
+        if (cancelled) return
+        setResult({ key: requestKey, records: [], errorKey: 'error_loading_records' })
+      })
+
+    return () => { cancelled = true }
+  }, [workspaceId, targetTableSlug, search, requestKey])
+
+  const loading = !!targetTableSlug && result.key !== requestKey
+  const records = result.key === requestKey ? result.records : []
+  const error = !targetTableSlug
+    ? t('relation_config_incomplete')
+    : (result.key === requestKey && result.errorKey ? t(result.errorKey) : null)
 
   return (
     <div className="modal-overlay" onClick={onClose}>

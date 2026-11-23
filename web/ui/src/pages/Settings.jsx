@@ -1,28 +1,30 @@
-import { useState, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import axios from 'axios'
 import {
   Settings as SettingsIcon, ShieldCheck, Key, Trash, Xmark,
-  Group, ClipboardCheck
+  Group, ClipboardCheck, Link as LinkIcon, Activity, Refresh
 } from 'iconoir-react'
 import { API_URL } from '../constants'
 import { useAuth } from '../context/AuthContext'
 import { Button, Badge } from '../components/index.jsx'
 import { PermissionMatrix } from '../components/PermissionMatrix.jsx'
 import SettingsUsers from '../components/SettingsUsers'
-import { notify } from '../components/Toast.jsx'
+import { notify } from '../components/toast.js'
 import TopNavbar from '../components/TopNavbar.jsx'
+import { getSystemPermissions, hasSystemAccess } from '../utils/permissions.js'
+
+/** Event types a webhook can subscribe to (backend `change_type`). */
+const WEBHOOK_EVENT_TYPES = ['created', 'updated', 'deleted']
 
 export default function Settings() {
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
   const { t } = useTranslation()
   const { workspaceId } = useParams()
-  const navigate = useNavigate()
 
   const [workspace, setWorkspace] = useState(null)
   const [roles, setRoles] = useState([])
-  const [users, setUsers] = useState([])
   const [apiKeys, setApiKeys] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeSection, setActiveSection] = useState('general')
@@ -54,46 +56,317 @@ export default function Settings() {
   const [editingKeyReferers, setEditingKeyReferers] = useState('')
   const [savingKey, setSavingKey] = useState(false)
 
-  const loadData = async () => {
-    setLoading(true)
+  // ── Webhooks ─────────────────────────────────────────
+  const [webhooks, setWebhooks] = useState([])
+  const [webhooksForbidden, setWebhooksForbidden] = useState(false)
+  const [showCreateWebhook, setShowCreateWebhook] = useState(false)
+  const [newWebhookUrl, setNewWebhookUrl] = useState('')
+  const [newWebhookTable, setNewWebhookTable] = useState('')
+  const [newWebhookEvent, setNewWebhookEvent] = useState('created')
+  const [newWebhookClientState, setNewWebhookClientState] = useState('')
+  const [savingWebhook, setSavingWebhook] = useState(false)
+
+  // ── Webhook delivery history ─────────────────────────
+  const [webhookEvents, setWebhookEvents] = useState([])
+  const [webhookEventsLoading, setWebhookEventsLoading] = useState(false)
+  const [webhookEventsError, setWebhookEventsError] = useState(false)
+  const [webhookEventFilter, setWebhookEventFilter] = useState('')
+  const [retryingEventId, setRetryingEventId] = useState(null)
+
+  // ── Audit log ─────────────────────────────────────────
+  const [auditEntries, setAuditEntries] = useState([])
+  const [auditMeta, setAuditMeta] = useState({ count: 0, has_more: false })
+  const [auditPage, setAuditPage] = useState(0)
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditError, setAuditError] = useState(false)
+  const [auditAction, setAuditAction] = useState('')
+  const [auditResourceType, setAuditResourceType] = useState('')
+
+  const fetchWorkspace = useCallback(async () => {
+    const wsRes = await axios.get(`${API_URL}/workspaces/${workspaceId}`)
+    const data = wsRes.data.data
+    const st = data.settings || {}
+    return {
+      workspace: data,
+      rateLimit: st.rate_limit_per_minute ?? 60,
+      allowedOrigins: (st.allowed_origins || []).join(', '),
+    }
+  }, [workspaceId])
+
+  const fetchRolesAndTables = useCallback(async () => {
+    const [rolesRes, tablesRes] = await Promise.all([
+      // These list endpoints are paginated: ask for enough rows to be sure
+      // the role of the current user is part of the answer.
+      axios.get(`${API_URL}/workspaces/${workspaceId}/roles`, { params: { limit: 200 } }),
+      axios.get(`${API_URL}/workspaces/${workspaceId}/tables`, { params: { limit: 200 } })
+    ])
+    const tablesWithCols = await Promise.all(tablesRes.data.data.map(async (t) => {
+      try {
+        const cr = await axios.get(`${API_URL}/workspaces/${workspaceId}/tables/${t.id}/columns`, { params: { limit: 200 } })
+        return { ...t, columns: cr.data.data }
+      } catch {
+        return t
+      }
+    }))
+    return { roles: rolesRes.data.data || [], tables: tablesWithCols }
+  }, [workspaceId])
+
+  const fetchApiKeys = useCallback(async () => {
+    const keysRes = await axios.get(`${API_URL}/workspaces/${workspaceId}/keys`)
+    return keysRes.data.data || []
+  }, [workspaceId])
+
+  /** Loads the subscriptions of the workspace. */
+  const fetchWebhooks = useCallback(async () => {
+    const res = await axios.get(`${API_URL}/workspaces/${workspaceId}/webhooks`)
+    return res.data.data || []
+  }, [workspaceId])
+
+  /** Loads the delivery history of the workspace webhooks. */
+  const fetchWebhookEvents = useCallback(async () => {
+    setWebhookEventsLoading(true)
     try {
-      if (!workspace) {
-        const wsRes = await axios.get(`${API_URL}/workspaces/${workspaceId}`)
-        setWorkspace(wsRes.data.data)
-        const st = wsRes.data.data.settings || {}
-        setRateLimit(st.rate_limit_per_minute ?? 60)
-        setAllowedOrigins((st.allowed_origins || []).join(', '))
-      }
+      const params = { limit: 25 }
+      if (webhookEventFilter) params.status = webhookEventFilter
+      const res = await axios.get(`${API_URL}/workspaces/${workspaceId}/webhooks/events`, { params })
+      setWebhookEvents(res.data.data || [])
+      setWebhookEventsError(false)
+    } catch (err) {
+      console.error(err)
+      setWebhookEvents([])
+      setWebhookEventsError(true)
+    } finally {
+      setWebhookEventsLoading(false)
+    }
+  }, [workspaceId, webhookEventFilter])
 
-      const [rolesRes, tablesRes] = await Promise.all([
-        axios.get(`${API_URL}/workspaces/${workspaceId}/roles`),
-        axios.get(`${API_URL}/workspaces/${workspaceId}/tables`)
-      ])
-      const tablesWithCols = await Promise.all(tablesRes.data.data.map(async (t) => {
-        try {
-          const cr = await axios.get(`${API_URL}/workspaces/${workspaceId}/tables/${t.id}/columns`)
-          return { ...t, columns: cr.data.data }
-        } catch (e) { return t }
-      }))
-      setRoles(rolesRes.data.data)
-      setTables(tablesWithCols)
-      if (rolesRes.data.data.length > 0 && !selectedRoleId) {
-        setSelectedRoleId(rolesRes.data.data[0].id)
-      }
+  /** Loads the audit log of the workspace. */
+  const fetchAudit = useCallback(async () => {
+    setAuditLoading(true)
+    try {
+      const params = { limit: 50, offset: auditPage * 50 }
+      if (auditAction) params.action = auditAction
+      if (auditResourceType) params.resource_type = auditResourceType
+      const res = await axios.get(`${API_URL}/workspaces/${workspaceId}/audit`, { params })
+      setAuditEntries(res.data.data || [])
+      setAuditMeta(res.data.meta || { count: 0, has_more: false })
+      setAuditError(false)
+    } catch (err) {
+      console.error(err)
+      setAuditEntries([])
+      setAuditError(true)
+    } finally {
+      setAuditLoading(false)
+    }
+  }, [workspaceId, auditPage, auditAction, auditResourceType])
 
+  useEffect(() => {
+    let cancelled = false
+
+    const load = async () => {
+      const ws = await fetchWorkspace()
+      const rt = await fetchRolesAndTables()
+      const keys = activeSection === 'keys' ? await fetchApiKeys() : null
+      return { ws, rt, keys }
+    }
+
+    load()
+      .then(({ ws, rt, keys }) => {
+        if (cancelled) return
+        setWorkspace(ws.workspace)
+        setRateLimit(ws.rateLimit)
+        setAllowedOrigins(ws.allowedOrigins)
+        setRoles(rt.roles)
+        setTables(rt.tables)
+        setSelectedRoleId(prev => prev || (rt.roles.length > 0 ? rt.roles[0].id : null))
+        if (keys) setApiKeys(keys)
+      })
+      .catch(err => {
+        if (cancelled) return
+        console.error(err)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => { cancelled = true }
+  }, [workspaceId, activeSection, fetchWorkspace, fetchRolesAndTables, fetchApiKeys])
+
+  // Webhooks live in their own request so a 403 (missing `webhooks`
+  // permission) does not break the rest of the settings page.
+  useEffect(() => {
+    if (activeSection !== 'webhooks') return undefined
+
+    let cancelled = false
+
+    fetchWebhooks()
+      .then(list => {
+        if (cancelled) return
+        setWebhooks(list)
+        setWebhooksForbidden(false)
+      })
+      .catch(err => {
+        if (cancelled) return
+        console.error(err)
+        setWebhooks([])
+        setWebhooksForbidden(err.response?.status === 403)
+      })
+
+    return () => { cancelled = true }
+  }, [activeSection, fetchWebhooks])
+
+  // The delivery history lives in its own request: a missing `webhooks`
+  // permission must not break the subscription list.
+  useEffect(() => {
+    if (activeSection !== 'webhooks') return undefined
+    fetchWebhookEvents()
+    return undefined
+  }, [activeSection, fetchWebhookEvents])
+
+  // The audit log is only loaded when its tab is open.
+  useEffect(() => {
+    if (activeSection !== 'audit') return undefined
+    fetchAudit()
+    return undefined
+  }, [activeSection, fetchAudit])
+
+  const handleSectionChange = (section) => {
+    setLoading(true)
+    setActiveSection(section)
+  }
+
+  /** Reloads the workspace, the roles and the tables (used after a mutation). */
+  const reload = useCallback(async () => {
+    try {
+      const ws = await fetchWorkspace()
+      const rt = await fetchRolesAndTables()
+      setWorkspace(ws.workspace)
+      setRateLimit(ws.rateLimit)
+      setAllowedOrigins(ws.allowedOrigins)
+      setRoles(rt.roles)
+      setTables(rt.tables)
+      setSelectedRoleId(prev => prev || (rt.roles.length > 0 ? rt.roles[0].id : null))
       if (activeSection === 'keys') {
-        const keysRes = await axios.get(`${API_URL}/workspaces/${workspaceId}/keys`)
-        setApiKeys(keysRes.data.data)
+        setApiKeys(await fetchApiKeys())
       }
     } catch (err) {
       console.error(err)
     }
-    setLoading(false)
+  }, [fetchWorkspace, fetchRolesAndTables, fetchApiKeys, activeSection])
+
+  const reloadWebhooks = useCallback(async () => {
+    try {
+      const list = await fetchWebhooks()
+      setWebhooks(list)
+    } catch (err) {
+      console.error(err)
+    }
+  }, [fetchWebhooks])
+
+  const handleCreateWebhook = async () => {
+    if (!newWebhookUrl.trim() || !newWebhookTable) return
+    setSavingWebhook(true)
+    try {
+      await axios.post(`${API_URL}/workspaces/${workspaceId}/webhooks`, {
+        resource: newWebhookTable,
+        change_type: newWebhookEvent,
+        notification_url: newWebhookUrl.trim(),
+        client_state: newWebhookClientState.trim() || undefined
+      })
+      setShowCreateWebhook(false)
+      setNewWebhookUrl('')
+      setNewWebhookTable('')
+      setNewWebhookEvent('created')
+      setNewWebhookClientState('')
+      notify(t('webhook_created'), 'success')
+      reloadWebhooks()
+    } catch (err) {
+      console.error(err)
+      notify(t('error_create_webhook'), 'error')
+    }
+    setSavingWebhook(false)
   }
 
-  useEffect(() => {
-    loadData()
-  }, [workspaceId, activeSection])
+  const deleteWebhook = async (id) => {
+    if (!confirm(t('confirm_delete_webhook'))) return
+    try {
+      await axios.delete(`${API_URL}/workspaces/${workspaceId}/webhooks/${id}`)
+      notify(t('webhook_deleted'), 'success')
+      reloadWebhooks()
+    } catch (err) {
+      console.error(err)
+      notify(t('error_delete_webhook'), 'error')
+    }
+  }
+
+  const webhookUrlValid = /^https:\/\/\S+$/i.test(newWebhookUrl.trim())
+
+  /**
+   * Asks the API to deliver a failed event again and reloads the history.
+   */
+  const handleRetryWebhookEvent = async (eventId) => {
+    setRetryingEventId(eventId)
+    try {
+      await axios.post(`${API_URL}/workspaces/${workspaceId}/webhooks/events/${eventId}/retry`)
+      notify(t('webhook_retry_success'), 'success')
+      await fetchWebhookEvents()
+    } catch (err) {
+      console.error(err)
+      notify(t('webhook_retry_error'), 'error')
+    } finally {
+      setRetryingEventId(null)
+    }
+  }
+
+  /** Human readable state of a webhook delivery. */
+  const webhookEventStatus = (status) => {
+    const key = `webhook_status_${String(status || '').toLowerCase()}`
+    return t(key, { defaultValue: status || '—' })
+  }
+
+  /** Badge variant that matches the state of a webhook delivery. */
+  const webhookEventVariant = (status) => {
+    switch (String(status || '').toLowerCase()) {
+      case 'failed': return 'error'
+      case 'completed':
+      case 'delivered':
+      case 'success': return 'success'
+      case 'pending':
+      case 'retrying': return 'warning'
+      default: return 'gray'
+    }
+  }
+
+  /** Formats an ISO timestamp for the audit log and the delivery history. */
+  const formatTimestamp = (value) => {
+    if (!value) return '—'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return String(value)
+    return date.toLocaleString()
+  }
+
+  /** Distinct actions present in the loaded audit page (filter options). */
+  const auditActions = useMemo(
+    () => [...new Set(auditEntries.map(e => e.action).filter(Boolean))].sort(),
+    [auditEntries]
+  )
+
+  /** Distinct resource types present in the loaded audit page. */
+  const auditResourceTypes = useMemo(
+    () => [...new Set(auditEntries.map(e => e.resource_type).filter(Boolean))].sort(),
+    [auditEntries]
+  )
+
+  // ── System permissions of the current role (CLS) ─────
+  const currentRole = roles.find(r => r.name === user?.role)
+  const systemPermissions = getSystemPermissions(currentRole?.permissions, user?.role)
+  const canManageWebhooks = hasSystemAccess(systemPermissions, 'webhooks', 'manage')
+
+  /** Name of the table a webhook is subscribed to. */
+  const webhookTableName = (resource) => {
+    const table = tables.find(t => t.id === resource)
+    return table ? table.name : resource
+  }
 
   const handleSaveGeneral = async () => {
     setSavingGeneral(true)
@@ -151,7 +424,7 @@ export default function Settings() {
       setShowCreateRole(false)
       setNewRoleName('')
       setSelectedRoleId(resp.data.data?.id)
-      loadData()
+      reload()
     } catch (err) {
       console.error(err)
       notify(t('error_create_role'), 'error')
@@ -175,7 +448,7 @@ export default function Settings() {
       setNewKeyExpiresIn(0)
       setNewKeyRateLimit(0)
       setNewKeyRateLimitPerHour(0)
-      loadData()
+      reload()
     } catch (err) {
       console.error(err)
       notify(t('error_create_api_key'), 'error')
@@ -186,7 +459,7 @@ export default function Settings() {
     if (confirm(t('confirm_delete_api_key'))) {
       try {
         await axios.delete(`${API_URL}/workspaces/${workspaceId}/keys/${id}`)
-        loadData()
+        reload()
       } catch (err) {
         console.error(err)
       }
@@ -224,7 +497,7 @@ export default function Settings() {
         allowed_referers: referersArray
       })
       notify(t('api_key_updated'), 'success')
-      loadData()
+      reload()
       setSelectedKey(null)
     } catch (err) {
       console.error(err)
@@ -238,7 +511,7 @@ export default function Settings() {
     try {
       const res = await axios.post(`${API_URL}/workspaces/${workspaceId}/keys/${keyId}/rotate`)
       setRotatedKeyData(res.data.data)
-      loadData()
+      reload()
       notify(t('api_key_rotated'), 'success')
     } catch (err) {
       console.error(err)
@@ -249,7 +522,7 @@ export default function Settings() {
   const savePermissions = async ({ roleId, permissions }) => {
     try {
       await axios.put(`${API_URL}/workspaces/${workspaceId}/roles/${roleId}`, { permissions })
-      loadData()
+      reload()
       notify(t('permissions_saved'), 'success')
     } catch (err) {
       console.error(err)
@@ -270,31 +543,45 @@ export default function Settings() {
           <div className="tabs">
             <button
               className={`tab ${activeSection === 'general' ? 'active' : ''}`}
-              onClick={() => setActiveSection('general')}
+              onClick={() => handleSectionChange('general')}
               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
             >
               <SettingsIcon width="1rem" height="1rem" /> {t('general')}
             </button>
             <button
               className={`tab ${activeSection === 'users' ? 'active' : ''}`}
-              onClick={() => setActiveSection('users')}
+              onClick={() => handleSectionChange('users')}
               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
             >
               <Group width="1rem" height="1rem" /> {t('users')}
             </button>
             <button
               className={`tab ${activeSection === 'roles' ? 'active' : ''}`}
-              onClick={() => setActiveSection('roles')}
+              onClick={() => handleSectionChange('roles')}
               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
             >
               <ShieldCheck width="1rem" height="1rem" /> {t('security_roles')}
             </button>
             <button
               className={`tab ${activeSection === 'keys' ? 'active' : ''}`}
-              onClick={() => setActiveSection('keys')}
+              onClick={() => handleSectionChange('keys')}
               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
             >
               <Key width="1rem" height="1rem" /> {t('api_keys')}
+            </button>
+            <button
+              className={`tab ${activeSection === 'webhooks' ? 'active' : ''}`}
+              onClick={() => handleSectionChange('webhooks')}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+            >
+              <LinkIcon width="1rem" height="1rem" /> {t('webhooks')}
+            </button>
+            <button
+              className={`tab ${activeSection === 'audit' ? 'active' : ''}`}
+              onClick={() => handleSectionChange('audit')}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+            >
+              <Activity width="1rem" height="1rem" /> {t('audit_tab')}
             </button>
           </div>
 
@@ -344,49 +631,6 @@ export default function Settings() {
                   <svg width="1.25rem" height="1.25rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                   {t('export_button')}
                 </Button>
-              </div>
-
-              <div style={{ marginTop: '2.5rem', paddingTop: '1.5rem', borderTop: 'var(--border-thick) solid var(--border-subtle)' }}>
-                <h3 style={{ fontSize: '1.125rem', fontWeight: 800, marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <svg width="1.2rem" height="1.2rem" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12c0 1.657-4.03 3-9 3s-9-1.343-9-3 4.03-3 9-3 9 1.343 9 3z"></path><path d="M3 12v6c0 1.657 4.03 3 9 3s9-1.343 9-3v-6"></path><path d="M21 7c0 1.657-4.03 3-9 3s-9-1.343-9-3 4.03-3 9-3 9 1.343 9 3z"></path></svg>
-                  {t('language_stats')}
-                </h3>
-                <div className="table-container" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden', border: '1px solid var(--border-light)' }}>
-                  <table style={{ width: '100%', fontSize: '0.85rem', borderCollapse: 'collapse' }}>
-                    <thead style={{ background: 'var(--bg-subtle)', borderBottom: '1px solid var(--border-light)' }}>
-                      <tr>
-                        <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: 700 }}>{t('rank')}</th>
-                        <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: 700 }}>{t('language')}</th>
-                        <th style={{ padding: '0.75rem', textAlign: 'right', fontWeight: 700 }}>{t('internet_users')}</th>
-                        <th style={{ padding: '0.75rem', textAlign: 'right', fontWeight: 700 }}>%</th>
-                      </tr>
-                    </thead>
-                    <tbody style={{ color: 'var(--text-secondary)' }}>
-                      {[
-                        { r: 1, l: 'English', u: '1,186,451,052', p: '25.9%' },
-                        { r: 2, l: 'Chinese', u: '888,453,068', p: '19.4%' },
-                        { r: 3, l: 'Spanish', u: '363,684,593', p: '7.9%' },
-                        { r: 4, l: 'Arabic', u: '237,418,349', p: '5.2%' },
-                        { r: 5, l: 'Indonesian', u: '198,029,815', p: '4.3%' },
-                        { r: 6, l: 'Portuguese', u: '171,750,818', p: '3.7%' },
-                        { r: 7, l: 'French', u: '144,695,288', p: '3.3%' },
-                        { r: 8, l: 'Japanese', u: '118,626,672', p: '2.6%' },
-                        { r: 9, l: 'Russian', u: '116,353,942', p: '2.5%' },
-                        { r: 10, l: 'German', u: '92,525,427', p: '2.0%' }
-                      ].map((item, i) => (
-                        <tr key={i} style={{ borderBottom: i === 9 ? 'none' : '1px solid var(--border-subtle)', background: i % 2 === 0 ? 'transparent' : 'var(--bg-elevated-subtle)' }}>
-                          <td style={{ padding: '0.65rem 0.75rem' }}>{item.r}</td>
-                          <td style={{ padding: '0.65rem 0.75rem', fontWeight: 600, color: 'var(--text)' }}>{item.l}</td>
-                          <td style={{ padding: '0.65rem 0.75rem', textAlign: 'right' }}>{item.u}</td>
-                          <td style={{ padding: '0.65rem 0.75rem', textAlign: 'right' }}>{item.p}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <p style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                  {t('source')}: <a href="https://en.wikipedia.org/wiki/Languages_used_on_the_Internet#Internet_users_by_language" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--primary)', textDecoration: 'none' }}>Wikipedia</a>
-                </p>
               </div>
             </div>
           ) : activeSection === 'users' ? (
@@ -483,12 +727,360 @@ export default function Settings() {
               </div>
 
               <PermissionMatrix
-                workspaceId={workspaceId}
                 tables={tables}
                 roles={roles}
                 selectedRoleId={selectedRoleId || (roles.length > 0 ? roles[0].id : '')}
                 onSave={savePermissions}
               />
+            </div>
+          ) : activeSection === 'audit' ? (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', gap: '1rem', flexWrap: 'wrap' }}>
+                <p style={{ color: 'var(--text-secondary)' }}>{t('audit_desc')}</p>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={fetchAudit}
+                  aria-label={t('refresh')}
+                  title={t('refresh')}
+                >
+                  <Refresh width="1rem" height="1rem" />
+                </button>
+              </div>
+
+              {/* Filters */}
+              <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                <div className="form-group" style={{ marginBottom: 0, minWidth: '12rem' }}>
+                  <label className="form-label" htmlFor="audit-filter-action">{t('audit_filter_action')}</label>
+                  <select
+                    id="audit-filter-action"
+                    className="form-select"
+                    value={auditAction}
+                    onChange={e => { setAuditAction(e.target.value); setAuditPage(0) }}
+                  >
+                    <option value="">{t('audit_all_actions')}</option>
+                    {auditActions.map(action => (
+                      <option key={action} value={action}>{action}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-group" style={{ marginBottom: 0, minWidth: '12rem' }}>
+                  <label className="form-label" htmlFor="audit-filter-resource">{t('audit_filter_resource')}</label>
+                  <select
+                    id="audit-filter-resource"
+                    className="form-select"
+                    value={auditResourceType}
+                    onChange={e => { setAuditResourceType(e.target.value); setAuditPage(0) }}
+                  >
+                    <option value="">{t('audit_all_resources')}</option>
+                    {auditResourceTypes.map(type => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {auditError ? (
+                <div className="empty-state">
+                  <div className="empty-icon"><Activity width="2rem" height="2rem" /></div>
+                  <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>{t('audit_load_error')}</h3>
+                </div>
+              ) : auditLoading && auditEntries.length === 0 ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '2rem 0' }}>
+                  <div className="loading-spinner" />
+                </div>
+              ) : auditEntries.length === 0 ? (
+                <div className="empty-state">
+                  <div className="empty-icon"><Activity width="2rem" height="2rem" /></div>
+                  <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>{t('audit_no_entries')}</h3>
+                </div>
+              ) : (
+                <>
+                  <div className="table-container" style={{ overflowX: 'auto' }}>
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>{t('audit_date')}</th>
+                          <th>{t('audit_actor')}</th>
+                          <th>{t('audit_action')}</th>
+                          <th>{t('audit_resource')}</th>
+                          <th>{t('audit_auth_source')}</th>
+                          <th>{t('audit_ip')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {auditEntries.map(entry => (
+                          <tr key={entry.id}>
+                            <td style={{ whiteSpace: 'nowrap' }}>{formatTimestamp(entry.created_at)}</td>
+                            <td>{entry.actor_email || entry.actor_id || t('audit_unknown_actor')}</td>
+                            <td><Badge variant="primary">{entry.action}</Badge></td>
+                            <td>
+                              {entry.resource_type || '—'}
+                              {entry.resource_id ? (
+                                <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>
+                                  {' '}· {String(entry.resource_id).slice(0, 8)}
+                                </span>
+                              ) : null}
+                            </td>
+                            <td>{entry.auth_source || '—'}</td>
+                            <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>{entry.ip_address || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="pagination-bar">
+                    <span className="pagination-info">
+                      {t('audit_page', { page: auditPage + 1 })} · {auditMeta.count ?? auditEntries.length}
+                    </span>
+                    <div className="pagination-controls">
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setAuditPage(p => Math.max(0, p - 1))}
+                        disabled={auditPage <= 0 || auditLoading}
+                      >
+                        {t('previous')}
+                      </button>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setAuditPage(p => p + 1)}
+                        disabled={!auditMeta.has_more || auditLoading}
+                      >
+                        {t('next')}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : activeSection === 'webhooks' ? (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', gap: '1rem' }}>
+                <p style={{ color: 'var(--text-secondary)' }}>{t('webhooks_desc')}</p>
+                {!webhooksForbidden && canManageWebhooks && (
+                  <Button size="sm" onClick={() => setShowCreateWebhook(v => !v)}>
+                    {t('new_webhook')}
+                  </Button>
+                )}
+              </div>
+
+              {webhooksForbidden ? (
+                <div className="empty-state">
+                  <div className="empty-icon"><LinkIcon width="2rem" height="2rem" /></div>
+                  <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>{t('no_webhooks_permission')}</h3>
+                  <p style={{ color: 'var(--text-secondary)' }}>{t('no_webhooks_permission_hint')}</p>
+                </div>
+              ) : (
+                <>
+                  {showCreateWebhook && (
+                    <div className="card" style={{ marginBottom: '1.5rem', padding: '1.5rem' }}>
+                      <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '1rem' }}>{t('new_webhook')}</h3>
+
+                      <div className="form-group">
+                        <label className="form-label">{t('webhook_url')}</label>
+                        <input
+                          type="url"
+                          className="form-input"
+                          value={newWebhookUrl}
+                          onChange={e => setNewWebhookUrl(e.target.value)}
+                          placeholder="https://example.com/hooks/hornero"
+                        />
+                        {newWebhookUrl.trim() && !webhookUrlValid && (
+                          <p className="form-hint" style={{ color: 'var(--danger)' }}>{t('webhook_url_invalid')}</p>
+                        )}
+                      </div>
+
+                      <div className="form-group" style={{ marginTop: '1rem' }}>
+                        <label className="form-label">{t('webhook_table')}</label>
+                        <select
+                          className="form-select"
+                          value={newWebhookTable}
+                          onChange={e => setNewWebhookTable(e.target.value)}
+                        >
+                          <option value="">{t('select_table_placeholder')}</option>
+                          {tables.map(tbl => (
+                            <option key={tbl.id} value={tbl.id}>{tbl.name}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="form-group" style={{ marginTop: '1rem' }}>
+                        <label className="form-label">{t('webhook_event')}</label>
+                        <select
+                          className="form-select"
+                          value={newWebhookEvent}
+                          onChange={e => setNewWebhookEvent(e.target.value)}
+                        >
+                          {WEBHOOK_EVENT_TYPES.map(type => (
+                            <option key={type} value={type}>{t(`webhook_event_${type}`)}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="form-group" style={{ marginTop: '1rem' }}>
+                        <label className="form-label">{t('webhook_client_state')}</label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          value={newWebhookClientState}
+                          onChange={e => setNewWebhookClientState(e.target.value)}
+                          placeholder={t('webhook_client_state_placeholder')}
+                        />
+                        <p className="form-hint" style={{ marginTop: '0.25rem' }}>{t('webhook_client_state_hint')}</p>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1.5rem' }}>
+                        <Button variant="secondary" onClick={() => setShowCreateWebhook(false)}>{t('cancel')}</Button>
+                        <Button
+                          onClick={handleCreateWebhook}
+                          loading={savingWebhook}
+                          disabled={!newWebhookUrl.trim() || !newWebhookTable || !webhookUrlValid}
+                        >
+                          {t('create')}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {webhooks.length === 0 ? (
+                    <div className="empty-state">
+                      <div className="empty-icon"><LinkIcon width="2rem" height="2rem" /></div>
+                      <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>{t('no_webhooks')}</h3>
+                      <p style={{ color: 'var(--text-secondary)' }}>{t('create_webhook_hint')}</p>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      {webhooks.map(hook => (
+                        <div key={hook.id} className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 700 }}>{webhookTableName(hook.resource)}</div>
+                            <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {hook.notification_url}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <Badge variant="primary">
+                              {t(`webhook_event_${hook.change_type}`, { defaultValue: hook.change_type })}
+                            </Badge>
+                            <button
+                              onClick={() => deleteWebhook(hook.id)}
+                              className="btn btn-ghost btn-sm"
+                              style={{ color: 'var(--danger)' }}
+                              title={t('delete_webhook')}
+                              aria-label={t('delete_webhook')}
+                              disabled={!canManageWebhooks}
+                            >
+                              <Trash width="1rem" height="1rem" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* ── Delivery history ── */}
+                  <div style={{ marginTop: '2.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border-light)' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1rem', gap: '1rem', flexWrap: 'wrap' }}>
+                      <div>
+                        <h3 style={{ fontSize: '1.125rem', fontWeight: 700 }}>{t('webhook_delivery_history')}</h3>
+                        <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>{t('webhook_delivery_history_desc')}</p>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                        <select
+                          className="form-select"
+                          style={{ height: 'auto', padding: '0.375rem 0.5rem' }}
+                          value={webhookEventFilter}
+                          onChange={e => setWebhookEventFilter(e.target.value)}
+                          aria-label={t('webhook_delivery_status')}
+                        >
+                          <option value="">{t('webhook_filter_all')}</option>
+                          <option value="failed">{t('webhook_filter_failed')}</option>
+                          <option value="pending">{t('webhook_filter_pending')}</option>
+                          <option value="completed">{t('webhook_filter_completed')}</option>
+                        </select>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={fetchWebhookEvents}
+                          title={t('refresh')}
+                          aria-label={t('refresh')}
+                        >
+                          <Refresh width="1rem" height="1rem" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {webhookEventsError ? (
+                      <div className="empty-state">
+                        <div className="empty-icon"><LinkIcon width="2rem" height="2rem" /></div>
+                        <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>{t('webhook_events_load_error')}</h3>
+                      </div>
+                    ) : webhookEventsLoading && webhookEvents.length === 0 ? (
+                      <div style={{ display: 'flex', justifyContent: 'center', padding: '1.5rem 0' }}>
+                        <div className="loading-spinner" />
+                      </div>
+                    ) : webhookEvents.length === 0 ? (
+                      <div className="empty-state">
+                        <div className="empty-icon"><LinkIcon width="2rem" height="2rem" /></div>
+                        <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>{t('webhook_no_events')}</h3>
+                      </div>
+                    ) : (
+                      <div className="table-container" style={{ overflowX: 'auto' }}>
+                        <table className="table">
+                          <thead>
+                            <tr>
+                              <th>{t('webhook_delivery_status')}</th>
+                              <th>{t('webhook_attempts')}</th>
+                              <th>{t('webhook_http_code')}</th>
+                              <th>{t('webhook_last_error')}</th>
+                              <th>{t('webhook_last_attempt')}</th>
+                              <th style={{ width: '110px' }}></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {webhookEvents.map(event => {
+                              const isFailed = String(event.status || '').toLowerCase() === 'failed'
+                              return (
+                                <tr key={event.id}>
+                                  <td>
+                                    <Badge variant={webhookEventVariant(event.status)}>
+                                      {webhookEventStatus(event.status)}
+                                    </Badge>
+                                  </td>
+                                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>
+                                    {event.attempts ?? 0} / {event.max_attempts ?? '—'}
+                                  </td>
+                                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>
+                                    {event.last_status_code ?? '—'}
+                                  </td>
+                                  <td style={{ fontSize: '0.8125rem', maxWidth: '18rem', wordBreak: 'break-word' }}>
+                                    {event.last_error || '—'}
+                                  </td>
+                                  <td style={{ whiteSpace: 'nowrap', fontSize: '0.8125rem' }}>
+                                    {formatTimestamp(event.last_attempt_at || event.created_at)}
+                                  </td>
+                                  <td>
+                                    {isFailed && (
+                                      <button
+                                        className="btn btn-secondary btn-sm"
+                                        onClick={() => handleRetryWebhookEvent(event.id)}
+                                        disabled={retryingEventId === event.id}
+                                        title={t('webhook_retry')}
+                                        aria-label={t('webhook_retry')}
+                                      >
+                                        {retryingEventId === event.id ? t('webhook_retrying') : t('webhook_retry')}
+                                      </button>
+                                    )}
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <div>
@@ -520,6 +1112,7 @@ export default function Settings() {
                           onClick={() => handleRotateKey(key.id, key.name)}
                           className="btn btn-ghost btn-sm"
                           title={t('rotate_key')}
+                          aria-label={t('rotate_key')}
                         >
                           <svg width="1rem" height="1rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                         </button>
@@ -527,6 +1120,7 @@ export default function Settings() {
                           onClick={() => openKeySettings(key)}
                           className="btn btn-ghost btn-sm"
                           title={t('edit_key_settings')}
+                          aria-label={t('edit_key_settings')}
                         >
                           <SettingsIcon width="1rem" height="1rem" />
                         </button>
@@ -534,6 +1128,8 @@ export default function Settings() {
                           onClick={() => deleteAPIKey(key.id)}
                           className="btn btn-ghost btn-sm"
                           style={{ color: 'var(--danger)' }}
+                          title={t('confirm_delete_api_key')}
+                          aria-label={t('confirm_delete_api_key')}
                         >
                           <Trash width="1rem" height="1rem" />
                         </button>

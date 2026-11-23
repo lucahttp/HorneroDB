@@ -49,7 +49,15 @@
       "name": "Estado",
       "slug": "estado",
       "field_type": "select",
-      "meta": { "options": ["Planeado", "En Progreso", "En Revisión", "Completado", "Cancelado"] },
+      "meta": {
+        "choices": [
+          { "value": "planeado", "label": "Planeado" },
+          { "value": "en_progreso", "label": "En Progreso" },
+          { "value": "en_revision", "label": "En Revisión" },
+          { "value": "completado", "label": "Completado" },
+          { "value": "cancelado", "label": "Cancelado" }
+        ]
+      },
       "order_index": 1
     },
     {
@@ -94,7 +102,14 @@
       "name": "Estado",
       "slug": "estado",
       "field_type": "select",
-      "meta": { "options": ["Pendiente", "En Progreso", "Bloqueado", "Hecho"] },
+      "meta": {
+        "choices": [
+          { "value": "pendiente", "label": "Pendiente" },
+          { "value": "en_progreso", "label": "En Progreso" },
+          { "value": "bloqueado", "label": "Bloqueado" },
+          { "value": "hecho", "label": "Hecho" }
+        ]
+      },
       "order_index": 1
     },
     {
@@ -103,7 +118,14 @@
       "name": "Prioridad",
       "slug": "prioridad",
       "field_type": "select",
-      "meta": { "options": ["Baja", "Media", "Alta", "Urgente"] },
+      "meta": {
+        "choices": [
+          { "value": "baja", "label": "Baja" },
+          { "value": "media", "label": "Media" },
+          { "value": "alta", "label": "Alta" },
+          { "value": "urgente", "label": "Urgente" }
+        ]
+      },
       "order_index": 2
     },
     {
@@ -139,8 +161,42 @@
       "name": "Rol",
       "slug": "rol",
       "field_type": "select",
-      "meta": { "options": ["Developer", "Designer", "PM", "QA", "DevOps"] },
+      "meta": {
+        "choices": [
+          { "value": "developer", "label": "Developer" },
+          { "value": "designer", "label": "Designer" },
+          { "value": "pm", "label": "PM" },
+          { "value": "qa", "label": "QA" },
+          { "value": "devops", "label": "DevOps" }
+        ]
+      },
       "order_index": 2
+    },
+    {
+      "id": "22222222-0003-0003-0003-000000000013",
+      "table_id": "11111111-0003-0003-0003-000000000002",
+      "name": "Proyecto",
+      "slug": "proyecto_id",
+      "field_type": "relation",
+      "meta": {
+        "target_table": "proyectos",
+        "display_column": "nombre",
+        "cardinality": "one"
+      },
+      "order_index": 4
+    },
+    {
+      "id": "22222222-0003-0003-0003-000000000014",
+      "table_id": "11111111-0003-0003-0003-000000000002",
+      "name": "Responsable",
+      "slug": "equipo_id",
+      "field_type": "relation",
+      "meta": {
+        "target_table": "equipo",
+        "display_column": "nombre",
+        "cardinality": "one"
+      },
+      "order_index": 5
     }
   ],
   "roles": [
@@ -148,9 +204,16 @@
       "id": "33333333-0003-0003-0003-000000000001",
       "workspace_id": "00000000-0000-0000-0000-000000000000",
       "name": "admin",
-      "description": "Acceso completo a proyectos y configuración",
+      "description": "Acceso completo a proyectos, tareas y configuración del workspace",
       "permissions": {
-        "__system__": { "tables": "manage", "roles": "manage", "api_keys": "manage" },
+        "__system__": {
+          "tables": "manage",
+          "roles": "manage",
+          "api_keys": "manage",
+          "webhooks": "manage",
+          "settings": "manage",
+          "mcp": "manage"
+        },
         "proyectos": { "create": "all", "read": "all", "update": "all", "delete": "all" },
         "tareas": { "create": "all", "read": "all", "update": "all", "delete": "all" },
         "equipo": { "create": "all", "read": "all", "update": "all", "delete": "all" }
@@ -161,11 +224,52 @@
       "id": "33333333-0003-0003-0003-000000000002",
       "workspace_id": "00000000-0000-0000-0000-000000000000",
       "name": "Miembro",
-      "description": "Puede ver proyectos y gestionar sus tareas",
+      "description": "Consulta los proyectos, gestiona sus propias tareas y solo ve los datos del equipo que necesita",
       "permissions": {
-        "proyectos": { "create": "none", "read": "all", "update": "none", "delete": "none" },
-        "tareas": { "create": "all", "read": "all", "update": "own", "delete": "none" },
-        "equipo": { "create": "none", "read": "all", "update": "none", "delete": "none" }
+        "__system__": {
+          "tables": "none",
+          "roles": "none",
+          "api_keys": "none",
+          "webhooks": "none",
+          "settings": "none",
+          "mcp": "none"
+        },
+        "proyectos": {
+          "create": "none",
+          "read": "all",
+          "update": "none",
+          "delete": "none",
+          "columns": {
+            "read": ["nombre", "estado", "fecha_inicio", "fecha_fin", "descripcion"],
+            "create": [],
+            "update": [],
+            "delete": []
+          }
+        },
+        "tareas": {
+          "create": "own",
+          "read": "own",
+          "update": "own",
+          "delete": "none",
+          "columns": {
+            "read": ["titulo", "estado", "prioridad", "vencimiento", "proyecto_id", "equipo_id"],
+            "create": ["titulo", "estado", "prioridad", "vencimiento", "proyecto_id"],
+            "update": ["titulo", "estado", "prioridad", "vencimiento"],
+            "delete": []
+          }
+        },
+        "equipo": {
+          "create": "none",
+          "read": "all",
+          "update": "none",
+          "delete": "none",
+          "columns": {
+            "read": ["nombre", "rol"],
+            "create": [],
+            "update": [],
+            "delete": []
+          }
+        }
       },
       "is_default": true
     }

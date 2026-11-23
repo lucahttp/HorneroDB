@@ -33,10 +33,20 @@ func SanitizeSlug(name string) string {
 	return slug
 }
 
+// MaxTableSlugLength caps table slugs at 21 bytes so physical names
+// ("data_" + 36-char UUID + "_" + slug = 42 + len(slug)) never exceed
+// PostgreSQL's 63-byte NAMEDATALEN identifier limit and silently collide.
+const MaxTableSlugLength = 21
+
 // ValidateSlug checks if a slug is valid
 func ValidateSlug(slug string) bool {
 	// Must start with letter, then only alphanumeric and underscores
 	return regexp.MustCompile(`^[a-z][a-z0-9_]*$`).MatchString(slug)
+}
+
+// ValidateTableSlug checks format and PostgreSQL 63-byte physical table name safety.
+func ValidateTableSlug(slug string) bool {
+	return len(slug) > 0 && len(slug) <= MaxTableSlugLength && ValidateSlug(slug)
 }
 
 // ValidateTableName validates that a workspaceID and slug are safe for SQL
@@ -47,9 +57,9 @@ func ValidateTableName(workspaceID, slug string) (string, error) {
 		return "", fmt.Errorf("invalid workspace_id format")
 	}
 
-	// Validate slug
-	if !ValidateSlug(slug) {
-		return "", fmt.Errorf("invalid slug format")
+	// Validate slug format and length (PostgreSQL 63-byte identifier limit)
+	if !ValidateTableSlug(slug) {
+		return "", fmt.Errorf("invalid slug format or length (max %d chars)", MaxTableSlugLength)
 	}
 
 	// Build table name
@@ -119,18 +129,38 @@ func CreateTable(c *gin.Context) {
 		return
 	}
 
-	// If slug not provided, generate from name
+	// If slug not provided, generate from name; if provided explicitly, validate raw input
+	// so malicious payloads are rejected with 400 rather than silently mangled.
 	slug := input.Slug
 	if slug == "" {
 		slug = SanitizeSlug(input.Name)
-	} else {
-		// Validate provided slug
-		slug = SanitizeSlug(slug)
+		if len(slug) > MaxTableSlugLength {
+			slug = slug[:MaxTableSlugLength]
+		}
 	}
 
-	// Validate slug is safe
-	if !ValidateSlug(slug) {
-		response.ValidationError(c, "invalid slug: must start with letter, only alphanumeric and underscores")
+	// Validate slug is safe and fits PostgreSQL's 63-byte physical identifier limit
+	if !ValidateTableSlug(slug) {
+		response.ValidationError(c, fmt.Sprintf("invalid slug: must start with a lowercase letter, contain only [a-z0-9_], and be at most %d characters", MaxTableSlugLength))
+		return
+	}
+
+	// P0-10: a (workspace_id, slug) pair must be unique. Check before creating
+	// anything so we never leave a half-created table behind.
+	var existing int64
+	if err := database.DB.Table("_hornero_tables").
+		Where("workspace_id = ? AND slug = ?", wsID, slug).
+		Count(&existing).Error; err != nil {
+		slog.Error("failed to check table slug conflict",
+			"error", err,
+			"workspace_id", workspaceID,
+			"slug", slug,
+		)
+		response.DatabaseError(c, err, "creating table")
+		return
+	}
+	if existing > 0 {
+		response.ConflictError(c, "A table with this slug already exists")
 		return
 	}
 
@@ -145,13 +175,13 @@ func CreateTable(c *gin.Context) {
 			return err
 		}
 
-		// Validate and build safe table name
-		safeTableName, err := ValidateTableName(workspaceID, slug)
+		// Validate and build safe (quoted) table name
+		safeTableName, err := ValidateAndQuoteTableName(workspaceID, slug)
 		if err != nil {
 			return fmt.Errorf("invalid table name: %v", err)
 		}
 
-		createSQL := `CREATE TABLE IF NOT EXISTS "` + safeTableName + `" (
+		createSQL := `CREATE TABLE ` + safeTableName + ` (
 			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 			created_by VARCHAR(255),
 			created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -181,6 +211,7 @@ func CreateTable(c *gin.Context) {
 
 func GetTable(c *gin.Context) {
 	tableID := c.Param("table_id")
+	workspaceID := c.Param("workspace_id")
 	userID, err := middleware.GetUserIDSafe(c)
 	if err != nil {
 		response.UnauthorizedError(c)
@@ -189,7 +220,10 @@ func GetTable(c *gin.Context) {
 
 	var table metadata.Table
 
-	result := database.DB.Table("_hornero_tables").First(&table, "id = ?", tableID)
+	// P0-4: the table must belong to the workspace in the URL (IDOR).
+	result := database.DB.Table("_hornero_tables").
+		Where("id = ? AND workspace_id = ?", tableID, workspaceID).
+		First(&table)
 	if result.Error != nil {
 		if result.Error == gorm.ErrRecordNotFound {
 			response.NotFoundError(c, "table")
@@ -209,6 +243,7 @@ func GetTable(c *gin.Context) {
 
 func UpdateTable(c *gin.Context) {
 	tableID := c.Param("table_id")
+	workspaceID := c.Param("workspace_id")
 	userID, err := middleware.GetUserIDSafe(c)
 	if err != nil {
 		response.UnauthorizedError(c)
@@ -227,16 +262,62 @@ func UpdateTable(c *gin.Context) {
 		return
 	}
 
+	// P0-4: load the table scoped to the workspace (IDOR).
+	var table metadata.Table
+	if err := database.DB.Table("_hornero_tables").
+		Where("id = ? AND workspace_id = ?", tableID, workspaceID).
+		First(&table).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			response.NotFoundError(c, "table")
+			return
+		}
+		slog.Error("failed to fetch table",
+			"error", err,
+			"table_id", tableID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, err, "fetching table")
+		return
+	}
+
 	// Construir mapa solo con campos proporcionados
 	updates := make(map[string]interface{})
 	if input.Name != "" {
 		updates["name"] = input.Name
 	}
-	if input.Slug != "" {
-		updates["slug"] = input.Slug
-	}
 	if input.Description != "" {
 		updates["description"] = input.Description
+	}
+
+	// P0-10: a slug change implies renaming the PHYSICAL table. Never change
+	// the slug in metadata only, that would orphan the data table.
+	newSlug := ""
+	if input.Slug != "" {
+		if !ValidateTableSlug(input.Slug) {
+			response.ValidationError(c, fmt.Sprintf("invalid slug: must start with a lowercase letter, contain only [a-z0-9_], and be at most %d characters", MaxTableSlugLength))
+			return
+		}
+		newSlug = input.Slug
+		if newSlug != table.Slug {
+			// Check the new slug is free inside the workspace.
+			var existing int64
+			if err := database.DB.Table("_hornero_tables").
+				Where("workspace_id = ? AND slug = ? AND id <> ?", workspaceID, newSlug, tableID).
+				Count(&existing).Error; err != nil {
+				slog.Error("failed to check table slug conflict",
+					"error", err,
+					"workspace_id", workspaceID,
+					"slug", newSlug,
+				)
+				response.DatabaseError(c, err, "updating table")
+				return
+			}
+			if existing > 0 {
+				response.ConflictError(c, "A table with this slug already exists")
+				return
+			}
+			updates["slug"] = newSlug
+		}
 	}
 
 	if len(updates) == 0 {
@@ -244,19 +325,44 @@ func UpdateTable(c *gin.Context) {
 		return
 	}
 
-	result := database.DB.Table("_hornero_tables").Where("id = ?", tableID).Updates(updates)
-	if result.Error != nil {
+	err = database.DB.Transaction(func(tx *gorm.DB) error {
+		if newSlug != "" && newSlug != table.Slug {
+			oldName, err := ValidateAndQuoteTableName(workspaceID, table.Slug)
+			if err != nil {
+				return fmt.Errorf("invalid table name: %v", err)
+			}
+			newName, err := ValidateAndQuoteTableName(workspaceID, newSlug)
+			if err != nil {
+				return fmt.Errorf("invalid table name: %v", err)
+			}
+			if err := tx.Exec("ALTER TABLE " + oldName + " RENAME TO " + newName).Error; err != nil {
+				return err
+			}
+		}
+
+		result := tx.Table("_hornero_tables").
+			Where("id = ? AND workspace_id = ?", tableID, workspaceID).
+			Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
+		}
+		return nil
+	})
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			response.NotFoundError(c, "table")
+			return
+		}
 		slog.Error("failed to update table",
-			"error", result.Error,
+			"error", err,
 			"table_id", tableID,
 			"user_id", userID,
 		)
-		response.DatabaseError(c, result.Error, "updating table")
-		return
-	}
-
-	if result.RowsAffected == 0 {
-		response.NotFoundError(c, "table")
+		response.DatabaseError(c, err, "updating table")
 		return
 	}
 
@@ -265,6 +371,7 @@ func UpdateTable(c *gin.Context) {
 
 func DeleteTable(c *gin.Context) {
 	tableID := c.Param("table_id")
+	workspaceID := c.Param("workspace_id")
 	userID, err := middleware.GetUserIDSafe(c)
 	if err != nil {
 		response.UnauthorizedError(c)
@@ -274,19 +381,33 @@ func DeleteTable(c *gin.Context) {
 	var table metadata.Table
 
 	err = database.DB.Transaction(func(tx *gorm.DB) error {
-		// Get table info first to know its slug
-		if err := tx.Table("_hornero_tables").First(&table, "id = ?", tableID).Error; err != nil {
+		// P0-4: the table must belong to the workspace in the URL (IDOR).
+		if err := tx.Table("_hornero_tables").
+			Where("id = ? AND workspace_id = ?", tableID, workspaceID).
+			First(&table).Error; err != nil {
+			return err
+		}
+
+		// Drop the physical table - safe because the name is validated+quoted
+		safeTableName, err := ValidateAndQuoteTableName(workspaceID, table.Slug)
+		if err != nil {
+			return fmt.Errorf("invalid table name: %v", err)
+		}
+		if err := tx.Exec(`DROP TABLE IF EXISTS ` + safeTableName).Error; err != nil {
+			return err
+		}
+
+		// Delete the column metadata of that table (same transaction)
+		if err := tx.Table("_hornero_columns").
+			Where("table_id = ?", table.ID).
+			Delete(&metadata.Column{}).Error; err != nil {
 			return err
 		}
 
 		// Delete from metadata
-		if err := tx.Table("_hornero_tables").Delete(&metadata.Table{}, "id = ?", tableID).Error; err != nil {
-			return err
-		}
-
-		// Drop the physical table - safe because we got it from DB
-		safeTableName := "data_" + table.WorkspaceID.String() + "_" + table.Slug
-		if err := tx.Exec(`DROP TABLE IF EXISTS "` + safeTableName + `"`).Error; err != nil {
+		if err := tx.Table("_hornero_tables").
+			Where("id = ? AND workspace_id = ?", tableID, workspaceID).
+			Delete(&metadata.Table{}).Error; err != nil {
 			return err
 		}
 

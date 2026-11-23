@@ -92,16 +92,18 @@ export default function TopNavbar({ workspaceId }) {
           <div className="avatar" style={{ width: '1.85rem', height: '1.85rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {user?.email?.charAt(0).toUpperCase() || 'U'}
           </div>
-          <button onClick={logout} className="btn btn-ghost btn-sm" style={{ padding: '0.375rem 0.5rem' }} title={t('logout')}>
+          <button onClick={logout} className="btn btn-ghost btn-sm" style={{ padding: '0.375rem 0.5rem' }} title={t('logout')} aria-label={t('logout')}>
             <LogOut width="1rem" height="1rem" />
           </button>
         </div>
 
         {/* Mobile Menu Trigger */}
-        <button 
-          className="md:hidden btn btn-ghost btn-sm" 
+        <button
+          className="md:hidden btn btn-ghost btn-sm"
           onClick={() => setIsMenuOpen(!isMenuOpen)}
           style={{ padding: '0.35rem' }}
+          aria-label={t('menu')}
+          title={t('menu')}
         >
           {isMenuOpen ? <Xmark width="1.5rem" height="1.5rem" /> : <Menu width="1.5rem" height="1.5rem" />}
         </button>

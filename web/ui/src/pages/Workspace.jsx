@@ -5,16 +5,14 @@ import { motion } from 'framer-motion'
 import axios from 'axios'
 import { ClipboardCheck, Table2Columns, EditPencil, Trash, Network, ViewGrid } from 'iconoir-react'
 import { API_URL } from '../constants'
-import { useAuth } from '../context/AuthContext'
 import { Button } from '../components/index.jsx'
-import { notify } from '../components/Toast.jsx'
+import { notify } from '../components/toast.js'
 import TopNavbar from '../components/TopNavbar.jsx'
 import { SchemaEditor } from '../components/SchemaEditor.jsx'
 import { TableEditModal } from '../components/TableEditModal.jsx'
 import { TablePreviewModal } from '../components/TablePreviewModal.jsx'
 
 export default function Workspace() {
-  const { user, logout } = useAuth()
   const { workspaceId } = useParams()
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -51,7 +49,7 @@ export default function Workspace() {
     if (!newTableName.trim()) return
     setCreatingTable(true)
     try {
-      const res = await axios.post(`${API_URL}/workspaces/${wsId}/tables`, {
+      await axios.post(`${API_URL}/workspaces/${wsId}/tables`, {
         name: newTableName,
         slug: newTableName.toLowerCase().replace(/\s+/g, '_')
       })
@@ -297,7 +295,7 @@ export default function Workspace() {
                       onEditTable={setEditingTable}
                       onPreviewTable={setPreviewTable}
                       onCreateTable={async (name) => {
-                        const res = await axios.post(`${API_URL}/workspaces/${wsId}/tables`, {
+                        await axios.post(`${API_URL}/workspaces/${wsId}/tables`, {
                           name,
                           slug: name.toLowerCase().replace(/\s+/g, '_')
                         })
