@@ -477,3 +477,52 @@ func TestBaseURL_PrefersConfiguredPublicURL(t *testing.T) {
 		t.Fatalf("baseURL = %q, want the request host", got)
 	}
 }
+
+func TestToolsList_ListRecordsODataSchema(t *testing.T) {
+	srv := New(nil, nil)
+	resp := srv.handleToolsList(MCPRequest{ID: "test-id"})
+	if resp.Error != nil {
+		t.Fatalf("expected no error, got %v", resp.Error)
+	}
+
+	resultMap, ok := resp.Result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map result, got %T", resp.Result)
+	}
+
+	tools, ok := resultMap["tools"].([]map[string]interface{})
+	if !ok {
+		t.Fatalf("expected []map[string]interface{}, got %T", resultMap["tools"])
+	}
+
+	var listRecordsTool map[string]interface{}
+	for _, tool := range tools {
+		if tool["name"] == "list_records" {
+			listRecordsTool = tool
+			break
+		}
+	}
+
+	if listRecordsTool == nil {
+		t.Fatalf("tool list_records not found in tools/list")
+	}
+
+	schema, ok := listRecordsTool["inputSchema"].(InputSchema)
+	if !ok {
+		t.Fatalf("expected InputSchema, got %T", listRecordsTool["inputSchema"])
+	}
+
+	props := schema.Properties
+	if _, ok := props["filter"]; !ok {
+		t.Errorf("expected 'filter' property in list_records schema")
+	}
+	if _, ok := props["orderby"]; !ok {
+		t.Errorf("expected 'orderby' property in list_records schema")
+	}
+	if _, ok := props["select"]; !ok {
+		t.Errorf("expected 'select' property in list_records schema")
+	}
+	if _, ok := props["expand"]; !ok {
+		t.Errorf("expected 'expand' property in list_records schema")
+	}
+}

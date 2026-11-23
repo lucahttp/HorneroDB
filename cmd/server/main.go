@@ -125,8 +125,8 @@ func main() {
 			return false
 		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Content-Length", "Accept-Encoding", "X-CSRF-Token", "Authorization", "X-Workspace-ID", "X-Setup-Token"},
-		ExposeHeaders:    []string{"Content-Length", "Mcp-Session-Id"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Content-Length", "Accept-Encoding", "X-CSRF-Token", "Authorization", "X-Workspace-ID", "X-Setup-Token", "MCP-Protocol-Version", "Mcp-Method", "Mcp-Name", "Mcp-Session-Id"},
+		ExposeHeaders:    []string{"Content-Length", "WWW-Authenticate", "MCP-Protocol-Version", "Mcp-Session-Id"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
@@ -148,8 +148,20 @@ func main() {
 			return
 		}
 
-		// Skip check for workspace routes (WorkspaceSecurity will handle it)
+		// Skip check for non-API routes (static UI assets, index.html, etc.)
 		path := c.Request.URL.Path
+		if !strings.HasPrefix(path, "/api/") {
+			c.Next()
+			return
+		}
+
+		// Skip check for MCP and OAuth discovery routes (MCP handles auth per spec/Bearer token)
+		if path == "/api/v1/mcp" || strings.HasPrefix(path, "/api/v1/mcp/") || strings.HasPrefix(path, "/.well-known/") {
+			c.Next()
+			return
+		}
+
+		// Skip check for workspace routes (WorkspaceSecurity will handle it)
 		if strings.HasPrefix(path, "/api/v1/workspaces/") {
 			parts := strings.Split(path, "/")
 			// Ensure it's not the root /workspaces list (which is global), but a specific workspace like /workspaces/:id
@@ -376,10 +388,14 @@ func main() {
 		userRoutes.GET("/auth/qr", api.GetSystemLoginQR)
 
 		// === MCP (Model Context Protocol) ===
-		protected.GET("/mcp/sse", mcpRateLimit, mcpServer.HandleSSE)
-		protected.POST("/mcp/message", mcpRateLimit, mcpServer.HandleMessage)
-		// Streamable HTTP transport (MCP 2025-03-26) — preferred by Copilot Studio
-		protected.POST("/mcp/stream", mcpRateLimit, mcpServer.HandleStreamable)
+		protected.GET("/mcp/sse", mcpRateLimit, mcp.ProtectedResourceHeader(cfg.Server.PublicURL), mcpServer.HandleSSE)
+		protected.POST("/mcp/message", mcpRateLimit, mcp.ProtectedResourceHeader(cfg.Server.PublicURL), mcpServer.HandleMessage)
+		// Streamable HTTP transport (MCP 2025-03-26) — preferred by Copilot Studio / Claude Code
+		// RFC 9728: Add WWW-Authenticate header on 401 for MCP resources
+		protected.POST("/mcp/stream", mcpRateLimit, mcp.ProtectedResourceHeader(cfg.Server.PublicURL), mcpServer.HandleStreamable)
+		protected.GET("/mcp/stream", mcpRateLimit, mcp.ProtectedResourceHeader(cfg.Server.PublicURL), mcpServer.HandleStreamable)
+		protected.POST("/mcp", mcpRateLimit, mcp.ProtectedResourceHeader(cfg.Server.PublicURL), mcpServer.HandleStreamable)
+		protected.GET("/mcp", mcpRateLimit, mcp.ProtectedResourceHeader(cfg.Server.PublicURL), mcpServer.HandleStreamable)
 	}
 
 	// === MCP OpenAPI schema (public, for Power Apps custom connector import) ===
@@ -388,12 +404,18 @@ func main() {
 
 	// === MCP OAuth2 (Dynamic Client Registration per RFC 7591 / MCP spec) ===
 	oauthServer := &mcp.OAuthServer{
+		DB:        database.DB,
 		OIDCAuth:  api.GetOIDCAuth(),
 		JWTSecret: api.GetJWTSecret(),
 		PublicURL: cfg.Server.PublicURL,
 	}
 	// RFC 8414: Authorization Server Metadata – MCP clients fetch this first
 	r.GET("/.well-known/oauth-authorization-server", oauthServer.Discovery)
+
+	// RFC 9728: Protected Resource Metadata – MCP resource info for clients
+	protectedResourceHandler := mcp.NewProtectedResourceHandler(cfg.Server.PublicURL)
+	r.GET("/.well-known/oauth-protected-resource", protectedResourceHandler.Discovery)
+	r.GET("/.well-known/oauth-protected-resource/*path", protectedResourceHandler.Discovery)
 	v1.POST("/mcp/oauth/register", authRateLimit, oauthServer.RegisterClient)
 	v1.GET("/mcp/oauth/authorize", authRateLimit, oauthServer.Authorize)
 	v1.GET("/mcp/oauth/callback", authRateLimit, oauthServer.OIDCCallback)

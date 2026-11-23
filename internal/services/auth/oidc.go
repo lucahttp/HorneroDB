@@ -133,12 +133,20 @@ type TokenResponse struct {
 }
 
 func (o *OIDCAuth) ExchangeCode(ctx context.Context, code, codeVerifier string) (*TokenResponse, error) {
+	return o.ExchangeCodeWithRedirect(ctx, code, codeVerifier, o.config.RedirectURL)
+}
+
+func (o *OIDCAuth) ExchangeCodeWithRedirect(ctx context.Context, code, codeVerifier, redirectURI string) (*TokenResponse, error) {
+	if redirectURI == "" {
+		redirectURI = o.config.RedirectURL
+	}
+
 	// Build the form body with url.Values so every value is properly escaped
 	// (string concatenation allowed injection of extra parameters).
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
 	form.Set("code", code)
-	form.Set("redirect_uri", o.config.RedirectURL)
+	form.Set("redirect_uri", redirectURI)
 	form.Set("client_id", o.config.ClientID)
 	form.Set("client_secret", o.config.ClientSecret)
 	if codeVerifier != "" {
@@ -162,11 +170,7 @@ func (o *OIDCAuth) ExchangeCode(ctx context.Context, code, codeVerifier string) 
 	}
 	defer resp.Body.Close()
 
-	// Debug: print response status (body contains sensitive tokens, don't log it)
 	body, _ := io.ReadAll(resp.Body)
-	// SECURITY: Never log token response body as it contains sensitive credentials
-	// fmt.Printf("DEBUG - Token response status: %d\n", resp.StatusCode)
-	// fmt.Printf("DEBUG - Token response body: %s\n", string(body))
 
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("token exchange failed with status %d: %s", resp.StatusCode, string(body))
@@ -438,11 +442,12 @@ func (o *OIDCAuth) HandleCallbackAndRedirect(c *gin.Context, jwtSecret, redirect
 	return nil
 }
 
-// ExchangeCodeForAppJWT exchanges an OIDC authorization code for a HorneroDB app JWT.
-// Unlike HandleCallbackAndRedirect, this does not write to gin.Context – it just returns
-// the signed token string so callers can process or forward it themselves.
 func (o *OIDCAuth) ExchangeCodeForAppJWT(ctx context.Context, code, codeVerifier, jwtSecret string) (string, error) {
-	tokenResp, err := o.ExchangeCode(ctx, code, codeVerifier)
+	return o.ExchangeCodeForAppJWTWithRedirect(ctx, code, codeVerifier, o.config.RedirectURL, jwtSecret)
+}
+
+func (o *OIDCAuth) ExchangeCodeForAppJWTWithRedirect(ctx context.Context, code, codeVerifier, redirectURI, jwtSecret string) (string, error) {
+	tokenResp, err := o.ExchangeCodeWithRedirect(ctx, code, codeVerifier, redirectURI)
 	if err != nil {
 		return "", fmt.Errorf("failed to exchange code: %w", err)
 	}

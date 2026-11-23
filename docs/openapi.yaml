@@ -1133,8 +1133,11 @@ paths:
         Requires the `tables` permission.
 
         `field_type` must be one of `text`, `long_text`, `number`, `integer`,
-        `boolean`, `date`, `datetime`, `email`, `url`, `attachment`, `select`,
-        `relation`, `json`.
+        `float`, `boolean`, `date`, `datetime`, `email`, `url`, `attachment`,
+        `select`, `relation`, `json`, `autonumber`.
+
+        `autonumber` generates sequential formatted IDs (`VARCHAR(255)`) with
+        `meta` `{ "prefix": "PED-", "digits": 3, "current_value": 1 }`.
 
         `select` and `relation` columns accept a `cardinality` of `one`
         (default) or `many`.
@@ -1159,7 +1162,7 @@ paths:
                 slug: { type: string, example: estado }
                 field_type:
                   type: string
-                  enum: [text, long_text, number, integer, boolean, date, datetime, email, url, attachment, select, relation, json]
+                  enum: [text, long_text, number, integer, float, boolean, date, datetime, email, url, attachment, select, relation, json, autonumber]
                 order_index: { type: integer, default: 0 }
                 meta: { $ref: "#/components/schemas/ColumnMeta" }
       responses:

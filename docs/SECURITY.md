@@ -35,17 +35,21 @@ The table below is the reference for this document. Anything not listed as imple
 
 ## Authentication
 
+HorneroDB has an intentionally minimal and robust security design with **two official authentication methods**:
+
 ### Methods Supported
 
 | Method | Use Case | Implementation |
 |--------|----------|----------------|
-| **JWT** | Web UI users | HMAC-SHA256 signed tokens |
-| **API Keys** | Service accounts | SHA-256 hashed, prefix `key_` |
-| **OIDC/SSO** | Enterprise users | Pocket ID (tested). Entra ID and Keycloak connectors land in v1.1 |
+| **OIDC/SSO** | Human Users (Web UI & MCP OAuth) | External Identity Provider (Pocket ID tested; Entra ID and Keycloak planned for v1.1). Issues signed HMAC-SHA256 JWT session cookies/tokens upon login. |
+| **API Keys** | Programmatic, Services & AI Agents | SHA-256 hashed Bearer tokens (prefix `key_`) with origin, role, and rate-limit restrictions. |
 
 > **Passkeys**: HorneroDB does not implement WebAuthn/passkeys. If you need them, use the passkey support of your identity provider (Pocket ID and other OIDC providers) — the login happens there, not in HorneroDB.
 
-### JWT Configuration
+> [!NOTE]
+> JWT is the internal session token format created upon successful OIDC/SSO authentication. It is not a separate authentication option.
+
+### OIDC & JWT Session Configuration
 
 **Development**:
 - If `JWT_SECRET` is not set, a random 32-character secret is auto-generated

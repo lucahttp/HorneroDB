@@ -419,5 +419,6 @@
     "webhook_events_load_error": "无法加载投递历史",
     "aria_close_modal": "关闭",
     "refresh": "刷新",
-    "menu": "菜单"
+    "menu": "菜单",
+    "field_autonumber": "自动编号 / ID"
 }

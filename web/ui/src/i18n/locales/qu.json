@@ -419,5 +419,6 @@
     "webhook_events_load_error": "Mana atinanchu qillqarayta qhawayta",
     "aria_close_modal": "Wichqay",
     "refresh": "Kichay",
-    "menu": "Akllana"
+    "menu": "Akllana",
+    "field_autonumber": "Kikinmanta Yupay / ID"
 }

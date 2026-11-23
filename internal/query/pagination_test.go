@@ -171,7 +171,7 @@ func TestStandardPaginationFlow(t *testing.T) {
 			expectedOffset: 20,
 		},
 		{
-			name:           "Large limit capped",
+			name:           "Large limit below max",
 			queryString:    "?limit=500&offset=0",
 			expectedLimit:  500, // below MaxLimit (1000), not capped
 			expectedOffset: 0,

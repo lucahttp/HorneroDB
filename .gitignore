@@ -213,3 +213,13 @@ pocketid-tree.json
 server
 main
 *.local.sh
+
+postgres-data
+.DS_Store
+*.DS_Store
+
+# binario compilado
+hornerodb-linux
+hornerodb-linux-*
+hornerodb-darwin
+hornerodb-darwin-*

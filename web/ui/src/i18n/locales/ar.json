@@ -419,5 +419,6 @@
     "webhook_events_load_error": "تعذر تحميل سجل التسليم",
     "aria_close_modal": "إغلاق",
     "refresh": "تحديث",
-    "menu": "القائمة"
+    "menu": "القائمة",
+    "field_autonumber": "ترقيم تلقائي / المعرف"
 }

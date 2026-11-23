@@ -419,5 +419,6 @@
     "webhook_events_load_error": "Ndaikatúi ojehú jehaʼu reko",
     "aria_close_modal": "Embotai",
     "refresh": "Empotĩ",
-    "menu": "Tenda rejapóva"
+    "menu": "Tenda rejapóva",
+    "field_autonumber": "Papapy ijeheguíva / ID"
 }

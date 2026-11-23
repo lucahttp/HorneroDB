@@ -93,7 +93,7 @@ func NewService() *Service {
 }
 
 // ListOptions agrupa los parámetros de listado: paginación, expansión,
-// búsqueda de texto libre, ordenamiento y filtros.
+// búsqueda de texto libre, ordenamiento, filtros y consulta OData opcional.
 type ListOptions struct {
 	Limit   int
 	Offset  int
@@ -101,27 +101,37 @@ type ListOptions struct {
 	Search  string
 	Sorts   []query.SortClause
 	Filters []query.FilterCondition
+	OData   *query.ODataQuery
 }
 
-// ListRecords devuelve los registros que coinciden con los parámetros de
-// consulta, el total y un error.
+// ListRecords devuelve los registros que coinciden con la consulta OData, el total y un error.
 //
-// Es un wrapper de compatibilidad: delega en ListRecordsWithQuery para que los
-// callers existentes (MCP, etc.) conserven exactamente el mismo contrato.
-func (s *Service) ListRecords(ctx RequestContext, limit int, offset int, expandParam string) ([]map[string]interface{}, int, error) {
-	return s.ListRecordsWithQuery(ctx, ListOptions{
-		Limit:  limit,
-		Offset: offset,
-		Expand: expandParam,
-	})
+// Delega en ListRecordsWithQuery para aplicar la misma validación de nombre de
+// tabla, CLS sobre columnas reales, RLS y expansión segura de relaciones.
+func (s *Service) ListRecords(ctx RequestContext, odata *query.ODataQuery) ([]map[string]interface{}, int, error) {
+	opts := ListOptions{
+		Limit:  50,
+		Offset: 0,
+		OData:  odata,
+	}
+	if odata != nil {
+		if odata.Top > 0 {
+			opts.Limit = odata.Top
+		}
+		if odata.Skip >= 0 {
+			opts.Offset = odata.Skip
+		}
+		opts.Expand = odata.Expand
+	}
+	return s.ListRecordsWithQuery(ctx, opts)
 }
 
 // ListRecordsWithQuery devuelve los registros que coinciden con los filtros,
-// la búsqueda y el ordenamiento indicados, el total y un error.
+// la búsqueda, el ordenamiento y las opciones OData indicados, el total y un error.
 //
 // Seguridad:
 //
-//   - toda columna usada en un filtro, en un ORDER BY o en la búsqueda debe
+//   - toda columna usada en un filtro, en un ORDER BY, en un $select o en la búsqueda debe
 //     existir realmente en la tabla Y ser legible por el rol (CLS). Si no lo
 //     es se devuelve un error de validación: nunca se ignora en silencio
 //     (eso convertiría un filtro inválido en un oráculo sobre los datos);
@@ -146,14 +156,28 @@ func (s *Service) ListRecordsWithQuery(ctx RequestContext, opts ListOptions) ([]
 	// la column level security.
 	readableCols := buildReadableColumns(columns, allowedColumns)
 
+	// Validar que todas las columnas referenciadas por OData existan en la tabla y sean legibles (CLS).
+	if opts.OData != nil {
+		for _, col := range opts.OData.ReferencedColumns {
+			if !readableCols[col] {
+				return nil, 0, newValidationError("column %q does not exist or is not readable", col)
+			}
+		}
+	}
+
 	filterSQL, filterArgs, err := buildFilterClause(opts.Filters, readableCols)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	orderSQL, err := buildOrderClause(opts.Sorts, readableCols)
-	if err != nil {
-		return nil, 0, err
+	orderSQL := ""
+	if len(opts.Sorts) > 0 || opts.OData == nil || opts.OData.OrderBy == "" {
+		orderSQL, err = buildOrderClause(opts.Sorts, readableCols)
+		if err != nil {
+			return nil, 0, err
+		}
+	} else {
+		orderSQL = opts.OData.OrderBy
 	}
 
 	dbQuery := database.DB.Table(ctx.TableName)
@@ -165,6 +189,10 @@ func (s *Service) ListRecordsWithQuery(ctx RequestContext, opts ListOptions) ([]
 
 	if filterSQL != "" {
 		dbQuery = dbQuery.Where(filterSQL, filterArgs...)
+	}
+
+	if opts.OData != nil && opts.OData.FilterSQL != "" {
+		dbQuery = dbQuery.Where(opts.OData.FilterSQL, opts.OData.FilterArgs...)
 	}
 
 	// Búsqueda de texto libre sobre columnas de texto legibles.
@@ -185,8 +213,24 @@ func (s *Service) ListRecordsWithQuery(ctx RequestContext, opts ListOptions) ([]
 		return nil, 0, err
 	}
 
+	if opts.OData != nil && len(opts.OData.Select) > 0 {
+		quotedSelect := make([]string, len(opts.OData.Select))
+		for i, col := range opts.OData.Select {
+			quotedSelect[i] = quoteIdentifier(col)
+		}
+		dbQuery = dbQuery.Select(quotedSelect)
+	}
+
 	// Paginación (mismo comportamiento histórico: siempre se aplican).
-	dbQuery = dbQuery.Offset(opts.Offset).Limit(opts.Limit)
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	offset := opts.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	dbQuery = dbQuery.Offset(offset).Limit(limit)
 
 	if orderSQL != "" {
 		dbQuery = dbQuery.Order(orderSQL)
@@ -198,8 +242,12 @@ func (s *Service) ListRecordsWithQuery(ctx RequestContext, opts ListOptions) ([]
 	}
 
 	// Expand relation columns
-	if opts.Expand != "" && len(records) > 0 {
-		s.expandRecords(ctx, records, opts.Expand)
+	expandParam := opts.Expand
+	if expandParam == "" && opts.OData != nil {
+		expandParam = opts.OData.Expand
+	}
+	if expandParam != "" && len(records) > 0 {
+		s.expandRecords(ctx, records, expandParam)
 	}
 
 	if allowedColumns != nil {
@@ -433,6 +481,7 @@ func (s *Service) CreateRecord(ctx RequestContext, input map[string]interface{})
 	if input == nil {
 		input = map[string]interface{}{}
 	}
+	input = s.filterDefinedColumns(ctx.Table.ID, input)
 
 	writableColumns, _ := s.permSvc.GetColumnsForOperation(ctx.WsID, ctx.RoleName, ctx.Table.Slug, "create")
 	if writableColumns != nil {
@@ -444,6 +493,10 @@ func (s *Service) CreateRecord(ctx RequestContext, input map[string]interface{})
 
 	if err := s.validateTypedFields(ctx, input); err != nil {
 		return nil, newValidationError("%s", err.Error())
+	}
+
+	if err := s.generateAutonumberFields(ctx.Table.ID, input); err != nil {
+		return nil, err
 	}
 
 	now := time.Now().UTC()
@@ -653,6 +706,7 @@ func (s *Service) UpdateRecord(ctx RequestContext, recordID string, input map[st
 	if input == nil {
 		input = map[string]interface{}{}
 	}
+	input = s.filterDefinedColumns(ctx.Table.ID, input)
 
 	writableColumns, _ := s.permSvc.GetColumnsForOperation(ctx.WsID, ctx.RoleName, ctx.Table.Slug, "update")
 	if writableColumns != nil {
@@ -1224,4 +1278,92 @@ func (s *Service) filterInputColumns(input map[string]interface{}, allowedColumn
 		}
 	}
 	return filtered
+}
+
+func (s *Service) filterDefinedColumns(tableID uuid.UUID, input map[string]interface{}) map[string]interface{} {
+	cols, err := s.loadTableColumns(tableID)
+	if err != nil || len(cols) == 0 {
+		return input
+	}
+
+	validSlugs := make(map[string]bool)
+	for _, c := range cols {
+		validSlugs[c.Slug] = true
+	}
+	for _, sys := range []string{"id", "created_at", "updated_at", "created_by"} {
+		validSlugs[sys] = true
+	}
+
+	filtered := make(map[string]interface{})
+	for k, v := range input {
+		if validSlugs[k] {
+			filtered[k] = v
+		}
+	}
+	return filtered
+}
+
+func (s *Service) generateAutonumberFields(tableID uuid.UUID, input map[string]interface{}) error {
+	cols, err := s.loadTableColumns(tableID)
+	if err != nil {
+		return err
+	}
+
+	for _, col := range cols {
+		if col.FieldType != "autonumber" {
+			continue
+		}
+		val, present := input[col.Slug]
+		if !present || val == nil || val == "" {
+			autoVal, err := s.generateNextAutonumber(col.ID)
+			if err != nil {
+				return fmt.Errorf("failed to generate autonumber for %s: %v", col.Slug, err)
+			}
+			input[col.Slug] = autoVal
+		}
+	}
+	return nil
+}
+
+func (s *Service) generateNextAutonumber(colID uuid.UUID) (string, error) {
+	var formattedVal string
+	err := database.DB.Transaction(func(tx *gorm.DB) error {
+		var col metadata.Column
+		if err := tx.Table("_hornero_columns").Set("gorm:query_option", "FOR UPDATE").First(&col, "id = ?", colID).Error; err != nil {
+			return err
+		}
+
+		meta := make(map[string]interface{})
+		if len(col.Meta) > 0 {
+			_ = json.Unmarshal(col.Meta, &meta)
+		}
+
+		prefix, _ := meta["prefix"].(string)
+		suffix, _ := meta["suffix"].(string)
+		digits := 3
+		if dFloat, ok := meta["digits"].(float64); ok && dFloat >= 0 {
+			digits = int(dFloat)
+		} else if dInt, ok := meta["digits"].(int); ok && dInt >= 0 {
+			digits = dInt
+		}
+
+		currentVal := 1
+		if cFloat, ok := meta["current_value"].(float64); ok && cFloat > 0 {
+			currentVal = int(cFloat)
+		} else if cInt, ok := meta["current_value"].(int); ok && cInt > 0 {
+			currentVal = cInt
+		}
+
+		if digits > 0 {
+			formattedVal = fmt.Sprintf("%s%0*d%s", prefix, digits, currentVal, suffix)
+		} else {
+			formattedVal = fmt.Sprintf("%s%d%s", prefix, currentVal, suffix)
+		}
+
+		meta["current_value"] = currentVal + 1
+		metaBytes, _ := json.Marshal(meta)
+		return tx.Table("_hornero_columns").Where("id = ?", colID).Update("meta", metadata.JSON(metaBytes)).Error
+	})
+
+	return formattedVal, err
 }

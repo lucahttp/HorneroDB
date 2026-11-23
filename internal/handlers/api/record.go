@@ -16,6 +16,16 @@ import (
 
 var dataService = data.NewService()
 
+func hasODataParams(c *gin.Context) bool {
+	q := c.Request.URL.Query()
+	for _, k := range []string{"$filter", "filter", "$orderby", "orderby", "$select", "select", "$top", "top", "$skip", "skip", "$expand"} {
+		if q.Get(k) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func ListRecords(c *gin.Context) {
 	ctx, ok := resolveTableContext(c, "read")
 	if !ok {
@@ -25,6 +35,40 @@ func ListRecords(c *gin.Context) {
 	pagination := query.ExtractPaginationParams(c)
 	listParams := query.ExtractListQueryParams(c)
 	expandParam := c.Query("expand")
+	limit := pagination.Limit
+	offset := pagination.Offset
+
+	var odataQuery *query.ODataQuery
+	if hasODataParams(c) {
+		allowedColumns, permErr := permService.GetColumnsForOperation(ctx.WsID, ctx.RoleName, ctx.Table.Slug, "read")
+		if permErr != nil {
+			slog.Error("failed to resolve column permissions", "error", permErr, "table_slug", c.Param("table_slug"), "user_id", ctx.UserID)
+			response.DatabaseError(c, permErr, "checking permissions")
+			return
+		}
+
+		var err error
+		odataQuery, err = query.ParseODataQuery(c.Request.URL.Query(), allowedColumns)
+		if err != nil {
+			if errors.Is(err, query.ErrColumnAccessDenied) {
+				response.Error(c, 403, response.ErrForbidden, err.Error())
+				return
+			}
+			response.ValidationError(c, err.Error())
+			return
+		}
+
+		q := c.Request.URL.Query()
+		if q.Get("$top") != "" || q.Get("top") != "" || q.Get("$limit") != "" {
+			limit = odataQuery.Top
+		}
+		if q.Get("$skip") != "" || q.Get("skip") != "" || q.Get("$offset") != "" {
+			offset = odataQuery.Skip
+		}
+		if expandParam == "" && odataQuery.Expand != "" {
+			expandParam = odataQuery.Expand
+		}
+	}
 
 	reqCtx := data.RequestContext{
 		WsID:        ctx.WsID,
@@ -36,12 +80,13 @@ func ListRecords(c *gin.Context) {
 	}
 
 	records, count, err := dataService.ListRecordsWithQuery(reqCtx, data.ListOptions{
-		Limit:   pagination.Limit,
-		Offset:  pagination.Offset,
+		Limit:   limit,
+		Offset:  offset,
 		Expand:  expandParam,
 		Search:  listParams.Search,
 		Sorts:   listParams.Sorts,
 		Filters: listParams.Filters,
+		OData:   odataQuery,
 	})
 	if err != nil {
 		// Un filtro/orden inválido (columna inexistente o no legible) es un
@@ -59,9 +104,9 @@ func ListRecords(c *gin.Context) {
 	// request: total count, applied window and whether more records exist.
 	response.SuccessWithMeta(c, records, map[string]interface{}{
 		"count":    count,
-		"limit":    pagination.Limit,
-		"offset":   pagination.Offset,
-		"has_more": pagination.Offset+len(records) < count,
+		"limit":    limit,
+		"offset":   offset,
+		"has_more": offset+len(records) < count,
 	})
 }
 

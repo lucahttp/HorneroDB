@@ -136,7 +136,7 @@ func CreateColumn(c *gin.Context) {
 
 	// Validate field type against whitelist
 	if !ValidateFieldType(input.FieldType) {
-		response.ValidationError(c, "invalid field_type: must be one of text, long_text, number, integer, boolean, date, datetime, email, url, attachment, select, relation, json")
+		response.ValidationError(c, "invalid field_type: must be one of text, long_text, number, integer, boolean, date, datetime, email, url, attachment, select, relation, json, autonumber")
 		return
 	}
 
@@ -285,7 +285,9 @@ func GetColumnSQL(fieldType string, meta metadata.JSON) string {
 	case "long_text":
 		return "TEXT"
 	case "number":
-		return "DECIMAL(10,2)"
+		return "NUMERIC"
+	case "float":
+		return "DOUBLE PRECISION"
 	case "integer":
 		return "INTEGER"
 	case "boolean":
@@ -312,6 +314,8 @@ func GetColumnSQL(fieldType string, meta metadata.JSON) string {
 		return "UUID"
 	case "json":
 		return "JSONB"
+	case "autonumber":
+		return "VARCHAR(255)"
 	default:
 		return ""
 	}
@@ -361,6 +365,7 @@ var ValidFieldTypes = map[string]bool{
 	"text":       true,
 	"long_text":  true,
 	"number":     true,
+	"float":      true,
 	"integer":    true,
 	"boolean":    true,
 	"date":       true,
@@ -371,6 +376,7 @@ var ValidFieldTypes = map[string]bool{
 	"select":     true,
 	"relation":   true,
 	"json":       true,
+	"autonumber": true,
 }
 
 // ValidateFieldType verifica si el tipo de campo es válido
@@ -417,6 +423,15 @@ func UpdateColumn(c *gin.Context) {
 		updates["name"] = input.Name
 	}
 	if input.Meta != nil {
+		if column.FieldType == "select" {
+			var metaMap map[string]interface{}
+			if err := json.Unmarshal(input.Meta, &metaMap); err == nil {
+				if err := validateSelectChoices(metaMap); err != nil {
+					response.ValidationError(c, err.Error())
+					return
+				}
+			}
+		}
 		updates["meta"] = input.Meta
 	}
 
@@ -514,6 +529,7 @@ func UpdateColumn(c *gin.Context) {
 		return
 	}
 
+	slog.Info("column updated", "column_id", columnID, "name", column.Name, "user_id", userID)
 	response.Success(c, map[string]interface{}{"message": "column updated"})
 }
 

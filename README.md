@@ -22,7 +22,7 @@ Your *vibecoded* app can get **production-grade security controls** — fine-gra
 
 HorneroDB is a **security-first, self-hosted** PostgreSQL backend: a REST API, an MCP server and reliable webhooks, with Dataverse-style permissions on top of plain PostgreSQL.
 
-* **BYOIdP Security (Bring Your Own Identity Provider)** — Modern authentication (SSO/OIDC) with your own identity provider. Your security shouldn't be locked behind an "Enterprise" plan. *OIDC is implemented and tested with [Pocket ID](https://pocket-id.org); Entra ID and Keycloak connectors are on the v1.1 roadmap. Passkeys/WebAuthn are **not** implemented yet — use your IdP's passkey support in the meantime.*
+* **BYOIdP & API Key Security** — Modern authentication (SSO/OIDC for humans, API Keys for programmatic access) with your own identity provider. Your security shouldn't be locked behind an "Enterprise" plan. *OIDC is implemented and tested with [Pocket ID](https://pocket-id.org); Entra ID and Keycloak connectors are on the v1.1 roadmap. Passkeys/WebAuthn are **not** implemented yet — use your IdP's passkey support in the meantime.*
 * **PostgreSQL at its core** — Rich data types and the flexibility of a professional relational database.
 * **Granular Permissions (APIs and Staff)** — Strict control for your APIs (for your public frontend or *customer-facing* AI agents) and for your users (business staff).
   * *Column-level security per operation* (control who reads, creates, updates, or deletes each field).
@@ -71,7 +71,7 @@ Test HorneroDB instantly using the Docker Playground:
 # Clone and prepare the environment
 cp .env.example .env
 
-# Start HorneroDB, PocketID, and PostgreSQL
+# Start the application
 docker-compose up -d
 ```
 
@@ -211,6 +211,16 @@ Being explicit about what exists today:
 | `own` | Rows whose `created_by` equals the current user | Visual custom conditions (e.g. `status = 'open' AND owner_team = 'X'`) |
 | `none` | No rows | — |
 
+### OData Query Support (Dataverse-style Filtering)
+
+HorneroDB natively supports Microsoft OData query options (`$filter`, `$orderby`, `$select`, `$top`, `$skip`, `$expand`):
+
+- **Filtering**: `GET /api/v1/workspaces/{ws}/data/{table}?$filter=comanda_id eq 'c-123' and status eq 'ready'`
+- **Functions**: `GET /api/v1/workspaces/{ws}/data/{table}?$filter=contains(name, 'pizza') or startswith(name, 'Emp')`
+- **Sorting**: `GET /api/v1/workspaces/{ws}/data/{table}?$orderby=created_at desc, price asc`
+- **Selection**: `GET /api/v1/workspaces/{ws}/data/{table}?$select=id,name,price`
+- **Security**: Column-Level Security (CLS) strictly whitelists permitted columns prior to SQL execution, preventing blind data inference.
+
 ---
 
 ## ⚙️ Security Configuration
@@ -296,6 +306,18 @@ The escape hatches exist for internal/trusted networks (for example the bundled 
 
 ---
 
+### Supported Data Types
+
+HorneroDB supports rich column data types mapped directly to PostgreSQL:
+* **Text / Long Text**: `VARCHAR(255)` / `TEXT`
+* **Numeric**: `NUMERIC` (number/financial), `INTEGER` (integers), `DOUBLE PRECISION` (float)
+* **Boolean & Dates**: `BOOLEAN`, `DATE`, `TIMESTAMPTZ`
+* **Web & Meta**: `VARCHAR(255)` (email), `VARCHAR(500)` (url), `JSONB` (json/attachments)
+* **Relations & Selects**: `UUID` / `UUID[]` (relations), `VARCHAR(100)` / `VARCHAR(100)[]` (select choices)
+* **Auto-Number / Auto-Sequence (`autonumber`)**: Atomic, thread-safe sequence IDs (`VARCHAR(255)`) with custom formatting (e.g., `PED-001`, `CMD-0042`, or plain numbers `1, 2, 3...`).
+
+---
+
 ## 🗺 Roadmap
 
 **Shipped (v1.0 GA)**
@@ -303,7 +325,8 @@ The escape hatches exist for internal/trusted networks (for example the bundled 
 * [x] OIDC Auth (tested with Pocket ID) + `HttpOnly` session cookie + `POST /auth/logout`
 * [x] Granular column-level permissions (CLS) + `__system__` permissions (`none`/`view`/`manage`/`all`)
 * [x] Row-level security by owner (`own` / `created_by`)
-* [x] Server-side filtering, sorting and search (`?filter`, `?order`, `?search`, CLS-safe) + atomic Bulk Create/Delete API
+* [x] Auto-number / Auto-increment sequential fields (`autonumber`)
+* [x] Server-side filtering, sorting and search (`?filter`, `?order`, `?search`, plus OData `$filter`/`$orderby`/`$select`/`$top`/`$skip`, CLS-safe) + atomic Bulk Create/Delete API
 * [x] Persistent audit trail (`_hornero_audit_log` + `GET /audit` + Activity UI)
 * [x] API key rate limiting (minute + hour windows) & domain restrictions
 * [x] MCP Server for AI Assistants (Streamable HTTP, SSE, stdio, OAuth2 PKCE S256 & strict workspace isolation)
@@ -344,7 +367,7 @@ Tu app *vibecodeada* puede obtener **controles de seguridad de nivel producción
 
 HorneroDB es un backend **self-hosted y security-first** sobre PostgreSQL: una API REST, un servidor MCP y webhooks confiables, con permisos estilo Dataverse sobre PostgreSQL puro.
 
-* **Seguridad BYOIdP (Bring Your Own Identity Provider)** — Autenticación moderna (SSO/OIDC) con tu propio proveedor de identidad. Tu seguridad no debería estar bloqueada detrás de un plan "Enterprise". *OIDC está implementado y probado con [Pocket ID](https://pocket-id.org); los conectores de Entra ID y Keycloak llegan en la v1.1. Passkeys/WebAuthn **todavía no** están implementados: por ahora usá el soporte de passkeys de tu IdP.*
+* **Seguridad BYOIdP y API Keys** — Autenticación moderna (SSO/OIDC para usuarios humanos, API Keys para accesos programáticos) con tu propio proveedor de identidad. Tu seguridad no debería estar bloqueada detrás de un plan "Enterprise". *OIDC está implementado y probado con [Pocket ID](https://pocket-id.org); los conectores de Entra ID y Keycloak llegan en la v1.1. Passkeys/WebAuthn **todavía no** están implementados: por ahora usá el soporte de passkeys de tu IdP.*
 * **PostgreSQL en su núcleo** — Tipos de datos ricos y la flexibilidad de una base de datos relacional profesional.
 * **Permisos Granulares (APIs y Staff)** — Control estricto para tus APIs (para tu frontend público o agentes de IA *customer-facing*) y para tus usuarios (personal de la empresa).
   * *Seguridad a nivel de columna por operación* (controlá quién lee, crea, actualiza o elimina cada campo).
@@ -533,6 +556,16 @@ Para ser claros sobre qué existe hoy:
 | `own` | Filas cuyo `created_by` es el usuario actual | Condiciones personalizadas visuales (ej. `status = 'open' AND owner_team = 'X'`) |
 | `none` | Ninguna fila | — |
 
+### Soporte de Consultas OData (Filtros estilo Dataverse)
+
+HorneroDB soporta nativamente opciones de consulta OData de Microsoft (`$filter`, `$orderby`, `$select`, `$top`, `$skip`, `$expand`):
+
+- **Filtros**: `GET /api/v1/workspaces/{ws}/data/{table}?$filter=comanda_id eq 'c-123' and status eq 'ready'`
+- **Funciones**: `GET /api/v1/workspaces/{ws}/data/{table}?$filter=contains(name, 'pizza') or startswith(name, 'Emp')`
+- **Ordenamiento**: `GET /api/v1/workspaces/{ws}/data/{table}?$orderby=created_at desc, precio asc`
+- **Selección de Columnas**: `GET /api/v1/workspaces/{ws}/data/{table}?$select=id,nombre,precio`
+- **Seguridad**: La seguridad a nivel de columna (CLS) valida estrictamente los campos permitidos antes de ejecutar SQL parametrizado, previniendo inferencia de datos.
+
 ---
 
 ## ⚙️ Configuración de Seguridad
@@ -611,10 +644,22 @@ Los escape hatches existen para redes internas/confiables (por ejemplo la red de
 | Característica | 🐦 HorneroDB | 🟢 Supabase | 🧊 PocketBase | ⚡ NocoDB | 🧩 Airtable |
 | --- | --- | --- | --- | --- | --- |
 | **Permisos** | **Granular (Fila/Col)** | PG RLS | Colección | Tabla | Base |
-| **Seguridad** | **SSO OIDC (BYOIdP)** | Enterprise | Email/Pass | Enterprise | Enterprise |
+| **Seguridad** | **OIDC/SSO (BYOIdP) y API Keys** | Enterprise | Email/Pass | Enterprise | Enterprise |
 | **API** | **Auto-Segura** | REST/GQL | SDK | REST/GQL | REST |
 | **Auto-Host** | **Docker / Local** | Docker | Binario | Docker | ❌ |
 | **Costo** | **Gratis / Open Source** | Plan Gratis | Gratis | Gratis | $$$ |
+
+---
+
+### Tipos de Datos Soportados
+
+HorneroDB soporta tipos de datos ricos mapeados directamente a PostgreSQL:
+* **Texto / Texto Largo**: `VARCHAR(255)` / `TEXT`
+* **Numéricos**: `NUMERIC` (números/financieros), `INTEGER` (enteros), `DOUBLE PRECISION` (decimales/float)
+* **Booleanos y Fechas**: `BOOLEAN`, `DATE`, `TIMESTAMPTZ`
+* **Web y Metadatos**: `VARCHAR(255)` (email), `VARCHAR(500)` (url), `JSONB` (json/archivos)
+* **Relaciones y Selecciones**: `UUID` / `UUID[]` (relaciones), `VARCHAR(100)` / `VARCHAR(100)[]` (opciones select)
+* **Auto-Secuencial / ID (`autonumber`)**: IDs secuenciales atómicos y thread-safe (`VARCHAR(255)`) con formato configurable (ej.: `PED-001`, `CMD-0042`, o números simples `1, 2, 3...`).
 
 ---
 
@@ -625,7 +670,8 @@ Los escape hatches existen para redes internas/confiables (por ejemplo la red de
 * [x] Autenticación OIDC (probado con Pocket ID) + cookie de sesión `HttpOnly` + `POST /auth/logout`
 * [x] Permisos granulares a nivel de columna (CLS) + permisos `__system__` (`none`/`view`/`manage`/`all`)
 * [x] Seguridad a nivel de fila por dueño (`own` / `created_by`)
-* [x] Filtros, ordenamiento y búsqueda en servidor (`?filter`, `?order`, `?search`, seguros contra CLS) + Bulk Create/Delete atómico
+* [x] Campos auto-secuenciales / auto-incrementales (`autonumber`)
+* [x] Filtros, ordenamiento y búsqueda en servidor (`?filter`, `?order`, `?search`, más OData `$filter`/`$orderby`/`$select`/`$top`/`$skip`, seguros contra CLS) + Bulk Create/Delete atómico
 * [x] Audit trail persistente (`_hornero_audit_log` + `GET /audit` + pestaña Actividad en UI)
 * [x] Rate limiting de API keys (ventanas por minuto y hora) y restricciones de dominio
 * [x] Servidor MCP para asistentes de IA (Streamable HTTP, SSE, stdio, OAuth2 PKCE S256 y aislamiento por workspace)

@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"log/slog"
+	"net"
 	"strings"
 
 	"hornerodb/internal/database"
@@ -155,17 +156,22 @@ func IsValidRedirectURL(redirectURL string, allowedDomains []string) bool {
 		host = host[:idx]
 	}
 
+	hostOnly := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		hostOnly = h
+	}
+
 	// Check against allowed domains
 	for _, allowed := range allowedDomains {
 		if allowed == "" {
 			continue
 		}
-		// Exact match
-		if host == allowed {
+		// Exact match (hostname:port or hostname)
+		if host == allowed || hostOnly == allowed {
 			return true
 		}
 		// Subdomain match (e.g., app.example.com matches example.com)
-		if strings.HasSuffix(host, "."+allowed) {
+		if strings.HasSuffix(hostOnly, "."+allowed) || strings.HasSuffix(host, "."+allowed) {
 			return true
 		}
 	}

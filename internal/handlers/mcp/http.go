@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 )
 
+// DEPRECATED: SSE transport (HandleSSE, HandleMessage) — legacy compatibility alongside Streamable HTTP.
 // SSEMCPClient holds the connection state for an HTTP SSE MCP client.
 //
 // The output channel is never closed: closing it would make a concurrent

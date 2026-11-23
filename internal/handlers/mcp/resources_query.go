@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 
 	"hornerodb/internal/models/metadata"
+	"hornerodb/internal/query"
 	"hornerodb/internal/services/data"
 	"hornerodb/internal/services/permission"
 )
@@ -28,7 +29,7 @@ func (s *Server) fetchHeadRecords(ctx ToolContext, wsID string, table *metadata.
 		AccessLevel: al,
 	}
 
-	records, _, err := s.dataSvc.ListRecords(reqCtx, limit, 0, "")
+	records, _, err := s.dataSvc.ListRecords(reqCtx, &query.ODataQuery{Top: limit})
 	if err != nil {
 		return nil, err
 	}

@@ -9,11 +9,11 @@ import i18n from './i18n/index.js'
  * and HTML input type. Labels use i18n keys so they respond to language
  * changes.
  *
- * The list below mirrors EXACTLY the 13 field types accepted by the backend
+ * The list below mirrors EXACTLY the 14 field types accepted by the backend
  * (`internal/handlers/api/column.go` -> `ValidFieldTypes`):
  *
  *   text, long_text, number, integer, boolean, date, datetime,
- *   email, url, attachment, select, relation, json
+ *   email, url, attachment, select, relation, json, autonumber
  *
  * Any other type (for example the legacy `float` or `file`) is rejected by
  * the API with a 400, so it must not be offered here.
@@ -32,6 +32,7 @@ export const FIELD_TYPES = {
   select: { icon: '▾', labelKey: 'field_select', color: '#ec4899', inputType: 'select' },
   relation: { icon: '⟲', labelKey: 'field_relation', color: '#14b8a6', inputType: 'text' },
   json: { icon: '{ }', labelKey: 'field_json', color: '#64748b', inputType: 'textarea' },
+  autonumber: { icon: '№', labelKey: 'field_autonumber', color: '#06b6d4', inputType: 'text' },
 }
 
 /** The field types accepted by the backend, in display order. */

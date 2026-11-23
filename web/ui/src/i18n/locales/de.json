@@ -419,5 +419,6 @@
     "webhook_events_load_error": "Zustellverlauf konnte nicht geladen werden",
     "aria_close_modal": "Schließen",
     "refresh": "Aktualisieren",
-    "menu": "Menü"
+    "menu": "Menü",
+    "field_autonumber": "Automatische Nummer / ID"
 }

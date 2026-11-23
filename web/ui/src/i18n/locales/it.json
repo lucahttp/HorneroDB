@@ -419,5 +419,6 @@
     "webhook_events_load_error": "Impossibile caricare la cronologia delle consegne",
     "aria_close_modal": "Chiudi",
     "refresh": "Aggiorna",
-    "menu": "Menu"
+    "menu": "Menu",
+    "field_autonumber": "Numero automatico / ID"
 }

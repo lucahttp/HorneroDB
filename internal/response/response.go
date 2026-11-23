@@ -3,6 +3,7 @@ package response
 import (
 	"log/slog"
 	"regexp"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -93,15 +94,40 @@ func DatabaseError(c *gin.Context, err error, operation string) {
 	)
 
 	errString := err.Error()
+
 	// Catch "column X of relation Y does not exist"
 	if matched, _ := regexp.MatchString(`column ".*" of relation ".*" does not exist`, errString); matched {
-		Error(c, 400, ErrValidation, "Invalid field submitted: "+errString)
+		Error(c, 400, ErrValidation, "Failed to "+operation+": invalid field submitted")
 		return
 	}
 
 	// Catch "relation X does not exist"
 	if matched, _ := regexp.MatchString(`relation ".*" does not exist`, errString); matched {
-		Error(c, 400, ErrValidation, "Invalid table requested: "+errString)
+		Error(c, 400, ErrValidation, "Failed to "+operation+": invalid table requested")
+		return
+	}
+
+	// Catch numeric field overflow
+	if strings.Contains(errString, "numeric field overflow") {
+		Error(c, 400, ErrValidation, "Failed to "+operation+": numeric field overflow")
+		return
+	}
+
+	// Catch NOT NULL constraint violation
+	if strings.Contains(errString, "violates not-null constraint") {
+		Error(c, 400, ErrValidation, "Failed to "+operation+": missing required field")
+		return
+	}
+
+	// Catch unique constraint violation
+	if strings.Contains(errString, "violates unique constraint") || strings.Contains(errString, "duplicate key") {
+		Error(c, 409, ErrConflict, "Failed to "+operation+": duplicate record")
+		return
+	}
+
+	// Catch invalid input syntax for type
+	if strings.Contains(errString, "invalid input syntax") {
+		Error(c, 400, ErrValidation, "Failed to "+operation+": invalid field data type")
 		return
 	}
 

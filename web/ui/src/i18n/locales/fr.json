@@ -419,5 +419,6 @@
     "webhook_events_load_error": "Impossible de charger l'historique des livraisons",
     "aria_close_modal": "Fermer",
     "refresh": "Actualiser",
-    "menu": "Menu"
+    "menu": "Menu",
+    "field_autonumber": "Numéro auto / ID"
 }

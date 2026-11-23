@@ -19,6 +19,7 @@ import (
 
 	"hornerodb/internal/database"
 	"hornerodb/internal/models/metadata"
+	"hornerodb/internal/query"
 	"hornerodb/internal/services/data"
 	"hornerodb/internal/services/permission"
 )
@@ -40,9 +41,9 @@ func (tc ToolContext) IsAPIKey() bool {
 	return tc.AuthSource == "apikey"
 }
 
-// IsAuthenticated returns true if the context has a valid user
+// IsAuthenticated returns true if the context has a valid user or API key
 func (tc ToolContext) IsAuthenticated() bool {
-	return tc.UserID != "" && tc.RoleName != ""
+	return (tc.UserID != "" && tc.RoleName != "") || tc.WorkspaceID != ""
 }
 
 type MCPRequest struct {
@@ -132,13 +133,17 @@ func New(dataSvc *data.Service, permSvc *permission.Service) *Server {
 			},
 			{
 				Name:        "list_records",
-				Description: "Lista registros de una tabla con permisos aplicados (row-level y column-level)",
+				Description: "Lista registros de una tabla con permisos aplicados (row-level y column-level) y soporte de filtros OData",
 				InputSchema: InputSchema{
 					Type: "object",
 					Properties: map[string]Property{
 						"workspace_id": {Type: "string", Description: "ID del workspace"},
 						"table_slug":   {Type: "string", Description: "Slug de la tabla"},
-						"limit":        {Type: "number", Description: "Límite de registros (default: 100, max: 1000)"},
+						"filter":       {Type: "string", Description: "Filtro OData (ej: comanda_id eq '123' o status eq 'ready' o contains(nombre, 'pizza'))"},
+						"orderby":      {Type: "string", Description: "Ordenamiento OData (ej: created_at desc, precio asc)"},
+						"select":       {Type: "string", Description: "Columnas a seleccionar separadas por coma"},
+						"expand":       {Type: "string", Description: "Relaciones a expandir separadas por coma"},
+						"limit":        {Type: "number", Description: "Límite de registros (default: 50, max: 1000)"},
 						"offset":       {Type: "number", Description: "Offset para paginación"},
 					},
 					Required: []string{"workspace_id", "table_slug"},
@@ -264,6 +269,23 @@ func New(dataSvc *data.Service, permSvc *permission.Service) *Server {
 				},
 			},
 			{
+				Name:        "update_column",
+				Description: "Actualiza el nombre, slug, tipo o meta de una columna existente y modifica la tabla SQL físicamente (requiere ser admin).",
+				InputSchema: InputSchema{
+					Type: "object",
+					Properties: map[string]Property{
+						"workspace_id": {Type: "string", Description: "ID del workspace"},
+						"table_slug":   {Type: "string", Description: "Slug de la tabla"},
+						"column_slug":  {Type: "string", Description: "Slug actual de la columna a modificar"},
+						"name":         {Type: "string", Description: "Nuevo nombre opcional de la columna"},
+						"new_slug":     {Type: "string", Description: "Nuevo slug opcional para renombrar la columna físicamente"},
+						"field_type":   {Type: "string", Description: "Nuevo tipo de campo opcional (ej: integer, number, text, select)"},
+						"meta":         {Type: "object", Description: "Metadatos opcionales a actualizar"},
+					},
+					Required: []string{"workspace_id", "table_slug", "column_slug"},
+				},
+			},
+			{
 				Name:        "delete_column",
 				Description: "Elimina una columna y sus datos (requiere ser admin). Irreversible.",
 				InputSchema: InputSchema{
@@ -343,6 +365,8 @@ func (s *Server) HandleRequestWithContext(ctx ToolContext, req MCPRequest) MCPRe
 			return MCPResponse{JSONRPC: "2.0", ID: req.ID, Error: &MCPError{Code: -32001, Message: "Authentication required"}}
 		}
 		return s.handleResourcesList(ctx, req)
+	case "resources/templates/list":
+		return MCPResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]interface{}{"resourceTemplates": []interface{}{}}}
 	case "resources/read":
 		if !ctx.IsAuthenticated() {
 			return MCPResponse{JSONRPC: "2.0", ID: req.ID, Error: &MCPError{Code: -32001, Message: "Authentication required"}}
@@ -432,6 +456,8 @@ func (s *Server) handleToolCallWithContext(ctx ToolContext, req MCPRequest) MCPR
 		result, err = s.mcpDeleteTable(ctx, arguments)
 	case "create_column":
 		result, err = s.mcpCreateColumn(ctx, arguments)
+	case "update_column":
+		result, err = s.mcpUpdateColumn(ctx, arguments)
 	case "delete_column":
 		result, err = s.mcpDeleteColumn(ctx, arguments)
 	case "create_role":
@@ -745,17 +771,19 @@ func (s *Server) listRecords(ctx ToolContext, args map[string]interface{}) (inte
 		return nil, err
 	}
 
-	// Parse pagination
-	limit := 100
-	if l, ok := args["limit"].(float64); ok {
-		limit = int(l)
-		if limit > 1000 {
-			limit = 1000 // Max limit
-		}
+	roleName, err := s.resolveWorkspaceRole(ctx, wsID)
+	if err != nil {
+		return nil, err
 	}
-	offset := 0
-	if o, ok := args["offset"].(float64); ok {
-		offset = int(o)
+
+	allowedColumns, err := s.permSvc.GetColumnsForOperation(wsID, roleName, tableSlug, "read")
+	if err != nil {
+		return nil, errors.New("error checking column permissions")
+	}
+
+	odataQuery, err := query.ParseODataFromArgs(args, allowedColumns)
+	if err != nil {
+		return nil, err
 	}
 
 	// Build request context for data service
@@ -764,12 +792,12 @@ func (s *Server) listRecords(ctx ToolContext, args map[string]interface{}) (inte
 		Table:       *table,
 		TableName:   "data_" + workspaceID + "_" + tableSlug,
 		UserID:      ctx.UserID,
-		RoleName:    ctx.RoleName,
+		RoleName:    roleName,
 		AccessLevel: accessLevel,
 	}
 
 	// Use data service which applies row-level and column-level security
-	records, count, err := s.dataSvc.ListRecords(reqCtx, limit, offset, "")
+	records, count, err := s.dataSvc.ListRecords(reqCtx, odataQuery)
 	if err != nil {
 		slog.Error("mcp: list_records failed",
 			"error", err, "workspace_id", workspaceID, "table_slug", tableSlug,

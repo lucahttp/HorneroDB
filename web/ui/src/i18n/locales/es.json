@@ -419,5 +419,6 @@
     "webhook_events_load_error": "No se pudo cargar el historial de entregas",
     "aria_close_modal": "Cerrar",
     "refresh": "Actualizar",
-    "menu": "Menú"
+    "menu": "Menú",
+    "field_autonumber": "Auto-secuencial / ID"
 }

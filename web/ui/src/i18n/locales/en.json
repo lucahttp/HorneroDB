@@ -419,5 +419,6 @@
     "webhook_events_load_error": "Could not load the delivery history",
     "aria_close_modal": "Close",
     "refresh": "Refresh",
-    "menu": "Menu"
+    "menu": "Menu",
+    "field_autonumber": "Auto Number / ID"
 }

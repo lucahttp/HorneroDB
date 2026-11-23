@@ -419,5 +419,6 @@
     "webhook_events_load_error": "配信履歴を読み込めませんでした",
     "aria_close_modal": "閉じる",
     "refresh": "更新",
-    "menu": "メニュー"
+    "menu": "メニュー",
+    "field_autonumber": "自動採番 / ID"
 }

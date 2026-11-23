@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 
+	"hornerodb/internal/models"
 	"hornerodb/internal/models/metadata"
 )
 
@@ -267,6 +268,11 @@ func Migrate() error {
 	// Persistent Audit Log
 	err = DB.Table("_hornero_audit_log").AutoMigrate(&metadata.AuditLog{})
 	if err != nil {
+		return err
+	}
+
+	// MCP OAuth tables
+	if err := models.MigrateMCPSchema(DB); err != nil {
 		return err
 	}
 
