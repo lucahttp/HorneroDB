@@ -17,7 +17,7 @@ export default function InstanceAdmin() {
 
   const loadUsers = useCallback(async () => {
     try {
-      const res = await axios.get(`${API_URL}/admin/users`)
+      const res = await axios.get(`${API_URL}/admin/users`, { params: { limit: 200 } })
       setUsers(res.data.data || [])
     } catch {
       notify(t('error_loading_users'), 'error')

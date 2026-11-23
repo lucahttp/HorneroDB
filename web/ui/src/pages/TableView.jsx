@@ -3,16 +3,14 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import axios from 'axios'
 import { API_URL } from '../constants'
-import { useAuth } from '../context/AuthContext'
 import { Button, Badge } from '../components/index.jsx'
 import { DataTable } from '../components/DataTable.jsx'
 import { CsvImportWizard } from '../components/CsvImportWizard.jsx'
 import { notify } from '../components/toast.js'
 import TopNavbar from '../components/TopNavbar.jsx'
-import { getEffectivePermissions, isColumnReadable } from '../utils/permissions.js'
+import { getEffectivePermissionsFromAuth, isColumnReadable } from '../utils/permissions.js'
 
 export default function TableView() {
-  const { user } = useAuth()
   const { workspaceId, tableId } = useParams()
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -20,7 +18,7 @@ export default function TableView() {
   const [table, setTable] = useState(null)
   const [columns, setColumns] = useState([])
   const [records, setRecords] = useState([])
-  const [roles, setRoles] = useState([])
+  const [authPermissions, setAuthPermissions] = useState(null)
   const [loading, setLoading] = useState(true)
   const [recordsLoading, setRecordsLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('data')
@@ -46,12 +44,10 @@ export default function TableView() {
    * It never touches React state, so it can safely be called from an effect.
    */
   const fetchAll = useCallback(async () => {
-    const [tableRes, columnsRes, rolesRes, allTablesRes] = await Promise.all([
+    const [tableRes, columnsRes, permsRes, allTablesRes] = await Promise.all([
       axios.get(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}`),
       axios.get(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}/columns`, { params: { limit: 200 } }),
-      // The list endpoints are paginated: ask for enough rows to be sure the
-      // role of the current user is part of the answer.
-      axios.get(`${API_URL}/workspaces/${workspaceId}/roles`, { params: { limit: 200 } }),
+      axios.get(`${API_URL}/auth/permissions`, { params: { workspace_id: workspaceId } }),
       axios.get(`${API_URL}/workspaces/${workspaceId}/tables`, { params: { limit: 200 } })
     ])
 
@@ -83,7 +79,7 @@ export default function TableView() {
     return {
       table: tableData,
       columns: colData,
-      roles: rolesRes.data.data || [],
+      authPermissions: permsRes.data.data || null,
       tables: allTablesRes.data.data || [],
       records: recordsRes.data.data || [],
       // The API answers with the total amount of rows, not the size of the page.
@@ -94,7 +90,7 @@ export default function TableView() {
   const applyData = useCallback((data) => {
     setTable(data.table)
     setColumns(data.columns)
-    setRoles(data.roles)
+    setAuthPermissions(data.authPermissions)
     setTables(data.tables)
     setRecords(data.records)
     setTotalRecords(data.total)
@@ -139,13 +135,7 @@ export default function TableView() {
   }, [fetchAll, applyData, handleLoadError])
 
   // ── Effective permissions of the current role (CLS) ───
-  const currentRoleName = user?.role
-  const currentRole = roles.find(r => r.name === currentRoleName)
-  const effectivePermissions = getEffectivePermissions(
-    currentRole?.permissions,
-    currentRoleName,
-    table?.slug
-  )
+  const effectivePermissions = getEffectivePermissionsFromAuth(authPermissions, table?.slug)
 
   const handlePageChange = (nextPage) => {
     setRecordsLoading(true)
@@ -290,15 +280,23 @@ export default function TableView() {
   const handleExportCSV = async () => {
     if (!table || !columns.length) return
     try {
-      // The grid is paginated, so the export walks through every page.
+      // The grid is paginated, so the export walks through every page using a
+      // deterministic order (with `id:asc` tiebreaker) and active search filter.
       const allRecords = []
       const batchSize = 500
+      const order = sortBy.column
+        ? `${sortBy.column}:${sortBy.direction},id:asc`
+        : 'created_at:desc,id:asc'
       let offset = 0
       let total = Number.POSITIVE_INFINITY
 
       while (offset < total) {
+        const params = { limit: batchSize, offset, order }
+        if (search) {
+          params.search = search
+        }
         const res = await axios.get(`${API_URL}/workspaces/${workspaceId}/data/${table.slug}`, {
-          params: { limit: batchSize, offset }
+          params
         })
         const batch = res.data.data || []
         allRecords.push(...batch)

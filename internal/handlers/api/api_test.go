@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"hornerodb/internal/response"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -52,11 +54,22 @@ func TestLoginPocketIDNotConfigured(t *testing.T) {
 		t.Errorf("Expected status 400, got %d", w.Code)
 	}
 
-	var response map[string]string
-	json.Unmarshal(w.Body.Bytes(), &response)
+	var resp response.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
 
-	if response["error"] != "PocketID is not configured" {
-		t.Errorf("Expected error 'PocketID is not configured', got %s", response["error"])
+	if resp.Success {
+		t.Errorf("Expected success=false, got true")
+	}
+	if resp.Error == nil {
+		t.Fatalf("Expected non-nil error in response")
+	}
+	if resp.Error.Code != response.ErrBadRequest {
+		t.Errorf("Expected error code %q, got %q", response.ErrBadRequest, resp.Error.Code)
+	}
+	if resp.Error.Message != "PocketID is not configured" {
+		t.Errorf("Expected error 'PocketID is not configured', got %q", resp.Error.Message)
 	}
 }
 

@@ -30,7 +30,7 @@ export function TableEditModal({ table, workspaceId, onClose, onTableUpdated, on
 
   useEffect(() => {
     if (newColType === 'relation' && allTables.length === 0) {
-      axios.get(`${API_URL}/workspaces/${workspaceId}/tables`)
+      axios.get(`${API_URL}/workspaces/${workspaceId}/tables`, { params: { limit: 200 } })
         .then(r => setAllTables(r.data.data || []))
         .catch(() => {})
     }

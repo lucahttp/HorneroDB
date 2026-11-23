@@ -16,11 +16,19 @@ import (
 // ListInstanceUsers returns all users in the instance with their global permissions
 // Only instance admins can access this endpoint
 func ListInstanceUsers(c *gin.Context) {
-	var users []metadata.User
-	q := database.DB.Table("_hornero_users")
-	q = query.ApplyPagination(q, c)
+	params := query.ExtractPaginationParams(c)
 
-	result := q.Find(&users)
+	var total int64
+	if err := database.DB.Table("_hornero_users").Count(&total).Error; err != nil {
+		slog.Error("failed to count instance users",
+			"error", err,
+		)
+		response.DatabaseError(c, err, "counting instance users")
+		return
+	}
+
+	var users []metadata.User
+	result := database.DB.Table("_hornero_users").Limit(params.Limit).Offset(params.Offset).Find(&users)
 	if result.Error != nil {
 		slog.Error("failed to list instance users",
 			"error", result.Error,
@@ -29,7 +37,13 @@ func ListInstanceUsers(c *gin.Context) {
 		return
 	}
 
-	response.SuccessWithMeta(c, users, map[string]interface{}{"count": len(users)})
+	meta := map[string]interface{}{
+		"count":    total,
+		"limit":    params.Limit,
+		"offset":   params.Offset,
+		"has_more": params.Offset+len(users) < int(total),
+	}
+	response.SuccessWithMeta(c, users, meta)
 }
 
 // UpdateInstanceUser updates global permissions for a user (instance-level)

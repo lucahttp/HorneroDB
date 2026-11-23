@@ -152,16 +152,39 @@ server {
 
 ### 2.3 `TRUSTED_PROXIES` coherente con el proxy
 
+El rate limiting por IP (`auth`: 10 req/min, `mcp`: 120 req/min) y el campo `ip`
+de los logs usan la IP resuelta por Gin (`ClientIP()`). Si HorneroDB corre
+detrás de un proxy inverso y `TRUSTED_PROXIES` está vacío, **todos los
+usuarios comparten el mismo bucket** (la IP del proxy) y un pico legítimo
+dispara `429 Too Many Requests` para toda la instancia.
+
 ```bash
-# Nginx/Caddy en el mismo host, escuchando en loopback:
+# Nginx/Caddy/Tailscale Serve en el mismo host (loopback):
 TRUSTED_PROXIES=127.0.0.1/32,::1/128
 
-# Proxy en otra máquina de la red de compose:
+# Traefik / proxy en la red bridge de Docker Compose:
 TRUSTED_PROXIES=172.16.0.0/12
 
-# Varios rangos separados por coma:
-TRUSTED_PROXIES=10.0.0.1,172.16.0.0/12,192.168.1.0/24
+# Tailscale en otro nodo de la tailnet (rango CGNAT de Tailscale):
+TRUSTED_PROXIES=100.64.0.0/10
+
+# Varios rangos separados por coma (ej. Traefik en Docker + loopback):
+TRUSTED_PROXIES=127.0.0.1/32,::1/128,172.16.0.0/12
 ```
+
+Notas por proxy:
+
+- **Traefik**: reenvía `X-Forwarded-For` y `X-Forwarded-Proto` por defecto hacia
+  los backends Docker, pero si hay un balanceador delante de Traefik hay que
+  declararlo en `entryPoints.websecure.forwardedHeaders.trustedIPs`. En HorneroDB
+  configurá `TRUSTED_PROXIES` con la subred de la red Docker donde corre Traefik
+  (por defecto `172.16.0.0/12` o la subred específica del compose).
+- **Nginx**: requiere `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`
+  (ver §2.2) y `TRUSTED_PROXIES` apuntando a la IP/CIDR de Nginx.
+- **Tailscale (`tailscale serve` / `tailscale funnel`)**: cuando corre en el
+  mismo host apuntando a `http://127.0.0.1:8080`, la conexión TCP llega desde
+  loopback (`127.0.0.1/32,::1/128`); si el proxy corre en otro nodo del tailnet,
+  incluí `100.64.0.0/10` (o la IP `100.x.y.z/32` exacta de ese nodo).
 
 Reglas prácticas:
 
@@ -442,6 +465,37 @@ Lo que **no** está soportado en v1.0 GA:
 
 Operativamente, esto significa: **una instancia, un PostgreSQL, un backup
 completo diario y un restore probado**.
+
+### 5.3 Upgrade a PostgreSQL 18 (cambio de volumen)
+
+A partir de PostgreSQL 18, la imagen oficial (`postgres:18-alpine`) almacena el
+cluster en un subdirectorio versionado (`$PGDATA=/var/lib/postgresql/18/docker`)
+y **no arranca** si el volumen está montado en la ruta legacy
+`/var/lib/postgresql/data`. Por eso `docker-compose.yml` monta
+`postgres_data:/var/lib/postgresql`.
+
+Un volumen existente creado con PostgreSQL ≤ 17 en `/var/lib/postgresql/data`
+**no** es compatible in-place; migrá mediante `pg_dump` → cluster nuevo →
+`pg_restore`:
+
+```bash
+# 1. Con el stack anterior aún corriendo, generar un dump completo
+./scripts/backup.sh
+# (o manualmente: docker compose exec -T postgres pg_dump -U postgres --format=custom hornero > hornero-pre-pg18.dump)
+
+# 2. Detener los servicios y apartar/reemplazar el volumen legacy
+docker compose down
+docker volume rm <proyecto>_postgres_data   # sólo tras verificar el dump/backup
+
+# 3. Levantar PostgreSQL 18 con el mount /var/lib/postgresql y restaurar
+docker compose up -d postgres
+./scripts/restore.sh backups/hornerodb-backup-<ts>.tar.gz --yes --no-pocketid
+# (o manualmente: docker compose exec -T postgres pg_restore -U postgres -d hornero --clean --if-exists < hornero-pre-pg18.dump)
+
+# 4. Levantar el resto del stack y verificar
+docker compose up -d
+curl -fsS http://localhost:8080/ready
+```
 
 ---
 

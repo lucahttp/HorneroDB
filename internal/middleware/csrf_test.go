@@ -1,13 +1,30 @@
 package middleware
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"hornerodb/internal/response"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 )
+
+func assertCSRFErrorEnvelope(t *testing.T, w *httptest.ResponseRecorder) {
+	t.Helper()
+	assert.Equal(t, http.StatusForbidden, w.Code)
+
+	var body response.APIResponse
+	err := json.Unmarshal(w.Body.Bytes(), &body)
+	assert.NoError(t, err, "CSRF rejection must return valid JSON")
+	assert.False(t, body.Success)
+	if assert.NotNil(t, body.Error) {
+		assert.Equal(t, response.ErrForbidden, body.Error.Code)
+		assert.Equal(t, "CSRF validation failed", body.Error.Message)
+	}
+}
 
 func TestIsAllowedOrigin_ExactMatch(t *testing.T) {
 	allowed := []string{"https://app.example.com"}
@@ -87,7 +104,7 @@ func TestCSRFProtection_CrossOriginRejected(t *testing.T) {
 	req.Header.Set("Origin", "https://evil.example.com")
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusForbidden, w.Code)
+	assertCSRFErrorEnvelope(t, w)
 }
 
 func TestCSRFProtection_SuffixBypassRejected(t *testing.T) {
@@ -102,7 +119,7 @@ func TestCSRFProtection_SuffixBypassRejected(t *testing.T) {
 	req.Header.Set("Origin", "https://admin.example.com.evil.tld")
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusForbidden, w.Code)
+	assertCSRFErrorEnvelope(t, w)
 }
 
 // TestCSRFProtection_NoOriginWithBearerAllowed covers non-browser API clients
@@ -137,7 +154,7 @@ func TestCSRFProtection_NoOriginWithSessionCookieRejected(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "token", Value: "session-value"})
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusForbidden, w.Code)
+	assertCSRFErrorEnvelope(t, w)
 }
 
 func TestCSRFProtection_RefererAllowed(t *testing.T) {
@@ -167,7 +184,7 @@ func TestCSRFProtection_RefererCrossOriginRejected(t *testing.T) {
 	req.Header.Set("Referer", "https://evil.example.com/settings")
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusForbidden, w.Code)
+	assertCSRFErrorEnvelope(t, w)
 }
 
 func TestCSRFProtection_SafeMethodsSkipped(t *testing.T) {

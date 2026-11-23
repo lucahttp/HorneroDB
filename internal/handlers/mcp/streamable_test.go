@@ -1,12 +1,15 @@
 package mcp
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -524,5 +527,133 @@ func TestToolsList_ListRecordsODataSchema(t *testing.T) {
 	}
 	if _, ok := props["expand"]; !ok {
 		t.Errorf("expected 'expand' property in list_records schema")
+	}
+}
+
+func TestSSE_SurvivesServerWriteTimeout(t *testing.T) {
+	srv := newTestServer()
+	r := gin.New()
+	r.GET("/mcp/sse", srv.HandleSSE)
+	r.POST("/mcp/message", srv.HandleMessage)
+
+	// Start a real HTTP server with an aggressive WriteTimeout (50ms) to verify
+	// HandleSSE clears the per-connection write deadline via ResponseController.
+	ts := httptest.NewUnstartedServer(r)
+	ts.Config.WriteTimeout = 50 * time.Millisecond
+	ts.Start()
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/mcp/sse", nil)
+	if err != nil {
+		t.Fatalf("failed to build request: %v", err)
+	}
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("SSE request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	reader := bufio.NewReader(resp.Body)
+
+	// Read initial endpoint event:
+	//   event: endpoint\n
+	//   data: .../api/v1/mcp/message?sessionId=<uuid>\n
+	//   \n
+	var sessionID string
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("failed reading initial SSE endpoint event: %v", err)
+		}
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "data:") {
+			idx := strings.Index(line, "sessionId=")
+			if idx != -1 {
+				sessionID = line[idx+len("sessionId="):]
+			}
+		}
+		if line == "" && sessionID != "" {
+			break
+		}
+	}
+
+	// Sleep longer than ts.Config.WriteTimeout (50ms) so an uncleared deadline
+	// would fail the next write on the underlying net.Conn.
+	time.Sleep(120 * time.Millisecond)
+
+	msgBody := `{"jsonrpc":"2.0","id":42,"method":"ping"}`
+	postResp, err := ts.Client().Post(ts.URL+"/mcp/message?sessionId="+sessionID, "application/json", strings.NewReader(msgBody))
+	if err != nil {
+		t.Fatalf("POST /mcp/message failed: %v", err)
+	}
+	postResp.Body.Close()
+	if postResp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected 202 from /mcp/message, got %d", postResp.StatusCode)
+	}
+
+	// Verify the SSE response frame arrives cleanly after the server WriteTimeout window.
+	var gotMessage bool
+	for !gotMessage {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("SSE stream terminated after WriteTimeout window: %v", err)
+		}
+		if strings.Contains(line, `"id":42`) {
+			gotMessage = true
+		}
+	}
+}
+
+func TestStreamable_SSESurvivesServerWriteTimeout(t *testing.T) {
+	srv := newTestServer()
+	r := gin.New()
+	r.POST("/mcp/stream", func(c *gin.Context) {
+		// Simulate work taking longer than WriteTimeout before writeSSE writes frames.
+		time.Sleep(80 * time.Millisecond)
+		srv.HandleStreamable(c)
+	})
+
+	ts := httptest.NewUnstartedServer(r)
+	ts.Config.WriteTimeout = 40 * time.Millisecond
+	ts.Start()
+	defer ts.Close()
+
+	body := `{"jsonrpc":"2.0","id":9,"method":"ping"}`
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/mcp/stream", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("failed to build request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatalf("streamable SSE request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	scanner := bufio.NewScanner(resp.Body)
+	var found bool
+	for scanner.Scan() {
+		if strings.Contains(scanner.Text(), `"id":9`) {
+			found = true
+			break
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("error reading streamable SSE body: %v", err)
+	}
+	if !found {
+		t.Fatal("expected ping response in streamable SSE stream")
 	}
 }

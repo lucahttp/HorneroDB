@@ -78,11 +78,24 @@ func ListColumns(c *gin.Context) {
 		return
 	}
 
-	var columns []metadata.Column
-	q := database.DB.Table("_hornero_columns").Where("table_id = ?", table.ID).Order("order_index")
-	q = query.ApplyPagination(q, c)
+	params := query.ExtractPaginationParams(c)
+	base := func() *gorm.DB {
+		return database.DB.Table("_hornero_columns").Where("table_id = ?", table.ID)
+	}
 
-	result := q.Find(&columns)
+	var total int64
+	if err := base().Count(&total).Error; err != nil {
+		slog.Error("failed to count columns",
+			"error", err,
+			"table_id", tableID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, err, "counting columns")
+		return
+	}
+
+	var columns []metadata.Column
+	result := base().Order("order_index").Limit(params.Limit).Offset(params.Offset).Find(&columns)
 	if result.Error != nil {
 		slog.Error("failed to fetch columns",
 			"error", result.Error,
@@ -94,7 +107,10 @@ func ListColumns(c *gin.Context) {
 	}
 
 	meta := map[string]interface{}{
-		"count": len(columns),
+		"count":    total,
+		"limit":    params.Limit,
+		"offset":   params.Offset,
+		"has_more": params.Offset+len(columns) < int(total),
 	}
 	response.SuccessWithMeta(c, columns, meta)
 }
@@ -207,11 +223,11 @@ func CreateColumn(c *gin.Context) {
 	}
 
 	column := metadata.Column{
-		TableID:   tblID,
-		Name:      input.Name,
-		Slug:      slug,
-		FieldType: input.FieldType,
-		Meta:      input.Meta,
+		TableID:    tblID,
+		Name:       input.Name,
+		Slug:       slug,
+		FieldType:  input.FieldType,
+		Meta:       input.Meta,
 		OrderIndex: input.OrderIndex,
 	}
 

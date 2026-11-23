@@ -64,15 +64,28 @@ func ListAPIKeys(c *gin.Context) {
 		return
 	}
 
+	params := query.ExtractPaginationParams(c)
+	base := func() *gorm.DB {
+		return database.DB.Table("_hornero_api_keys").Where("workspace_id = ?", workspaceID)
+	}
+
+	var total int64
+	if err := base().Count(&total).Error; err != nil {
+		slog.Error("failed to count API keys",
+			"error", err,
+			"workspace_id", workspaceID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, err, "counting API keys")
+		return
+	}
+
 	var keys []metadata.APIKey
-
-	dbQuery := database.DB.Table("_hornero_api_keys").
+	result := base().
 		Select("id, workspace_id, name, prefix, key_hash, role_id, last_used_at, expires_at, created_at, rate_limit_per_minute, rate_limit_per_hour, allowed_origins, allowed_referers").
-		Where("workspace_id = ?", workspaceID)
-
-	dbQuery = query.ApplyPagination(dbQuery, c)
-
-	result := dbQuery.Find(&keys)
+		Limit(params.Limit).
+		Offset(params.Offset).
+		Find(&keys)
 
 	if result.Error != nil {
 		slog.Error("failed to list API keys",
@@ -123,7 +136,13 @@ func ListAPIKeys(c *gin.Context) {
 		}
 	}
 
-	response.SuccessWithMeta(c, responseList, map[string]interface{}{"count": len(responseList)})
+	meta := map[string]interface{}{
+		"count":    total,
+		"limit":    params.Limit,
+		"offset":   params.Offset,
+		"has_more": params.Offset+len(responseList) < int(total),
+	}
+	response.SuccessWithMeta(c, responseList, meta)
 }
 
 func CreateAPIKey(c *gin.Context) {

@@ -7,25 +7,25 @@ import {
   Group, ClipboardCheck, Link as LinkIcon, Activity, Refresh
 } from 'iconoir-react'
 import { API_URL } from '../constants'
-import { useAuth } from '../context/AuthContext'
 import { Button, Badge } from '../components/index.jsx'
 import { PermissionMatrix } from '../components/PermissionMatrix.jsx'
 import SettingsUsers from '../components/SettingsUsers'
 import { notify } from '../components/toast.js'
 import TopNavbar from '../components/TopNavbar.jsx'
-import { getSystemPermissions, hasSystemAccess } from '../utils/permissions.js'
+import { getSystemPermissionsFromAuth, hasSystemAccess } from '../utils/permissions.js'
 
 /** Event types a webhook can subscribe to (backend `change_type`). */
 const WEBHOOK_EVENT_TYPES = ['created', 'updated', 'deleted']
 
 export default function Settings() {
-  const { user } = useAuth()
   const { t } = useTranslation()
   const { workspaceId } = useParams()
 
   const [workspace, setWorkspace] = useState(null)
+  const [authPermissions, setAuthPermissions] = useState(null)
   const [roles, setRoles] = useState([])
   const [apiKeys, setApiKeys] = useState([])
+  const [keysForbidden, setKeysForbidden] = useState(false)
   const [loading, setLoading] = useState(true)
   const [activeSection, setActiveSection] = useState('general')
   const [rateLimit, setRateLimit] = useState(60)
@@ -79,8 +79,16 @@ export default function Settings() {
   const [auditPage, setAuditPage] = useState(0)
   const [auditLoading, setAuditLoading] = useState(false)
   const [auditError, setAuditError] = useState(false)
+  const [auditForbidden, setAuditForbidden] = useState(false)
   const [auditAction, setAuditAction] = useState('')
   const [auditResourceType, setAuditResourceType] = useState('')
+
+  const fetchAuthPermissions = useCallback(async () => {
+    const res = await axios.get(`${API_URL}/auth/permissions`, {
+      params: { workspace_id: workspaceId }
+    })
+    return res.data.data || null
+  }, [workspaceId])
 
   const fetchWorkspace = useCallback(async () => {
     const wsRes = await axios.get(`${API_URL}/workspaces/${workspaceId}`)
@@ -112,13 +120,13 @@ export default function Settings() {
   }, [workspaceId])
 
   const fetchApiKeys = useCallback(async () => {
-    const keysRes = await axios.get(`${API_URL}/workspaces/${workspaceId}/keys`)
+    const keysRes = await axios.get(`${API_URL}/workspaces/${workspaceId}/keys`, { params: { limit: 200 } })
     return keysRes.data.data || []
   }, [workspaceId])
 
   /** Loads the subscriptions of the workspace. */
   const fetchWebhooks = useCallback(async () => {
-    const res = await axios.get(`${API_URL}/workspaces/${workspaceId}/webhooks`)
+    const res = await axios.get(`${API_URL}/workspaces/${workspaceId}/webhooks`, { params: { limit: 200 } })
     return res.data.data || []
   }, [workspaceId])
 
@@ -134,7 +142,12 @@ export default function Settings() {
     } catch (err) {
       console.error(err)
       setWebhookEvents([])
-      setWebhookEventsError(true)
+      if (err.response?.status === 403) {
+        setWebhooksForbidden(true)
+        setWebhookEventsError(false)
+      } else {
+        setWebhookEventsError(true)
+      }
     } finally {
       setWebhookEventsLoading(false)
     }
@@ -151,35 +164,76 @@ export default function Settings() {
       setAuditEntries(res.data.data || [])
       setAuditMeta(res.data.meta || { count: 0, has_more: false })
       setAuditError(false)
+      setAuditForbidden(false)
     } catch (err) {
       console.error(err)
       setAuditEntries([])
-      setAuditError(true)
+      if (err.response?.status === 403) {
+        setAuditForbidden(true)
+        setAuditError(false)
+      } else {
+        setAuditError(true)
+      }
     } finally {
       setAuditLoading(false)
     }
   }, [workspaceId, auditPage, auditAction, auditResourceType])
 
+  // ── System permissions of the current user (CLS) ─────
+  const systemPermissions = getSystemPermissionsFromAuth(authPermissions)
+  const canViewRoles = hasSystemAccess(systemPermissions, 'roles', 'view')
+  const canManageRoles = hasSystemAccess(systemPermissions, 'roles', 'manage')
+  const canViewKeys = hasSystemAccess(systemPermissions, 'api_keys', 'view')
+  const canManageKeys = hasSystemAccess(systemPermissions, 'api_keys', 'manage')
+  const canViewWebhooks = hasSystemAccess(systemPermissions, 'webhooks', 'view')
+  const canManageWebhooks = hasSystemAccess(systemPermissions, 'webhooks', 'manage')
+  const canViewSettings = hasSystemAccess(systemPermissions, 'settings', 'view')
+  const canManageSettings = hasSystemAccess(systemPermissions, 'settings', 'manage')
+
   useEffect(() => {
     let cancelled = false
 
     const load = async () => {
-      const ws = await fetchWorkspace()
-      const rt = await fetchRolesAndTables()
-      const keys = activeSection === 'keys' ? await fetchApiKeys() : null
-      return { ws, rt, keys }
+      const [ws, rt, perms] = await Promise.all([
+        fetchWorkspace(),
+        fetchRolesAndTables(),
+        fetchAuthPermissions(),
+      ])
+      let keys = null
+      let isKeysForbidden = false
+      if (activeSection === 'keys') {
+        const sys = getSystemPermissionsFromAuth(perms)
+        if (!hasSystemAccess(sys, 'api_keys', 'view')) {
+          isKeysForbidden = true
+          keys = []
+        } else {
+          try {
+            keys = await fetchApiKeys()
+          } catch (err) {
+            if (err.response?.status === 403) {
+              isKeysForbidden = true
+              keys = []
+            } else {
+              throw err
+            }
+          }
+        }
+      }
+      return { ws, rt, perms, keys, isKeysForbidden }
     }
 
     load()
-      .then(({ ws, rt, keys }) => {
+      .then(({ ws, rt, perms, keys, isKeysForbidden }) => {
         if (cancelled) return
         setWorkspace(ws.workspace)
         setRateLimit(ws.rateLimit)
         setAllowedOrigins(ws.allowedOrigins)
         setRoles(rt.roles)
         setTables(rt.tables)
+        setAuthPermissions(perms)
         setSelectedRoleId(prev => prev || (rt.roles.length > 0 ? rt.roles[0].id : null))
-        if (keys) setApiKeys(keys)
+        setKeysForbidden(isKeysForbidden)
+        if (keys !== null) setApiKeys(keys)
       })
       .catch(err => {
         if (cancelled) return
@@ -190,12 +244,19 @@ export default function Settings() {
       })
 
     return () => { cancelled = true }
-  }, [workspaceId, activeSection, fetchWorkspace, fetchRolesAndTables, fetchApiKeys])
+  }, [workspaceId, activeSection, fetchWorkspace, fetchRolesAndTables, fetchAuthPermissions, fetchApiKeys])
 
   // Webhooks live in their own request so a 403 (missing `webhooks`
   // permission) does not break the rest of the settings page.
   useEffect(() => {
-    if (activeSection !== 'webhooks') return undefined
+    if (activeSection !== 'webhooks' || !authPermissions) return undefined
+    if (!canViewWebhooks) {
+      setWebhooks([])
+      setWebhooksForbidden(true)
+      setWebhookEvents([])
+      setWebhookEventsError(false)
+      return undefined
+    }
 
     let cancelled = false
 
@@ -213,22 +274,28 @@ export default function Settings() {
       })
 
     return () => { cancelled = true }
-  }, [activeSection, fetchWebhooks])
+  }, [activeSection, authPermissions, canViewWebhooks, fetchWebhooks])
 
   // The delivery history lives in its own request: a missing `webhooks`
   // permission must not break the subscription list.
   useEffect(() => {
-    if (activeSection !== 'webhooks') return undefined
+    if (activeSection !== 'webhooks' || !authPermissions || !canViewWebhooks) return undefined
     fetchWebhookEvents()
     return undefined
-  }, [activeSection, fetchWebhookEvents])
+  }, [activeSection, authPermissions, canViewWebhooks, fetchWebhookEvents])
 
-  // The audit log is only loaded when its tab is open.
+  // The audit log is only loaded when its tab is open and permitted.
   useEffect(() => {
-    if (activeSection !== 'audit') return undefined
+    if (activeSection !== 'audit' || !authPermissions) return undefined
+    if (!canViewSettings) {
+      setAuditEntries([])
+      setAuditForbidden(true)
+      setAuditError(false)
+      return undefined
+    }
     fetchAudit()
     return undefined
-  }, [activeSection, fetchAudit])
+  }, [activeSection, authPermissions, canViewSettings, fetchAudit])
 
   const handleSectionChange = (section) => {
     setLoading(true)
@@ -238,21 +305,41 @@ export default function Settings() {
   /** Reloads the workspace, the roles and the tables (used after a mutation). */
   const reload = useCallback(async () => {
     try {
-      const ws = await fetchWorkspace()
-      const rt = await fetchRolesAndTables()
+      const [ws, rt, perms] = await Promise.all([
+        fetchWorkspace(),
+        fetchRolesAndTables(),
+        fetchAuthPermissions(),
+      ])
       setWorkspace(ws.workspace)
       setRateLimit(ws.rateLimit)
       setAllowedOrigins(ws.allowedOrigins)
       setRoles(rt.roles)
       setTables(rt.tables)
+      setAuthPermissions(perms)
       setSelectedRoleId(prev => prev || (rt.roles.length > 0 ? rt.roles[0].id : null))
       if (activeSection === 'keys') {
-        setApiKeys(await fetchApiKeys())
+        const sys = getSystemPermissionsFromAuth(perms)
+        if (!hasSystemAccess(sys, 'api_keys', 'view')) {
+          setKeysForbidden(true)
+          setApiKeys([])
+        } else {
+          try {
+            setApiKeys(await fetchApiKeys())
+            setKeysForbidden(false)
+          } catch (err) {
+            if (err.response?.status === 403) {
+              setKeysForbidden(true)
+              setApiKeys([])
+            } else {
+              throw err
+            }
+          }
+        }
       }
     } catch (err) {
       console.error(err)
     }
-  }, [fetchWorkspace, fetchRolesAndTables, fetchApiKeys, activeSection])
+  }, [fetchWorkspace, fetchRolesAndTables, fetchAuthPermissions, fetchApiKeys, activeSection])
 
   const reloadWebhooks = useCallback(async () => {
     try {
@@ -357,11 +444,6 @@ export default function Settings() {
     [auditEntries]
   )
 
-  // ── System permissions of the current role (CLS) ─────
-  const currentRole = roles.find(r => r.name === user?.role)
-  const systemPermissions = getSystemPermissions(currentRole?.permissions, user?.role)
-  const canManageWebhooks = hasSystemAccess(systemPermissions, 'webhooks', 'manage')
-
   /** Name of the table a webhook is subscribed to. */
   const webhookTableName = (resource) => {
     const table = tables.find(t => t.id === resource)
@@ -386,7 +468,11 @@ export default function Settings() {
       })
       notify(t('settings_saved'), 'success')
       const wsRes = await axios.get(`${API_URL}/workspaces/${workspaceId}`)
-      setWorkspace(wsRes.data.data)
+      const savedWorkspace = wsRes.data.data
+      const savedSettings = savedWorkspace?.settings || {}
+      setWorkspace(savedWorkspace)
+      setRateLimit(savedSettings.rate_limit_per_minute ?? 60)
+      setAllowedOrigins((savedSettings.allowed_origins || []).join(', '))
     } catch (err) {
       console.error(err)
       notify(t('error_save_settings'), 'error')
@@ -548,41 +634,51 @@ export default function Settings() {
             >
               <SettingsIcon width="1rem" height="1rem" /> {t('general')}
             </button>
-            <button
-              className={`tab ${activeSection === 'users' ? 'active' : ''}`}
-              onClick={() => handleSectionChange('users')}
-              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-            >
-              <Group width="1rem" height="1rem" /> {t('users')}
-            </button>
-            <button
-              className={`tab ${activeSection === 'roles' ? 'active' : ''}`}
-              onClick={() => handleSectionChange('roles')}
-              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-            >
-              <ShieldCheck width="1rem" height="1rem" /> {t('security_roles')}
-            </button>
-            <button
-              className={`tab ${activeSection === 'keys' ? 'active' : ''}`}
-              onClick={() => handleSectionChange('keys')}
-              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-            >
-              <Key width="1rem" height="1rem" /> {t('api_keys')}
-            </button>
-            <button
-              className={`tab ${activeSection === 'webhooks' ? 'active' : ''}`}
-              onClick={() => handleSectionChange('webhooks')}
-              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-            >
-              <LinkIcon width="1rem" height="1rem" /> {t('webhooks')}
-            </button>
-            <button
-              className={`tab ${activeSection === 'audit' ? 'active' : ''}`}
-              onClick={() => handleSectionChange('audit')}
-              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-            >
-              <Activity width="1rem" height="1rem" /> {t('audit_tab')}
-            </button>
+            {canViewRoles && (
+              <button
+                className={`tab ${activeSection === 'users' ? 'active' : ''}`}
+                onClick={() => handleSectionChange('users')}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+              >
+                <Group width="1rem" height="1rem" /> {t('users')}
+              </button>
+            )}
+            {canViewRoles && (
+              <button
+                className={`tab ${activeSection === 'roles' ? 'active' : ''}`}
+                onClick={() => handleSectionChange('roles')}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+              >
+                <ShieldCheck width="1rem" height="1rem" /> {t('security_roles')}
+              </button>
+            )}
+            {canViewKeys && (
+              <button
+                className={`tab ${activeSection === 'keys' ? 'active' : ''}`}
+                onClick={() => handleSectionChange('keys')}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+              >
+                <Key width="1rem" height="1rem" /> {t('api_keys')}
+              </button>
+            )}
+            {canViewWebhooks && (
+              <button
+                className={`tab ${activeSection === 'webhooks' ? 'active' : ''}`}
+                onClick={() => handleSectionChange('webhooks')}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+              >
+                <LinkIcon width="1rem" height="1rem" /> {t('webhooks')}
+              </button>
+            )}
+            {canViewSettings && (
+              <button
+                className={`tab ${activeSection === 'audit' ? 'active' : ''}`}
+                onClick={() => handleSectionChange('audit')}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+              >
+                <Activity width="1rem" height="1rem" /> {t('audit_tab')}
+              </button>
+            )}
           </div>
 
           {loading ? (
@@ -601,6 +697,7 @@ export default function Settings() {
                   value={rateLimit}
                   onChange={e => setRateLimit(e.target.value)}
                   min="0"
+                  disabled={!canManageSettings}
                 />
                 <p className="form-hint" style={{ marginTop: '0.25rem' }}>{t('rate_limit_hint')}</p>
               </div>
@@ -614,28 +711,56 @@ export default function Settings() {
                   placeholder="https://example.com, https://app.example.com"
                   rows={3}
                   style={{ fontFamily: 'var(--font-mono)' }}
+                  disabled={!canManageSettings}
                 />
                 <p className="form-hint" style={{ marginTop: '0.25rem' }}>{t('allowed_origins_hint')}</p>
               </div>
 
-              <Button onClick={handleSaveGeneral} loading={savingGeneral} style={{ marginTop: '1rem' }}>
-                {t('save_changes')}
-              </Button>
-
-              <div style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border-light)' }}>
-                <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>{t('export_workspace')}</h3>
-                <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem', fontSize: '0.875rem' }}>
-                  {t('export_workspace_hint')}
-                </p>
-                <Button variant="secondary" onClick={handleExportWorkspace} loading={exporting} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <svg width="1.25rem" height="1.25rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                  {t('export_button')}
+              {canManageSettings && (
+                <Button onClick={handleSaveGeneral} loading={savingGeneral} style={{ marginTop: '1rem' }}>
+                  {t('save_changes')}
                 </Button>
-              </div>
+              )}
+
+              {canViewSettings && (
+                <div style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border-light)' }}>
+                  <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>{t('export_workspace')}</h3>
+                  <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem', fontSize: '0.875rem' }}>
+                    {t('export_workspace_hint')}
+                  </p>
+                  <Button variant="secondary" onClick={handleExportWorkspace} loading={exporting} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <svg width="1.25rem" height="1.25rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                    {t('export_button')}
+                  </Button>
+                </div>
+              )}
             </div>
           ) : activeSection === 'users' ? (
-            <SettingsUsers workspaceId={workspaceId} roles={roles} notify={notify} />
+            !canViewRoles ? (
+              <div className="empty-state">
+                <div className="empty-icon"><Group width="2rem" height="2rem" /></div>
+                <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+                  {t('no_permission', { defaultValue: 'No permission to view users' })}
+                </h3>
+                <p style={{ color: 'var(--text-secondary)' }}>
+                  {t('no_permission_hint', { defaultValue: 'Your role has no access to this area of the workspace.' })}
+                </p>
+              </div>
+            ) : (
+              <SettingsUsers workspaceId={workspaceId} roles={roles} notify={notify} />
+            )
           ) : activeSection === 'roles' ? (
+            !canViewRoles ? (
+              <div className="empty-state">
+                <div className="empty-icon"><ShieldCheck width="2rem" height="2rem" /></div>
+                <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+                  {t('no_permission', { defaultValue: 'No permission to view roles' })}
+                </h3>
+                <p style={{ color: 'var(--text-secondary)' }}>
+                  {t('no_permission_hint', { defaultValue: 'Your role has no access to this area of the workspace.' })}
+                </p>
+              </div>
+            ) : (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
                 <p style={{ color: 'var(--text-secondary)' }}>{t('manage_roles_desc')}</p>
@@ -682,48 +807,50 @@ export default function Settings() {
                   ))
                 )}
 
-                <div
-                  className="card border-dashed"
-                  onClick={() => !showCreateRole && setShowCreateRole(true)}
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    minHeight: roles.length === 0 ? '140px' : 'auto',
-                    cursor: showCreateRole ? 'default' : 'pointer'
-                  }}
-                >
-                  {!showCreateRole ? (
-                    <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
-                      <div style={{ fontSize: '1.75rem', marginBottom: '0.25rem' }}>+</div>
-                      <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>{t('new_role')}</div>
-                    </div>
-                  ) : (
-                    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                      <input
-                        type="text"
-                        className="form-input"
-                        value={newRoleName}
-                        onChange={e => setNewRoleName(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter' && newRoleName.trim()) {
-                            handleCreateRole(e);
-                          } else if (e.key === 'Escape') {
-                            setShowCreateRole(false);
-                            setNewRoleName('');
-                          }
-                        }}
-                        placeholder={t('role_placeholder')}
-                        autoFocus
-                      />
-                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                        <Button variant="secondary" size="sm" onClick={(e) => { e.stopPropagation(); setShowCreateRole(false); setNewRoleName(''); }}>{t('cancel')}</Button>
-                        <Button size="sm" onClick={(e) => { e.stopPropagation(); handleCreateRole(e); }} disabled={!newRoleName.trim()}>{t('create')}</Button>
+                {canManageRoles && (
+                  <div
+                    className="card border-dashed"
+                    onClick={() => !showCreateRole && setShowCreateRole(true)}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minHeight: roles.length === 0 ? '140px' : 'auto',
+                      cursor: showCreateRole ? 'default' : 'pointer'
+                    }}
+                  >
+                    {!showCreateRole ? (
+                      <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+                        <div style={{ fontSize: '1.75rem', marginBottom: '0.25rem' }}>+</div>
+                        <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>{t('new_role')}</div>
                       </div>
-                    </div>
-                  )}
-                </div>
+                    ) : (
+                      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        <input
+                          type="text"
+                          className="form-input"
+                          value={newRoleName}
+                          onChange={e => setNewRoleName(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' && newRoleName.trim()) {
+                              handleCreateRole(e);
+                            } else if (e.key === 'Escape') {
+                              setShowCreateRole(false);
+                              setNewRoleName('');
+                            }
+                          }}
+                          placeholder={t('role_placeholder')}
+                          autoFocus
+                        />
+                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                          <Button variant="secondary" size="sm" onClick={(e) => { e.stopPropagation(); setShowCreateRole(false); setNewRoleName(''); }}>{t('cancel')}</Button>
+                          <Button size="sm" onClick={(e) => { e.stopPropagation(); handleCreateRole(e); }} disabled={!newRoleName.trim()}>{t('create')}</Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <PermissionMatrix
@@ -733,7 +860,19 @@ export default function Settings() {
                 onSave={savePermissions}
               />
             </div>
+            )
           ) : activeSection === 'audit' ? (
+            (auditForbidden || !canViewSettings) ? (
+              <div className="empty-state">
+                <div className="empty-icon"><Activity width="2rem" height="2rem" /></div>
+                <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+                  {t('no_permission', { defaultValue: 'No permission to view audit logs' })}
+                </h3>
+                <p style={{ color: 'var(--text-secondary)' }}>
+                  {t('no_permission_hint', { defaultValue: 'Your role has no access to this area of the workspace.' })}
+                </p>
+              </div>
+            ) : (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', gap: '1rem', flexWrap: 'wrap' }}>
                 <p style={{ color: 'var(--text-secondary)' }}>{t('audit_desc')}</p>
@@ -853,6 +992,7 @@ export default function Settings() {
                 </>
               )}
             </div>
+            )
           ) : activeSection === 'webhooks' ? (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', gap: '1rem' }}>
@@ -1082,13 +1222,25 @@ export default function Settings() {
                 </>
               )}
             </div>
+          ) : (keysForbidden || !canViewKeys) ? (
+            <div className="empty-state">
+              <div className="empty-icon"><Key width="2rem" height="2rem" /></div>
+              <h3 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+                {t('no_permission', { defaultValue: 'No permission to view API keys' })}
+              </h3>
+              <p style={{ color: 'var(--text-secondary)' }}>
+                {t('no_permission_hint', { defaultValue: 'Your role has no access to this area of the workspace.' })}
+              </p>
+            </div>
           ) : (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
                 <p style={{ color: 'var(--text-secondary)' }}>{t('generate_keys_desc')}</p>
-                <Button size="sm" onClick={() => setShowCreateKey(true)}>
-                  {t('new_api_key')}
-                </Button>
+                {canManageKeys && (
+                  <Button size="sm" onClick={() => setShowCreateKey(true)}>
+                    {t('new_api_key')}
+                  </Button>
+                )}
               </div>
 
               {apiKeys.length === 0 ? (
@@ -1107,33 +1259,35 @@ export default function Settings() {
                           {key.prefix}...{key.key_hash?.slice(-8)}
                         </div>
                       </div>
-                      <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        <button
-                          onClick={() => handleRotateKey(key.id, key.name)}
-                          className="btn btn-ghost btn-sm"
-                          title={t('rotate_key')}
-                          aria-label={t('rotate_key')}
-                        >
-                          <svg width="1rem" height="1rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                        </button>
-                        <button
-                          onClick={() => openKeySettings(key)}
-                          className="btn btn-ghost btn-sm"
-                          title={t('edit_key_settings')}
-                          aria-label={t('edit_key_settings')}
-                        >
-                          <SettingsIcon width="1rem" height="1rem" />
-                        </button>
-                        <button
-                          onClick={() => deleteAPIKey(key.id)}
-                          className="btn btn-ghost btn-sm"
-                          style={{ color: 'var(--danger)' }}
-                          title={t('confirm_delete_api_key')}
-                          aria-label={t('confirm_delete_api_key')}
-                        >
-                          <Trash width="1rem" height="1rem" />
-                        </button>
-                      </div>
+                      {canManageKeys && (
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                          <button
+                            onClick={() => handleRotateKey(key.id, key.name)}
+                            className="btn btn-ghost btn-sm"
+                            title={t('rotate_key')}
+                            aria-label={t('rotate_key')}
+                          >
+                            <svg width="1rem" height="1rem" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                          </button>
+                          <button
+                            onClick={() => openKeySettings(key)}
+                            className="btn btn-ghost btn-sm"
+                            title={t('edit_key_settings')}
+                            aria-label={t('edit_key_settings')}
+                          >
+                            <SettingsIcon width="1rem" height="1rem" />
+                          </button>
+                          <button
+                            onClick={() => deleteAPIKey(key.id)}
+                            className="btn btn-ghost btn-sm"
+                            style={{ color: 'var(--danger)' }}
+                            title={t('confirm_delete_api_key')}
+                            aria-label={t('confirm_delete_api_key')}
+                          >
+                            <Trash width="1rem" height="1rem" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

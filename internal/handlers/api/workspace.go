@@ -30,23 +30,41 @@ func ListWorkspaces(c *gin.Context) {
 		Where("id = ?", userID).
 		Scan(&isInstanceAdmin)
 
-	var workspaces []metadata.Workspace
-	var q *gorm.DB
+	params := query.ExtractPaginationParams(c)
 
-	if isInstanceAdmin {
-		// Instance admin: show all workspaces
-		q = database.DB.Table("_hornero_workspaces")
-	} else {
+	base := func() *gorm.DB {
+		if isInstanceAdmin {
+			// Instance admin: show all workspaces
+			return database.DB.Table("_hornero_workspaces")
+		}
 		// Regular user: only show workspaces where user is owner OR has a role assigned
-		q = database.DB.Table("_hornero_workspaces w").
-			Distinct("w.*").
+		return database.DB.Table("_hornero_workspaces w").
 			Joins("LEFT JOIN _hornero_user_roles ur ON ur.workspace_id = w.id AND ur.user_id = ?", userID).
 			Where("w.owner_id = ? OR ur.user_id IS NOT NULL", userID)
 	}
 
-	q = query.ApplyPagination(q, c)
+	var total int64
+	var countErr error
+	if isInstanceAdmin {
+		countErr = base().Count(&total).Error
+	} else {
+		countErr = base().Select("COUNT(DISTINCT w.id)").Scan(&total).Error
+	}
+	if countErr != nil {
+		slog.Error("failed to count workspaces",
+			"error", countErr,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, countErr, "counting workspaces")
+		return
+	}
 
-	result := q.Find(&workspaces)
+	var workspaces []metadata.Workspace
+	q := base()
+	if !isInstanceAdmin {
+		q = q.Distinct("w.*")
+	}
+	result := q.Limit(params.Limit).Offset(params.Offset).Find(&workspaces)
 	if result.Error != nil {
 		slog.Error("failed to list workspaces",
 			"error", result.Error,
@@ -56,7 +74,13 @@ func ListWorkspaces(c *gin.Context) {
 		return
 	}
 
-	response.SuccessWithMeta(c, workspaces, map[string]interface{}{"count": len(workspaces)})
+	meta := map[string]interface{}{
+		"count":    total,
+		"limit":    params.Limit,
+		"offset":   params.Offset,
+		"has_more": params.Offset+len(workspaces) < int(total),
+	}
+	response.SuccessWithMeta(c, workspaces, meta)
 }
 
 func CreateWorkspace(c *gin.Context) {

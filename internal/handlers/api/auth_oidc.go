@@ -75,7 +75,7 @@ func buildAllowedDomains(cfg *config.Config) []string {
 
 func LoginPocketID(c *gin.Context) {
 	if oidcAuth == nil {
-		c.JSON(400, gin.H{"error": "PocketID is not configured"})
+		response.BadRequestError(c, "PocketID is not configured")
 		return
 	}
 
@@ -97,7 +97,7 @@ func LoginPocketID(c *gin.Context) {
 	allowedDomains := buildAllowedDomains(cfg)
 
 	if !IsValidRedirectURL(redirectURI, allowedDomains) {
-		c.JSON(400, gin.H{"error": "invalid redirect URL"})
+		response.ValidationError(c, "invalid redirect URL")
 		return
 	}
 
@@ -114,14 +114,14 @@ func LoginPocketID(c *gin.Context) {
 
 func CallbackPocketID(c *gin.Context) {
 	if oidcAuth == nil {
-		c.JSON(400, gin.H{"error": "PocketID is not configured"})
+		response.BadRequestError(c, "PocketID is not configured")
 		return
 	}
 
 	state := c.Query("state")
 	cookieState, _ := c.Cookie("oidc_state")
 	if cookieState == "" || state != cookieState {
-		c.JSON(400, gin.H{"error": "invalid state"})
+		response.ValidationError(c, "invalid state")
 		return
 	}
 
@@ -137,14 +137,14 @@ func CallbackPocketID(c *gin.Context) {
 	allowedDomains := buildAllowedDomains(cfg)
 
 	if !IsValidRedirectURL(redirectURL, allowedDomains) {
-		c.JSON(400, gin.H{"error": "invalid redirect URL"})
+		response.ValidationError(c, "invalid redirect URL")
 		return
 	}
 
 	codeVerifier, _ := c.Cookie("oidc_code_verifier")
 
 	if err := oidcAuth.HandleCallbackAndRedirect(c, jwtSecret, redirectURL, codeVerifier); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		response.BadRequestError(c, err.Error())
 		return
 	}
 }

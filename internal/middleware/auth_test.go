@@ -1,15 +1,26 @@
 package middleware
 
 import (
+	"context"
+	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"hornerodb/internal/database"
+	"hornerodb/internal/response"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 func init() {
@@ -58,6 +69,14 @@ func TestAuthRequired_NoAuthHeader(t *testing.T) {
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("Expected status %d, got %d", http.StatusUnauthorized, w.Code)
 	}
+
+	var env response.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
+		t.Fatalf("Expected standard APIResponse envelope, got %s: %v", w.Body.String(), err)
+	}
+	if env.Success || env.Error == nil || env.Error.Code != response.ErrUnauthorized || env.Error.Message == "" {
+		t.Errorf("Unexpected error envelope: %+v", env)
+	}
 }
 
 func TestAuthRequired_InvalidToken(t *testing.T) {
@@ -76,6 +95,14 @@ func TestAuthRequired_InvalidToken(t *testing.T) {
 
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("Expected status %d, got %d", http.StatusUnauthorized, w.Code)
+	}
+
+	var env response.APIResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
+		t.Fatalf("Expected standard APIResponse envelope, got %s: %v", w.Body.String(), err)
+	}
+	if env.Success || env.Error == nil || env.Error.Code != response.ErrUnauthorized || env.Error.Message == "" {
+		t.Errorf("Unexpected error envelope: %+v", env)
 	}
 }
 
@@ -411,4 +438,193 @@ func TestIsReadOnlyMethod(t *testing.T) {
 			t.Errorf("expected %s to be a mutating method", method)
 		}
 	}
+}
+
+type stubQueryFunc func(query string, args []driver.NamedValue) ([]string, [][]driver.Value, error)
+
+type stubDriver struct {
+	fn stubQueryFunc
+}
+
+func (d *stubDriver) Open(name string) (driver.Conn, error) {
+	return &stubConn{fn: d.fn}, nil
+}
+
+type stubConn struct {
+	fn stubQueryFunc
+}
+
+func (c *stubConn) Prepare(query string) (driver.Stmt, error) { return nil, nil }
+func (c *stubConn) Close() error                              { return nil }
+func (c *stubConn) Begin() (driver.Tx, error)                 { return &stubTx{}, nil }
+func (c *stubConn) QueryContext(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	cols, rows, err := c.fn(query, args)
+	if err != nil {
+		return nil, err
+	}
+	return &stubRows{cols: cols, data: rows}, nil
+}
+
+type stubTx struct{}
+
+func (t *stubTx) Commit() error   { return nil }
+func (t *stubTx) Rollback() error { return nil }
+
+type stubRows struct {
+	cols []string
+	data [][]driver.Value
+	idx  int
+}
+
+func (r *stubRows) Columns() []string { return r.cols }
+func (r *stubRows) Close() error      { return nil }
+func (r *stubRows) Next(dest []driver.Value) error {
+	if r.idx >= len(r.data) {
+		return io.EOF
+	}
+	copy(dest, r.data[r.idx])
+	r.idx++
+	return nil
+}
+
+var stubDriverCounter int64
+
+func openStubPostgresDB(t *testing.T, fn stubQueryFunc) *gorm.DB {
+	t.Helper()
+	name := "mw_stub_" + time.Now().Format("150405") + "_" + uuid.NewString()
+	_ = atomic.AddInt64(&stubDriverCounter, 1)
+	sql.Register(name, &stubDriver{fn: fn})
+	sqlDB, err := sql.Open(name, "")
+	if err != nil {
+		t.Fatalf("failed to open stub sql db: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	gdb, err := gorm.Open(postgres.New(postgres.Config{
+		Conn:                 sqlDB,
+		PreferSimpleProtocol: true,
+	}), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to open gorm stub db: %v", err)
+	}
+	return gdb
+}
+
+func TestResolveUserRole_InstanceAdminWithoutWorkspace(t *testing.T) {
+	origDB := database.DB
+	t.Cleanup(func() { database.DB = origDB })
+
+	var seenOrders []string
+	database.DB = openStubPostgresDB(t, func(query string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
+		if strings.Contains(query, "_hornero_workspaces") || strings.Contains(query, "_hornero_user_roles") {
+			seenOrders = append(seenOrders, query)
+		}
+		if strings.Contains(query, "_hornero_users") {
+			return []string{"can_create_workspaces"}, [][]driver.Value{{true}}, nil
+		}
+		return []string{"id"}, nil, nil
+	})
+
+	role, wsID, isOwner, err := ResolveUserRole("admin-user-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if role != "admin" {
+		t.Errorf("expected role 'admin' for instance admin without workspace, got %q", role)
+	}
+	if wsID != "" {
+		t.Errorf("expected empty workspaceID, got %q", wsID)
+	}
+	if isOwner {
+		t.Errorf("expected isOwner=false when no workspace exists")
+	}
+
+	if len(seenOrders) < 2 {
+		t.Fatalf("expected workspace and user_role queries to execute, got %d", len(seenOrders))
+	}
+	if !strings.Contains(strings.ToUpper(seenOrders[0]), "ORDER BY CREATED_AT ASC") {
+		t.Errorf("expected deterministic ORDER BY created_at ASC on workspaces query, got: %s", seenOrders[0])
+	}
+	if !strings.Contains(strings.ToUpper(seenOrders[1]), "ORDER BY ASSIGNED_AT ASC") {
+		t.Errorf("expected deterministic ORDER BY assigned_at ASC on user_roles query, got: %s", seenOrders[1])
+	}
+}
+
+func TestResolveUserRole_AssignedRoleDeterministic(t *testing.T) {
+	origDB := database.DB
+	t.Cleanup(func() { database.DB = origDB })
+
+	wsID := uuid.New()
+	roleID := uuid.New()
+	database.DB = openStubPostgresDB(t, func(query string, args []driver.NamedValue) ([]string, [][]driver.Value, error) {
+		switch {
+		case strings.Contains(query, "_hornero_users"):
+			return []string{"can_create_workspaces"}, [][]driver.Value{{false}}, nil
+		case strings.Contains(query, "_hornero_workspaces"):
+			return []string{"id"}, nil, nil
+		case strings.Contains(query, "_hornero_user_roles"):
+			return []string{"id", "workspace_id", "user_id", "role_id"}, [][]driver.Value{
+				{uuid.NewString(), wsID.String(), "user-1", roleID.String()},
+			}, nil
+		case strings.Contains(query, "_hornero_roles"):
+			return []string{"id", "name"}, [][]driver.Value{
+				{roleID.String(), "vendedor"},
+			}, nil
+		default:
+			return []string{"id"}, nil, nil
+		}
+	})
+
+	role, gotWS, isOwner, err := ResolveUserRole("user-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if role != "vendedor" || gotWS != wsID.String() || isOwner {
+		t.Errorf("got (%q, %q, %v), want (%q, %q, false)", role, gotWS, isOwner, "vendedor", wsID.String())
+	}
+}
+
+func TestAuthMiddleware_EnvelopeErrors(t *testing.T) {
+	t.Run("invalid session cookie uses standard error envelope", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		_, r := gin.CreateTestContext(w)
+		r.Use(AuthRequired("secret"))
+		r.GET("/test", func(c *gin.Context) { c.Status(200) })
+
+		req, _ := http.NewRequest("GET", "/test", nil)
+		req.AddCookie(&http.Cookie{Name: "hornero_session", Value: "bad-jwt"})
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("expected 401, got %d", w.Code)
+		}
+		var env response.APIResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
+			t.Fatalf("invalid json: %v", err)
+		}
+		if env.Success || env.Error == nil || env.Error.Code != response.ErrUnauthorized || env.Error.Message != "invalid session" {
+			t.Fatalf("unexpected envelope: %+v", env)
+		}
+	})
+
+	t.Run("RequireSystemPermission missing context uses standard error envelope", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		_, r := gin.CreateTestContext(w)
+		r.Use(RequireSystemPermission("tables"))
+		r.GET("/test", func(c *gin.Context) { c.Status(200) })
+
+		req, _ := http.NewRequest("GET", "/test", nil)
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("expected 403, got %d", w.Code)
+		}
+		var env response.APIResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
+			t.Fatalf("invalid json: %v", err)
+		}
+		if env.Success || env.Error == nil || env.Error.Code != response.ErrForbidden || !strings.Contains(env.Error.Message, "Forbidden:") {
+			t.Fatalf("unexpected envelope: %+v", env)
+		}
+	})
 }

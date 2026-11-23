@@ -198,3 +198,65 @@ export function getEffectivePermissions(permissions, roleName, tableSlug) {
     creatableColumns: resolveColumnPermissions(permMap, tableSlug, 'create'),
   }
 }
+
+/**
+ * Normalizes a `GET /api/v1/auth/permissions` payload (`{ workspace_id, role,
+ * is_admin, tables, system }`) into the permission map shape consumed by
+ * `getEffectivePermissions` and `getSystemPermissions`.
+ */
+export function toPermissionMap(authPerms) {
+  if (!authPerms || typeof authPerms !== 'object') return {}
+  if (!authPerms.tables && !authPerms.system) {
+    return parsePermissions(authPerms)
+  }
+
+  const tables = asMap(authPerms.tables) || {}
+  const system = asMap(authPerms.system)
+  const result = {}
+
+  for (const [slug, rule] of Object.entries(tables)) {
+    const ruleMap = asMap(rule)
+    if (!ruleMap) continue
+    result[slug] = {
+      create: ruleMap.create ?? ruleMap.Create ?? 'none',
+      read: ruleMap.read ?? ruleMap.Read ?? 'none',
+      update: ruleMap.update ?? ruleMap.Update ?? 'none',
+      delete: ruleMap.delete ?? ruleMap.Delete ?? 'none',
+      columns: asMap(ruleMap.columns ?? ruleMap.Columns) || undefined,
+    }
+  }
+
+  if (authPerms.is_admin && Object.keys(result).length === 0) {
+    result[WILDCARD_KEY] = {
+      create: 'all',
+      read: 'all',
+      update: 'all',
+      delete: 'all',
+    }
+  }
+
+  if (system) {
+    result[SYSTEM_ACCESS_KEY] = {
+      webhooks: system.webhooks ?? system.Webhooks ?? 'none',
+      roles: system.roles ?? system.Roles ?? 'none',
+      api_keys: system.api_keys ?? system.APIKeys ?? 'none',
+      tables: system.tables ?? system.Tables ?? 'none',
+      settings: system.settings ?? system.Settings ?? 'none',
+      mcp: system.mcp ?? system.MCP ?? 'none',
+    }
+  }
+
+  return result
+}
+
+/** Effective table & system permissions built from `/auth/permissions`. */
+export function getEffectivePermissionsFromAuth(authPerms, tableSlug) {
+  const roleName = authPerms?.is_admin ? 'admin' : authPerms?.role
+  return getEffectivePermissions(toPermissionMap(authPerms), roleName, tableSlug)
+}
+
+/** Effective system area permissions built from `/auth/permissions`. */
+export function getSystemPermissionsFromAuth(authPerms) {
+  const roleName = authPerms?.is_admin ? 'admin' : authPerms?.role
+  return getSystemPermissions(toPermissionMap(authPerms), roleName)
+}

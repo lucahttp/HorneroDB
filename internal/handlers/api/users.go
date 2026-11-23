@@ -45,18 +45,31 @@ func ListWorkspaceUsers(c *gin.Context) {
 		AssignedAt time.Time `json:"assigned_at"`
 	}
 
+	params := query.ExtractPaginationParams(c)
+	base := func() *gorm.DB {
+		return database.DB.Table("_hornero_user_roles").
+			Joins("JOIN _hornero_users ON _hornero_users.id = _hornero_user_roles.user_id").
+			Joins("JOIN _hornero_roles ON _hornero_roles.id = _hornero_user_roles.role_id").
+			Where("_hornero_user_roles.workspace_id = ?", workspaceID)
+	}
+
+	var total int64
+	if err := base().Count(&total).Error; err != nil {
+		slog.Error("failed to count workspace users",
+			"error", err,
+			"workspace_id", workspaceID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, err, "counting workspace users")
+		return
+	}
+
 	var users []UserWithRole
-
-	// Join UserRoles with User and Role
-	dbQuery := database.DB.Table("_hornero_user_roles").
+	err = base().
 		Select("_hornero_users.id, _hornero_users.email, _hornero_users.name, _hornero_users.picture, _hornero_user_roles.role_id, _hornero_roles.name as role_name, _hornero_user_roles.assigned_at").
-		Joins("JOIN _hornero_users ON _hornero_users.id = _hornero_user_roles.user_id").
-		Joins("JOIN _hornero_roles ON _hornero_roles.id = _hornero_user_roles.role_id").
-		Where("_hornero_user_roles.workspace_id = ?", workspaceID)
-
-	dbQuery = query.ApplyPagination(dbQuery, c)
-
-	err = dbQuery.Scan(&users).Error
+		Limit(params.Limit).
+		Offset(params.Offset).
+		Scan(&users).Error
 
 	if err != nil {
 		slog.Error("failed to list workspace users",
@@ -68,7 +81,13 @@ func ListWorkspaceUsers(c *gin.Context) {
 		return
 	}
 
-	response.SuccessWithMeta(c, users, map[string]interface{}{"count": len(users)})
+	meta := map[string]interface{}{
+		"count":    total,
+		"limit":    params.Limit,
+		"offset":   params.Offset,
+		"has_more": params.Offset+len(users) < int(total),
+	}
+	response.SuccessWithMeta(c, users, meta)
 }
 
 // ImportUser adds an existing PocketID user to the workspace

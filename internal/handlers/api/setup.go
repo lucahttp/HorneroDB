@@ -13,6 +13,7 @@ import (
 	"hornerodb/internal/middleware"
 	"hornerodb/internal/models/metadata"
 	"hornerodb/internal/response"
+	"hornerodb/internal/services/auth"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -247,6 +248,16 @@ func CompleteInitialSetup(c *gin.Context) {
 	if !setupCompleted {
 		response.Error(c, 500, "SETUP_FAILED", "Failed to complete setup")
 		return
+	}
+
+	// Refresh the HttpOnly session cookie so the newly promoted instance admin
+	// immediately carries role="admin" instead of the pre-setup "user" claim.
+	if authSource := middleware.GetAuthSource(c); authSource != "apikey" && authSource != "anonymous" && jwtSecret != "" {
+		if appToken, err := auth.GenerateJWTWithRole(jwtSecret, userID, email, "admin", middleware.GetUserWorkspace(c), 24*time.Hour); err == nil {
+			middleware.SetSecureCookie(c, "hornero_session", appToken, 86400, true)
+		} else {
+			slog.Warn("failed to refresh session cookie after initial setup", "error", err, "user_id", userID)
+		}
 	}
 
 	slog.Info("Initial setup completed", "user_id", userID)

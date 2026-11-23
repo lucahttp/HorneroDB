@@ -25,7 +25,7 @@ export default function Callback() {
         navigate('/dashboard', { replace: true })
       })
       .catch(() => {
-        navigate('/login', { replace: true })
+        navigate('/', { replace: true })
       })
   }, [navigate, login])
 

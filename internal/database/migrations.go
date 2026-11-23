@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"strings"
 
 	"hornerodb/internal/models"
 	"hornerodb/internal/models/metadata"
@@ -328,18 +329,77 @@ func createIndexes() error {
 	}
 
 	// P0-10: unicidad real de (workspace_id, slug) en tablas y (table_id, slug)
-	// en columnas. Si falla es porque ya existen duplicados en la base: el
-	// error NO se traga para que el problema sea visible en el arranque.
-	uniqueIndexes := []string{
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_tables_workspace_slug ON _hornero_tables(workspace_id, slug)`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_columns_table_slug ON _hornero_columns(table_id, slug)`,
+	// en columnas. Antes de crear los índices únicos ejecutamos un pre-flight
+	// check para reportar duplicados con detalle accionable en lugar de fallar
+	// con un SQLSTATE crudo de PostgreSQL.
+	uniqueIndexes := []struct {
+		table     string
+		scopeCol  string
+		indexName string
+		ddl       string
+	}{
+		{
+			table:     "_hornero_tables",
+			scopeCol:  "workspace_id",
+			indexName: "idx_tables_workspace_slug",
+			ddl:       `CREATE UNIQUE INDEX IF NOT EXISTS idx_tables_workspace_slug ON _hornero_tables(workspace_id, slug)`,
+		},
+		{
+			table:     "_hornero_columns",
+			scopeCol:  "table_id",
+			indexName: "idx_columns_table_slug",
+			ddl:       `CREATE UNIQUE INDEX IF NOT EXISTS idx_columns_table_slug ON _hornero_columns(table_id, slug)`,
+		},
 	}
-	for _, idx := range uniqueIndexes {
-		if err := DB.Exec(idx).Error; err != nil {
-			return fmt.Errorf("failed to create unique index %q (duplicated rows?): %w", idx, err)
+	for _, spec := range uniqueIndexes {
+		if err := ensureNoDuplicateSlugs(spec.table, spec.scopeCol, spec.indexName); err != nil {
+			return err
+		}
+		if err := DB.Exec(spec.ddl).Error; err != nil {
+			return fmt.Errorf("failed to create unique index %s on %s(%s, slug): %w", spec.indexName, spec.table, spec.scopeCol, err)
 		}
 	}
 
 	log.Println("✅ Database indexes created")
 	return nil
+}
+
+// ensureNoDuplicateSlugs performs a pre-flight duplicate check before creating
+// a unique index on (<scopeCol>, slug), surfacing conflicting pairs clearly.
+func ensureNoDuplicateSlugs(tableName, scopeCol, indexName string) error {
+	if !isValidIdentifier(tableName) || !isValidIdentifier(scopeCol) {
+		return fmt.Errorf("invalid identifier in unique index preflight: %s(%s)", tableName, scopeCol)
+	}
+
+	type duplicatePair struct {
+		ScopeID string `gorm:"column:scope_id"`
+		Slug    string `gorm:"column:slug"`
+		Count   int64  `gorm:"column:cnt"`
+	}
+
+	query := fmt.Sprintf(
+		`SELECT %s::text AS scope_id, slug, COUNT(*) AS cnt FROM %s GROUP BY %s, slug HAVING COUNT(*) > 1 ORDER BY cnt DESC, slug LIMIT 20`,
+		DB.Statement.Quote(scopeCol),
+		DB.Statement.Quote(tableName),
+		DB.Statement.Quote(scopeCol),
+	)
+
+	var duplicates []duplicatePair
+	if err := DB.Raw(query).Scan(&duplicates).Error; err != nil {
+		return fmt.Errorf("pre-flight duplicate check failed for %s(%s, slug): %w", tableName, scopeCol, err)
+	}
+	if len(duplicates) == 0 {
+		return nil
+	}
+
+	conflicts := make([]string, 0, len(duplicates))
+	for _, d := range duplicates {
+		conflicts = append(conflicts, fmt.Sprintf("(%s=%s, slug=%q, count=%d)", scopeCol, d.ScopeID, d.Slug, d.Count))
+	}
+
+	return fmt.Errorf(
+		"cannot create unique index %s on %s(%s, slug): found %d conflicting duplicate pair(s): [%s]. "+
+			"Resolve by renaming or deleting the duplicate rows in %s so every (%s, slug) pair is unique, then restart the server",
+		indexName, tableName, scopeCol, len(duplicates), strings.Join(conflicts, "; "), tableName, scopeCol,
+	)
 }

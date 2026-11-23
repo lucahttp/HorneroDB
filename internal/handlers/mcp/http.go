@@ -70,6 +70,10 @@ func (s *Server) HandleSSE(c *gin.Context) {
 	// X-Forwarded-Host header is attacker controlled and must not be trusted.
 	postEndpoint := fmt.Sprintf("%s/api/v1/mcp/message?sessionId=%s", s.publicBaseURL(c), sessionID)
 	flusher, canFlush := c.Writer.(http.Flusher)
+	// Clear any server-level write deadline so long-lived SSE streams are not
+	// terminated prematurely by http.Server.WriteTimeout.
+	_ = http.NewResponseController(c.Writer).SetWriteDeadline(time.Time{})
+
 	// A single writer loop owns the response writer: the keep-alive comments
 	// and the streamed messages are written from the same goroutine, so there
 	// is no concurrent access to gin.ResponseWriter (which is not safe for it).

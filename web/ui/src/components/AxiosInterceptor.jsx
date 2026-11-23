@@ -56,8 +56,8 @@ export function AxiosInterceptor() {
         onClick: () => showError(error),
       })
 
-      if (!window.location.pathname.startsWith('/login')) {
-        window.location.assign('/login')
+      if (window.location.pathname !== '/') {
+        window.location.assign('/')
       }
     }
 

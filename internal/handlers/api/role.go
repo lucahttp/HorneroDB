@@ -18,15 +18,24 @@ import (
 
 func ListRoles(c *gin.Context) {
 	workspaceID := c.Param("workspace_id")
+	params := query.ExtractPaginationParams(c)
+
+	base := func() *gorm.DB {
+		return database.DB.Table("_hornero_roles").Where("workspace_id = ?", workspaceID)
+	}
+
+	var total int64
+	if err := base().Count(&total).Error; err != nil {
+		slog.Error("failed to count roles",
+			"error", err,
+			"workspace_id", workspaceID,
+		)
+		response.DatabaseError(c, err, "counting roles")
+		return
+	}
+
 	var roles []metadata.Role
-
-	dbQuery := database.DB.Table("_hornero_roles").
-		Where("workspace_id = ?", workspaceID)
-
-	dbQuery = query.ApplyPagination(dbQuery, c)
-
-	result := dbQuery.Find(&roles)
-
+	result := base().Limit(params.Limit).Offset(params.Offset).Find(&roles)
 	if result.Error != nil {
 		slog.Error("failed to list roles",
 			"error", result.Error,
@@ -36,7 +45,13 @@ func ListRoles(c *gin.Context) {
 		return
 	}
 
-	response.SuccessWithMeta(c, roles, map[string]interface{}{"count": len(roles)})
+	meta := map[string]interface{}{
+		"count":    total,
+		"limit":    params.Limit,
+		"offset":   params.Offset,
+		"has_more": params.Offset+len(roles) < int(total),
+	}
+	response.SuccessWithMeta(c, roles, meta)
 }
 
 func CreateRole(c *gin.Context) {
@@ -274,15 +289,24 @@ func DeleteRole(c *gin.Context) {
 // User Roles
 func ListUserRoles(c *gin.Context) {
 	workspaceID := c.Param("workspace_id")
+	params := query.ExtractPaginationParams(c)
+
+	base := func() *gorm.DB {
+		return database.DB.Table("_hornero_user_roles").Where("workspace_id = ?", workspaceID)
+	}
+
+	var total int64
+	if err := base().Count(&total).Error; err != nil {
+		slog.Error("failed to count user roles",
+			"error", err,
+			"workspace_id", workspaceID,
+		)
+		response.DatabaseError(c, err, "counting user roles")
+		return
+	}
+
 	var userRoles []metadata.UserRole
-
-	dbQuery := database.DB.Table("_hornero_user_roles").
-		Where("workspace_id = ?", workspaceID)
-
-	dbQuery = query.ApplyPagination(dbQuery, c)
-
-	result := dbQuery.Find(&userRoles)
-
+	result := base().Limit(params.Limit).Offset(params.Offset).Find(&userRoles)
 	if result.Error != nil {
 		slog.Error("failed to list user roles",
 			"error", result.Error,
@@ -292,7 +316,13 @@ func ListUserRoles(c *gin.Context) {
 		return
 	}
 
-	response.SuccessWithMeta(c, userRoles, map[string]interface{}{"count": len(userRoles)})
+	meta := map[string]interface{}{
+		"count":    total,
+		"limit":    params.Limit,
+		"offset":   params.Offset,
+		"has_more": params.Offset+len(userRoles) < int(total),
+	}
+	response.SuccessWithMeta(c, userRoles, meta)
 }
 
 func AssignRoleToUser(c *gin.Context) {

@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"strings"
 
+	"hornerodb/internal/response"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -83,9 +85,9 @@ func CSRFProtection(allowedOrigins []string) gin.HandlerFunc {
 	}
 }
 
-// rejectCSRF aborts the request with 403.
+// rejectCSRF aborts the request with 403 using the canonical API error envelope.
 func rejectCSRF(c *gin.Context) {
-	c.JSON(http.StatusForbidden, gin.H{"error": "CSRF validation failed"})
+	response.Error(c, http.StatusForbidden, response.ErrForbidden, "CSRF validation failed")
 	c.Abort()
 }
 

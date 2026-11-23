@@ -83,11 +83,24 @@ func ListTables(c *gin.Context) {
 		return
 	}
 
-	var tables []metadata.Table
-	q := database.DB.Table("_hornero_tables").Where("workspace_id = ?", workspaceID).Preload("Columns")
-	q = query.ApplyPagination(q, c)
+	params := query.ExtractPaginationParams(c)
+	base := func() *gorm.DB {
+		return database.DB.Table("_hornero_tables").Where("workspace_id = ?", workspaceID)
+	}
 
-	result := q.Find(&tables)
+	var total int64
+	if err := base().Count(&total).Error; err != nil {
+		slog.Error("failed to count tables",
+			"error", err,
+			"workspace_id", workspaceID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, err, "counting tables")
+		return
+	}
+
+	var tables []metadata.Table
+	result := base().Preload("Columns").Limit(params.Limit).Offset(params.Offset).Find(&tables)
 	if result.Error != nil {
 		slog.Error("failed to fetch tables",
 			"error", result.Error,
@@ -99,7 +112,10 @@ func ListTables(c *gin.Context) {
 	}
 
 	meta := map[string]interface{}{
-		"count": len(tables),
+		"count":    total,
+		"limit":    params.Limit,
+		"offset":   params.Offset,
+		"has_more": params.Offset+len(tables) < int(total),
 	}
 	response.SuccessWithMeta(c, tables, meta)
 }

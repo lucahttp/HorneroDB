@@ -73,9 +73,10 @@ export function DataTable({
   const [pickerState, setPickerState] = useState(null) // { rowId, colSlug, meta, initialValue }
 
   // ── Effective permissions of the current role (CLS) ───────────
-  const canUpdateRecords = !permissions || permissions.update !== 'none'
-  const canDeleteRecords = !permissions || permissions.delete !== 'none'
-  const canCreateRecords = !permissions || permissions.create !== 'none'
+  const hasTableAccess = (level) => level === 'all' || level === 'own'
+  const canUpdateRecords = !permissions || hasTableAccess(permissions.update)
+  const canDeleteRecords = !permissions || hasTableAccess(permissions.delete)
+  const canCreateRecords = !permissions || hasTableAccess(permissions.create)
   const canManageTables = !permissions || hasSystemAccess(permissions.system, 'tables', 'manage')
 
   const columnIsReadable = (col) => !permissions || isColumnReadable(permissions.readableColumns, col.slug)
@@ -503,7 +504,7 @@ export function DataTable({
               <button className="btn btn-secondary btn-sm" onClick={toggleAll}>
                 {allSelected ? t('deselect_all') : t('select_all')}
               </button>
-              {selectedRows.size === 1 && (
+              {selectedRows.size === 1 && canUpdateRecords && (
                 <button className="btn btn-secondary btn-sm" onClick={handleEditSelected}>
                   <EditPencil width="1rem" height="1rem" style={{ marginRight: '0.35rem' }} />
                   {t('edit')}

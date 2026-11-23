@@ -21,6 +21,7 @@ import (
 	"hornerodb/internal/handlers/api"
 	"hornerodb/internal/handlers/mcp"
 	"hornerodb/internal/middleware"
+	"hornerodb/internal/response"
 	"hornerodb/internal/services/data"
 	"hornerodb/internal/services/permission"
 	"hornerodb/internal/workers"
@@ -178,7 +179,8 @@ func main() {
 			}
 		}
 
-		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Global Origin Access Denied"})
+		response.Error(c, http.StatusForbidden, response.ErrForbidden, "Global Origin Access Denied")
+		c.Abort()
 	})
 
 	// Disable automatic redirects to prevent static file trailing slash 301 loops
@@ -288,7 +290,7 @@ func main() {
 					return
 				}
 				if _, err := uuid.Parse(c.Param("id")); err != nil {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id format"})
+					response.ValidationError(c, "invalid id format")
 					return
 				}
 				api.DeleteRecord(c)
@@ -355,7 +357,7 @@ func main() {
 						return
 					}
 					if _, err := uuid.Parse(c.Param("webhook_id")); err != nil {
-						c.JSON(http.StatusBadRequest, gin.H{"error": "invalid webhook_id format"})
+						response.ValidationError(c, "invalid webhook_id format")
 						return
 					}
 					api.GetWebhook(c)
@@ -496,14 +498,14 @@ func main() {
 		}
 	}
 
-	// Start HTTP server with timeouts and graceful shutdown
+	// Start HTTP server with timeouts and graceful shutdown.
+	// WriteTimeout is intentionally 0 so long-lived SSE streams (/api/v1/mcp/sse
+	// and streamable-HTTP SSE) are not killed by a global write deadline; SSE
+	// handlers also explicitly clear any per-request write deadline via
+	// http.NewResponseController.
 	readTimeout := cfg.Server.ReadTimeout
 	if readTimeout <= 0 {
 		readTimeout = 30 * time.Second
-	}
-	writeTimeout := cfg.Server.WriteTimeout
-	if writeTimeout <= 0 {
-		writeTimeout = 30 * time.Second
 	}
 
 	srv := &http.Server{
@@ -511,7 +513,7 @@ func main() {
 		Handler:           r,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       readTimeout,
-		WriteTimeout:      writeTimeout,
+		WriteTimeout:      0,
 		IdleTimeout:       120 * time.Second,
 	}
 

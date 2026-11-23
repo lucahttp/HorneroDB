@@ -14,7 +14,17 @@ export function RelationPicker({
   initialValue
 }) {
   const { t } = useTranslation()
+  const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const next = searchInput.trim()
+      setSearch(prev => (prev === next ? prev : next))
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [searchInput])
 
   /**
    * Result of the last request. `key` identifies the request the payload
@@ -76,8 +86,8 @@ export function RelationPicker({
               className="form-input"
               style={{ paddingLeft: '2.5rem' }}
               placeholder={t('search_in', { table: targetTableSlug })}
-              value={search}
-              onChange={e => setSearch(e.target.value)}
+              value={searchInput}
+              onChange={e => setSearchInput(e.target.value)}
               autoFocus
             />
           </div>

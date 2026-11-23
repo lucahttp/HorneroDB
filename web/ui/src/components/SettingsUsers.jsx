@@ -10,6 +10,7 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
 
     const [users, setUsers] = useState([])
     const [loading, setLoading] = useState(true)
+    const [forbidden, setForbidden] = useState(false)
     const [showImport, setShowImport] = useState(false)
     const [importing, setImporting] = useState(false)
 
@@ -25,11 +26,18 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
     const loadUsers = useCallback(async () => {
         setLoading(true)
         try {
-            const res = await axios.get(`${API_URL}/workspaces/${workspaceId}/users`)
+            const res = await axios.get(`${API_URL}/workspaces/${workspaceId}/users`, { params: { limit: 200 } })
             setUsers(res.data.data || [])
+            setForbidden(false)
         } catch (err) {
-            console.error(err)
-            if (notify) notify(t('system_error'), 'error')
+            if (err.response?.status === 403) {
+                setUsers([])
+                setForbidden(true)
+            } else {
+                console.error(err)
+                setForbidden(false)
+                if (notify) notify(t('system_error'), 'error')
+            }
         } finally {
             setLoading(false)
         }
@@ -107,13 +115,21 @@ export default function SettingsUsers({ workspaceId, roles, notify }) {
         <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
                 <p style={{ color: 'var(--text-secondary)' }}>{t('manage_users_desc')}</p>
-                <Button size="sm" onClick={() => setShowImport(true)}>
-                    <UserPlus width="1.25rem" height="1.25rem" style={{ marginRight: '0.5rem' }} />
-                    {t('add_user')}
-                </Button>
+                {!forbidden && (
+                    <Button size="sm" onClick={() => setShowImport(true)}>
+                        <UserPlus width="1.25rem" height="1.25rem" style={{ marginRight: '0.5rem' }} />
+                        {t('add_user')}
+                    </Button>
+                )}
             </div>
 
-            {users.length === 0 ? (
+            {forbidden ? (
+                <EmptyState
+                    icon={<ShieldCheck width="2rem" height="2rem" />}
+                    title={t('access_denied')}
+                    description={t('no_users_permission_hint', 'Tu rol no tiene acceso a la gestión de usuarios y roles de este workspace.')}
+                />
+            ) : users.length === 0 ? (
                 <EmptyState
                     icon={<Group width="2rem" height="2rem" />}
                     title={t('no_users')}

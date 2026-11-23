@@ -54,10 +54,24 @@ func ListWebhooks(c *gin.Context) {
 		response.UnauthorizedError(c)
 		return
 	}
+	params := query.ExtractPaginationParams(c)
+	base := func() *gorm.DB {
+		return database.DB.Table("_hornero_webhooks").Where("workspace_id = ?", workspaceID)
+	}
+
+	var total int64
+	if err := base().Count(&total).Error; err != nil {
+		slog.Error("failed to count webhooks",
+			"error", err,
+			"workspace_id", workspaceID,
+			"user_id", userID,
+		)
+		response.DatabaseError(c, err, "counting webhooks")
+		return
+	}
+
 	var webhooks []metadata.Webhook
-	q := database.DB.Table("_hornero_webhooks").Where("workspace_id = ?", workspaceID)
-	q = query.ApplyPagination(q, c)
-	result := q.Find(&webhooks)
+	result := base().Limit(params.Limit).Offset(params.Offset).Find(&webhooks)
 	if result.Error != nil {
 		slog.Error("failed to fetch webhooks",
 			"error", result.Error,
@@ -68,7 +82,10 @@ func ListWebhooks(c *gin.Context) {
 		return
 	}
 	meta := map[string]interface{}{
-		"count": len(webhooks),
+		"count":    total,
+		"limit":    params.Limit,
+		"offset":   params.Offset,
+		"has_more": params.Offset+len(webhooks) < int(total),
 	}
 	response.SuccessWithMeta(c, webhooks, meta)
 }

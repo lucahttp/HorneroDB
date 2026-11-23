@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"hornerodb/internal/config"
 	"hornerodb/internal/database"
@@ -380,6 +381,9 @@ func writeSSE(c *gin.Context, resp []MCPResponse) {
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
+	// Clear any server-level write deadline so SSE streaming responses are not
+	// interrupted prematurely by http.Server.WriteTimeout.
+	_ = http.NewResponseController(c.Writer).SetWriteDeadline(time.Time{})
 	c.Writer.WriteHeader(http.StatusOK)
 
 	flusher, ok := c.Writer.(http.Flusher)

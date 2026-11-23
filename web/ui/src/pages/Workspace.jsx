@@ -39,7 +39,7 @@ export default function Workspace() {
       .then(res => setWorkspace(res.data.data))
       .catch(console.error)
 
-    axios.get(`${API_URL}/workspaces/${wsId}/tables`)
+    axios.get(`${API_URL}/workspaces/${wsId}/tables`, { params: { limit: 200 } })
       .then(res => setTables(res.data.data))
       .catch(() => setTables([]))
       .finally(() => setLoading(false))
@@ -55,7 +55,7 @@ export default function Workspace() {
       })
       setShowCreateTable(false)
       setNewTableName('')
-      const listRes = await axios.get(`${API_URL}/workspaces/${wsId}/tables`)
+      const listRes = await axios.get(`${API_URL}/workspaces/${wsId}/tables`, { params: { limit: 200 } })
       setTables(listRes.data.data)
     } catch (err) {
       console.error(err)
@@ -299,7 +299,7 @@ export default function Workspace() {
                           name,
                           slug: name.toLowerCase().replace(/\s+/g, '_')
                         })
-                        const listRes = await axios.get(`${API_URL}/workspaces/${wsId}/tables`)
+                        const listRes = await axios.get(`${API_URL}/workspaces/${wsId}/tables`, { params: { limit: 200 } })
                         setTables(listRes.data.data)
                       }}
                     />

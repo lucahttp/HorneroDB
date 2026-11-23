@@ -114,6 +114,15 @@ export const AuthProvider = ({ children }) => {
     return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleSessionExpired)
   }, [logout])
 
+  const refreshUser = useCallback(async (workspaceId) => {
+    const config = workspaceId ? { params: { workspace_id: workspaceId } } : undefined
+    const res = await axios.get(`${API_URL}/auth/me`, config)
+    const userData = res.data?.data ?? null
+    setUser(userData)
+    setToken(prev => prev || COOKIE_SESSION)
+    return userData
+  }, [])
+
   const value = {
     token,
     user,
@@ -122,7 +131,8 @@ export const AuthProvider = ({ children }) => {
     // While the session is being probed there is nothing to render yet.
     loading: authLoading,
     login,
-    logout
+    logout,
+    refreshUser
   }
 
   return (

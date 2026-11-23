@@ -29,7 +29,7 @@ export default function Dashboard() {
   // Fetch workspaces and user permissions
   useEffect(() => {
     // Fetch workspaces
-    axios.get(`${API_URL}/workspaces`)
+    axios.get(`${API_URL}/workspaces`, { params: { limit: 200 } })
       .then(res => setWorkspaces(Array.isArray(res.data.data) ? res.data.data : []))
       .catch(() => {
         setWorkspaces([])
@@ -88,7 +88,7 @@ export default function Dashboard() {
       setShowCreate(false)
       setNewName('')
       setSelectedTemplate(null)
-      const res = await axios.get(`${API_URL}/workspaces`)
+      const res = await axios.get(`${API_URL}/workspaces`, { params: { limit: 200 } })
       setWorkspaces(Array.isArray(res.data.data) ? res.data.data : [])
     } catch (err) {
       console.error('Workspace Create Error:', err)
@@ -116,7 +116,7 @@ export default function Dashboard() {
         await axios.post(`${API_URL}/workspaces/import`, jsonDump)
         
         notify(t('workspace_imported'), 'success')
-        const res = await axios.get(`${API_URL}/workspaces`)
+        const res = await axios.get(`${API_URL}/workspaces`, { params: { limit: 200 } })
         setWorkspaces(Array.isArray(res.data.data) ? res.data.data : [])
       } catch (err) {
         console.error('Import Workspace Error:', err)

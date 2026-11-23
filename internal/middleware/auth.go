@@ -15,6 +15,7 @@ import (
 
 	"hornerodb/internal/database"
 	"hornerodb/internal/models/metadata"
+	"hornerodb/internal/response"
 	"hornerodb/internal/services/permission"
 
 	"github.com/gin-gonic/gin"
@@ -160,7 +161,7 @@ func AuthRequired(secret string) gin.HandlerFunc {
 			if cookieToken, err := c.Cookie("hornero_session"); err == nil && cookieToken != "" {
 				claims, err := parseSessionToken(cookieToken, secret)
 				if err != nil {
-					c.JSON(401, gin.H{"error": "invalid session"})
+					response.Error(c, http.StatusUnauthorized, response.ErrUnauthorized, "invalid session")
 					c.Abort()
 					return
 				}
@@ -169,7 +170,7 @@ func AuthRequired(secret string) gin.HandlerFunc {
 				return
 			}
 
-			c.JSON(401, gin.H{"error": "authorization header required"})
+			response.Error(c, http.StatusUnauthorized, response.ErrUnauthorized, "authorization header required")
 			c.Abort()
 			return
 		}
@@ -178,7 +179,7 @@ func AuthRequired(secret string) gin.HandlerFunc {
 		if tokenString == authHeader {
 			apiKey, roleName, err := verifyAPIKey(tokenString)
 			if err != nil {
-				c.JSON(401, gin.H{"error": "invalid authorization format"})
+				response.Error(c, http.StatusUnauthorized, response.ErrUnauthorized, "invalid authorization format")
 				c.Abort()
 				return
 			}
@@ -201,7 +202,7 @@ func AuthRequired(secret string) gin.HandlerFunc {
 			// Fallback 2: Try API key
 			apiKey, roleName, err := verifyAPIKey(tokenString)
 			if err != nil {
-				c.JSON(401, gin.H{"error": "invalid token or API key"})
+				response.Error(c, http.StatusUnauthorized, response.ErrUnauthorized, "invalid token or API key")
 				c.Abort()
 				return
 			}
@@ -287,7 +288,7 @@ func RequireUserSession() gin.HandlerFunc {
 
 		authSrc := GetAuthSource(c)
 		if authSrc == "anonymous" {
-			c.JSON(403, gin.H{"error": "Authentication required to access user-level endpoints"})
+			response.Error(c, http.StatusForbidden, response.ErrForbidden, "Authentication required to access user-level endpoints")
 			c.Abort()
 			return
 		}
@@ -296,7 +297,7 @@ func RequireUserSession() gin.HandlerFunc {
 			// Allow instance-level API keys (where WorkspaceID is nil/empty UUID)
 			workspaceID := GetUserWorkspace(c)
 			if workspaceID != "" && workspaceID != uuid.Nil.String() {
-				c.JSON(403, gin.H{"error": "Workspace-bound API keys are not allowed to access user-level endpoints"})
+				response.Error(c, http.StatusForbidden, response.ErrForbidden, "Workspace-bound API keys are not allowed to access user-level endpoints")
 				c.Abort()
 				return
 			}
@@ -311,7 +312,7 @@ func RequireAdminRole() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role := GetUserRole(c)
 		if role != "admin" {
-			c.JSON(403, gin.H{"error": "Require 'admin' role to perform this action"})
+			response.Error(c, http.StatusForbidden, response.ErrForbidden, "Require 'admin' role to perform this action")
 			c.Abort()
 			return
 		}
@@ -325,7 +326,7 @@ func RequireInstanceAdmin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := GetUserID(c)
 		if userID == "" {
-			c.JSON(403, gin.H{"error": "Authentication required"})
+			response.Error(c, http.StatusForbidden, response.ErrForbidden, "Authentication required")
 			c.Abort()
 			return
 		}
@@ -344,14 +345,14 @@ func RequireInstanceAdmin() gin.HandlerFunc {
 				"user_id", userID,
 				"path", c.Request.URL.Path,
 			)
-			c.JSON(500, gin.H{"error": "Internal server error"})
+			response.InternalError(c)
 			c.Abort()
 			return
 		}
 
 		if !user.CanCreateWorkspaces {
 			// Usuario no tiene permisos - retornar 403
-			c.JSON(403, gin.H{"error": "Instance admin privileges required to perform this action"})
+			response.Error(c, http.StatusForbidden, response.ErrForbidden, "Instance admin privileges required to perform this action")
 			c.Abort()
 			return
 		}
@@ -376,14 +377,14 @@ func RequireSystemPermission(action string) gin.HandlerFunc {
 		role := GetUserRole(c)
 
 		if workspaceID == "" || role == "" {
-			c.JSON(403, gin.H{"error": "Forbidden: missing workspace or role context"})
+			response.Error(c, http.StatusForbidden, response.ErrForbidden, "Forbidden: missing workspace or role context")
 			c.Abort()
 			return
 		}
 
 		wsUUID, err := uuid.Parse(workspaceID)
 		if err != nil {
-			c.JSON(403, gin.H{"error": "Forbidden: invalid workspace ID"})
+			response.Error(c, http.StatusForbidden, response.ErrForbidden, "Forbidden: invalid workspace ID")
 			c.Abort()
 			return
 		}
@@ -392,14 +393,14 @@ func RequireSystemPermission(action string) gin.HandlerFunc {
 		permSvc := permission.NewService()
 		sysPerms, err := permSvc.GetSystemPermissions(wsUUID, role)
 		if err != nil {
-			c.JSON(403, gin.H{"error": fmt.Sprintf("Forbidden: missing '%s' permission", action)})
+			response.Error(c, http.StatusForbidden, response.ErrForbidden, fmt.Sprintf("Forbidden: missing '%s' permission", action))
 			c.Abort()
 			return
 		}
 
 		level := systemAccessLevel(sysPerms, action)
 		if !systemAccessAllowed(level, isReadOnlyMethod(c.Request.Method)) {
-			c.JSON(403, gin.H{"error": fmt.Sprintf("Forbidden: missing '%s' permission", action)})
+			response.Error(c, http.StatusForbidden, response.ErrForbidden, fmt.Sprintf("Forbidden: missing '%s' permission", action))
 			c.Abort()
 			return
 		}
@@ -691,40 +692,54 @@ func GetRolePermissions(c *gin.Context) string {
 	return ""
 }
 
-// ResolveUserRole determines the role and workspace for a user
-// It checks if the user is a workspace owner first, then checks for assigned roles
-// TODO: Move to internal/services/auth/ when the auth service grows
+// ResolveUserRole determines the role and workspace for a user.
+// Instance admins always resolve to "admin" even before creating any workspace.
+// Otherwise it checks workspace ownership first, then assigned roles deterministically.
 // Returns: (roleName, workspaceID, isOwner, error)
 func ResolveUserRole(userID string) (string, string, bool, error) {
 	roleName := "user"
 	workspaceID := ""
 	isOwner := false
 
-	if database.DB == nil {
+	if database.DB == nil || userID == "" {
 		return roleName, workspaceID, isOwner, nil
+	}
+
+	var isInstanceAdmin bool
+	if err := database.DB.Table("_hornero_users").
+		Select("can_create_workspaces").
+		Where("id = ?", userID).
+		Limit(1).
+		Scan(&isInstanceAdmin).Error; err == nil && isInstanceAdmin {
+		roleName = "admin"
 	}
 
 	// FIRST: Check if user is owner of any workspace
 	var ws metadata.Workspace
 	res := database.DB.Table("_hornero_workspaces").
 		Where("owner_id = ?", userID).
+		Order("created_at ASC").
 		Limit(1).
 		Find(&ws)
 
 	if res.Error == nil && res.RowsAffected > 0 {
-		// User is owner of a workspace - give admin role
 		workspaceID = ws.ID.String()
 		roleName = "admin"
 		isOwner = true
-	} else {
-		// SECOND: Check if user has a role assigned in any workspace
-		var userRole metadata.UserRole
-		resRole := database.DB.Table("_hornero_user_roles").
-			Where("user_id = ?", userID).
-			Limit(1).
-			Find(&userRole)
+		return roleName, workspaceID, isOwner, nil
+	}
 
-		if resRole.Error == nil && resRole.RowsAffected > 0 && userRole.RoleID != uuid.Nil {
+	// SECOND: Check if user has a role assigned in any workspace
+	var userRole metadata.UserRole
+	resRole := database.DB.Table("_hornero_user_roles").
+		Where("user_id = ?", userID).
+		Order("assigned_at ASC").
+		Limit(1).
+		Find(&userRole)
+
+	if resRole.Error == nil && resRole.RowsAffected > 0 && userRole.RoleID != uuid.Nil {
+		workspaceID = userRole.WorkspaceID.String()
+		if !isInstanceAdmin {
 			var role metadata.Role
 			resRoleName := database.DB.Table("_hornero_roles").
 				Where("id = ?", userRole.RoleID).
@@ -733,9 +748,82 @@ func ResolveUserRole(userID string) (string, string, bool, error) {
 			if resRoleName.Error == nil && resRoleName.RowsAffected > 0 {
 				roleName = role.Name
 			}
-			workspaceID = userRole.WorkspaceID.String()
 		}
 	}
 
 	return roleName, workspaceID, isOwner, nil
+}
+
+// WorkspaceRoleResolution describes a user's live role inside a specific workspace.
+type WorkspaceRoleResolution struct {
+	RoleName        string
+	IsOwner         bool
+	IsInstanceAdmin bool
+	IsMember        bool
+	WorkspaceFound  bool
+}
+
+// ResolveUserWorkspaceRole resolves a user's live effective role for a specific workspace.
+// Instance admins and workspace owners always resolve as "admin".
+func ResolveUserWorkspaceRole(userID string, wsID uuid.UUID) (WorkspaceRoleResolution, error) {
+	var out WorkspaceRoleResolution
+	if database.DB == nil || userID == "" {
+		return out, nil
+	}
+
+	var isInstanceAdmin bool
+	if err := database.DB.Table("_hornero_users").
+		Select("can_create_workspaces").
+		Where("id = ?", userID).
+		Limit(1).
+		Scan(&isInstanceAdmin).Error; err != nil {
+		return out, err
+	}
+	out.IsInstanceAdmin = isInstanceAdmin
+
+	var workspace metadata.Workspace
+	wsRes := database.DB.Table("_hornero_workspaces").
+		Where("id = ?", wsID).
+		Limit(1).
+		Find(&workspace)
+	if wsRes.Error != nil {
+		return out, wsRes.Error
+	}
+	out.WorkspaceFound = wsRes.RowsAffected > 0
+
+	if isInstanceAdmin {
+		out.RoleName = "admin"
+		out.IsMember = true
+		out.IsOwner = out.WorkspaceFound && workspace.OwnerID.String() == userID
+		return out, nil
+	}
+
+	if !out.WorkspaceFound {
+		return out, nil
+	}
+
+	if workspace.OwnerID.String() == userID {
+		out.RoleName = "admin"
+		out.IsOwner = true
+		out.IsMember = true
+		return out, nil
+	}
+
+	var role metadata.Role
+	roleRes := database.DB.Table("_hornero_roles").
+		Select("_hornero_roles.*").
+		Joins("JOIN _hornero_user_roles ON _hornero_user_roles.role_id = _hornero_roles.id").
+		Where("_hornero_user_roles.workspace_id = ? AND _hornero_user_roles.user_id = ? AND _hornero_roles.workspace_id = ?", wsID, userID, wsID).
+		Order("_hornero_user_roles.assigned_at ASC").
+		Limit(1).
+		Find(&role)
+	if roleRes.Error != nil {
+		return out, roleRes.Error
+	}
+	if roleRes.RowsAffected > 0 {
+		out.RoleName = role.Name
+		out.IsMember = true
+	}
+
+	return out, nil
 }
