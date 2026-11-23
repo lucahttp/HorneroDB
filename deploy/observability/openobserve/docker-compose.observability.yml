@@ -13,20 +13,16 @@ services:
       - ZO_COMPACT_DATA_RETENTION_DAYS=${ZO_RETENTION_DAYS:-14}
     volumes:
       - openobserve_data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:5080/healthz >/dev/null || wget -qO- http://localhost:5080/healthz >/dev/null || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
+    # Note: upstream public.ecr.aws/zinclabs/openobserve:latest is distroless
+    # (no /bin/sh, curl, or wget), so container-internal CMD healthchecks fail.
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.114.0
+    image: otel/opentelemetry-collector-contrib:0.165.0
     container_name: hornerodb-otel-collector
     restart: unless-stopped
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
-      - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - ./deploy/observability/openobserve/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
     ports:
       - "127.0.0.1:4317:4317"
       - "127.0.0.1:4318:4318"
@@ -38,7 +34,7 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-hornero}
     depends_on:
       openobserve:
-        condition: service_healthy
+        condition: service_started
       postgres:
         condition: service_healthy
 
