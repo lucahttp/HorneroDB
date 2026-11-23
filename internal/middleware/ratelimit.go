@@ -11,6 +11,7 @@ import (
 
 	"hornerodb/internal/database"
 	"hornerodb/internal/models/metadata"
+	"hornerodb/internal/response"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -215,9 +216,15 @@ func WorkspaceSecurity() gin.HandlerFunc {
 			return
 		}
 
+		authSource := GetAuthSource(c)
+
 		// Parse workspace settings
 		var settings map[string]interface{}
-		var rateLimit float64 = 60 // default 60 requests per minute
+		rateLimit := 60.0 // default 60 requests per minute for API keys and anonymous callers
+		if authSource != "apikey" && authSource != "anonymous" {
+			// Interactive authenticated sessions burst more frequently during UI editing
+			rateLimit = 300.0
+		}
 		var rateLimitHour float64 = 0
 		var allowedOrigins []interface{}
 
@@ -272,7 +279,6 @@ func WorkspaceSecurity() gin.HandlerFunc {
 		//
 		// SECURITY: this exemption NEVER skips the rate limiting — an
 		// unauthenticated-looking JWT must not be a free pass for the limiter.
-		authSource := GetAuthSource(c)
 		originExempt := false
 		if authSource != "apikey" && authSource != "anonymous" {
 			reqOrigin := strings.TrimRight(strings.TrimSpace(c.GetHeader("Origin")), "/")
@@ -299,9 +305,8 @@ func WorkspaceSecurity() gin.HandlerFunc {
 					}
 				}
 				if !originAllowed {
-					c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-						"error": "Origin not allowed by workspace settings.",
-					})
+					response.Error(c, http.StatusForbidden, response.ErrForbidden, "Origin not allowed by workspace settings.")
+					c.Abort()
 					return
 				}
 			}
@@ -323,9 +328,8 @@ func WorkspaceSecurity() gin.HandlerFunc {
 						}
 					}
 					if !refererAllowed && len(referers) > 0 {
-						c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-							"error": "Referer not allowed for this API key.",
-						})
+						response.Error(c, http.StatusForbidden, response.ErrForbidden, "Referer not allowed for this API key.")
+						c.Abort()
 						return
 					}
 				}
@@ -345,9 +349,9 @@ func WorkspaceSecurity() gin.HandlerFunc {
 		if rateLimit > 0 {
 			count := getVisitorLimit(identifier, time.Minute)
 			if count > int(rateLimit) {
-				c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
-					"error": "Rate limit exceeded. Please try again later.",
-				})
+				c.Header("Retry-After", "60")
+				response.Error(c, http.StatusTooManyRequests, response.ErrRateLimited, "Rate limit exceeded. Please try again later.")
+				c.Abort()
 				return
 			}
 		}
@@ -356,9 +360,9 @@ func WorkspaceSecurity() gin.HandlerFunc {
 		if rateLimitHour > 0 {
 			count := getVisitorLimit(identifier, time.Hour)
 			if count > int(rateLimitHour) {
-				c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
-					"error": "Hourly rate limit exceeded. Please try again later.",
-				})
+				c.Header("Retry-After", "60")
+				response.Error(c, http.StatusTooManyRequests, response.ErrRateLimited, "Hourly rate limit exceeded. Please try again later.")
+				c.Abort()
 				return
 			}
 		}
@@ -380,9 +384,9 @@ func SimpleRateLimit(maxRequests int, window time.Duration) gin.HandlerFunc {
 
 		count := ipLimiter.hit(ip, window)
 		if count > maxRequests {
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
-				"error": "Too many requests. Please try again later.",
-			})
+			c.Header("Retry-After", "60")
+			response.Error(c, http.StatusTooManyRequests, response.ErrRateLimited, "Too many requests. Please try again later.")
+			c.Abort()
 			return
 		}
 

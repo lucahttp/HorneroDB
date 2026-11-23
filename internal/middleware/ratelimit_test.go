@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"hornerodb/internal/models/metadata"
+	"hornerodb/internal/response"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -189,4 +190,58 @@ func TestSimpleRateLimit(t *testing.T) {
 	req, _ := http.NewRequest("GET", "/api/test", nil)
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusTooManyRequests, w.Code)
+}
+
+func TestWorkspaceSecurity_DefaultLimitInteractiveVsAPIKey(t *testing.T) {
+	oidcWS := workspaceWithSettings(t, map[string]interface{}{})
+	oidcRouter := newRateLimitRouter(oidcWS, "oidc")
+
+	for i := 1; i <= 80; i++ {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/api/test", nil)
+		oidcRouter.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "interactive OIDC request %d should be allowed under default 300/min", i)
+	}
+
+	apiKeyWS := workspaceWithSettings(t, map[string]interface{}{})
+	apiKeyRouter := newRateLimitRouter(apiKeyWS, "apikey")
+
+	for i := 1; i <= 60; i++ {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/api/test", nil)
+		apiKeyRouter.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code, "API key request %d should be allowed up to default 60/min", i)
+	}
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/test", nil)
+	apiKeyRouter.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusTooManyRequests, w.Code, "61st API key request must be rate limited")
+}
+
+func TestWorkspaceSecurity_RateLimitEnvelopeAndRetryAfter(t *testing.T) {
+	ws := workspaceWithSettings(t, map[string]interface{}{
+		"rate_limit_per_minute": 1,
+	})
+	r := newRateLimitRouter(ws, "oidc")
+
+	w1 := httptest.NewRecorder()
+	req1, _ := http.NewRequest("GET", "/api/test", nil)
+	r.ServeHTTP(w1, req1)
+	assert.Equal(t, http.StatusOK, w1.Code)
+
+	w2 := httptest.NewRecorder()
+	req2, _ := http.NewRequest("GET", "/api/test", nil)
+	r.ServeHTTP(w2, req2)
+	assert.Equal(t, http.StatusTooManyRequests, w2.Code)
+	assert.Equal(t, "60", w2.Header().Get("Retry-After"))
+
+	var body response.APIResponse
+	err := json.Unmarshal(w2.Body.Bytes(), &body)
+	assert.NoError(t, err)
+	assert.False(t, body.Success)
+	if assert.NotNil(t, body.Error) {
+		assert.Equal(t, response.ErrRateLimited, body.Error.Code)
+		assert.NotEmpty(t, body.Error.Message)
+	}
 }

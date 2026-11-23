@@ -19,6 +19,7 @@ export default function TableView() {
   const [columns, setColumns] = useState([])
   const [records, setRecords] = useState([])
   const [authPermissions, setAuthPermissions] = useState(null)
+  const [metaKey, setMetaKey] = useState(null)
   const [loading, setLoading] = useState(true)
   const [recordsLoading, setRecordsLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('data')
@@ -38,12 +39,17 @@ export default function TableView() {
 
   // CSV Import Wizard ref
   const csvWizardRef = useRef(null)
+  const recordsRequestIdRef = useRef(0)
+
+  const currentRouteKey = `${workspaceId}:${tableId}`
+  const tableSlug = table?.slug ?? null
+  const isMetadataReady = metaKey === currentRouteKey && Boolean(tableSlug)
 
   /**
-   * Loads the table metadata and the records of the current page.
-   * It never touches React state, so it can safely be called from an effect.
+   * Loads table schema, permissions, and workspace tables (only on route
+   * change or schema mutations). Pure async helper so effects remain race-safe.
    */
-  const fetchAll = useCallback(async () => {
+  const fetchMetadata = useCallback(async () => {
     const [tableRes, columnsRes, permsRes, allTablesRes] = await Promise.all([
       axios.get(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}`),
       axios.get(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}/columns`, { params: { limit: 200 } }),
@@ -51,10 +57,20 @@ export default function TableView() {
       axios.get(`${API_URL}/workspaces/${workspaceId}/tables`, { params: { limit: 200 } })
     ])
 
-    const tableData = tableRes.data.data
-    const colData = columnsRes.data.data || []
+    return {
+      key: `${workspaceId}:${tableId}`,
+      table: tableRes.data.data,
+      columns: columnsRes.data.data || [],
+      authPermissions: permsRes.data.data || null,
+      tables: allTablesRes.data.data || [],
+    }
+  }, [workspaceId, tableId])
 
-    const relationsToExpand = colData
+  /**
+   * Loads only the records for the current page, search, and sort state.
+   */
+  const fetchRecords = useCallback(async () => {
+    const relationsToExpand = columns
       .filter(c => c.field_type === 'relation')
       .map(c => c.slug)
       .join(',')
@@ -73,25 +89,25 @@ export default function TableView() {
     }
 
     const recordsRes = await axios.get(
-      `${API_URL}/workspaces/${workspaceId}/data/${tableData.slug}?${params.toString()}`
+      `${API_URL}/workspaces/${workspaceId}/data/${tableSlug}?${params.toString()}`
     )
 
     return {
-      table: tableData,
-      columns: colData,
-      authPermissions: permsRes.data.data || null,
-      tables: allTablesRes.data.data || [],
       records: recordsRes.data.data || [],
       // The API answers with the total amount of rows, not the size of the page.
       total: recordsRes.data.meta?.count ?? recordsRes.data.meta?.total ?? recordsRes.data.data?.length ?? 0,
     }
-  }, [workspaceId, tableId, page, pageSize, search, sortBy])
+  }, [workspaceId, tableSlug, columns, page, pageSize, search, sortBy])
 
-  const applyData = useCallback((data) => {
+  const applyMetadata = useCallback((data) => {
     setTable(data.table)
     setColumns(data.columns)
     setAuthPermissions(data.authPermissions)
     setTables(data.tables)
+    setMetaKey(data.key)
+  }, [])
+
+  const applyRecords = useCallback((data) => {
     setRecords(data.records)
     setTotalRecords(data.total)
   }, [])
@@ -107,32 +123,81 @@ export default function TableView() {
     }
   }, [t])
 
+  // Fetch metadata only when workspaceId / tableId changes.
   useEffect(() => {
     let cancelled = false
 
-    fetchAll()
+    fetchMetadata()
       .then(data => {
-        if (!cancelled) applyData(data)
+        if (!cancelled) applyMetadata(data)
       })
       .catch(err => {
         if (!cancelled) handleLoadError(err)
       })
       .finally(() => {
-        if (!cancelled) {
-          setLoading(false)
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => { cancelled = true }
+  }, [fetchMetadata, applyMetadata, handleLoadError])
+
+  // Fetch records once metadata is ready, and whenever pagination/search/sort or schema changes.
+  useEffect(() => {
+    if (!isMetadataReady) return
+
+    let cancelled = false
+    const reqId = ++recordsRequestIdRef.current
+
+    fetchRecords()
+      .then(data => {
+        if (!cancelled && reqId === recordsRequestIdRef.current) {
+          applyRecords(data)
+        }
+      })
+      .catch(err => {
+        if (!cancelled && reqId === recordsRequestIdRef.current) {
+          handleLoadError(err)
+        }
+      })
+      .finally(() => {
+        if (!cancelled && reqId === recordsRequestIdRef.current) {
           setRecordsLoading(false)
         }
       })
 
     return () => { cancelled = true }
-  }, [fetchAll, applyData, handleLoadError])
+  }, [isMetadataReady, fetchRecords, applyRecords, handleLoadError])
 
-  /** Reload everything (used after a mutation). */
-  const reload = useCallback(() => {
-    fetchAll()
-      .then(applyData)
+  /** Reload only records (used after row CRUD or CSV import). */
+  const reloadRecords = useCallback(() => {
+    if (!isMetadataReady) return
+    const reqId = ++recordsRequestIdRef.current
+    setRecordsLoading(true)
+
+    fetchRecords()
+      .then(data => {
+        if (reqId === recordsRequestIdRef.current) {
+          applyRecords(data)
+        }
+      })
+      .catch(err => {
+        if (reqId === recordsRequestIdRef.current) {
+          handleLoadError(err)
+        }
+      })
+      .finally(() => {
+        if (reqId === recordsRequestIdRef.current) {
+          setRecordsLoading(false)
+        }
+      })
+  }, [isMetadataReady, fetchRecords, applyRecords, handleLoadError])
+
+  /** Reload schema metadata (used after column mutations; also triggers a records refresh). */
+  const reloadMetadata = useCallback(() => {
+    fetchMetadata()
+      .then(applyMetadata)
       .catch(handleLoadError)
-  }, [fetchAll, applyData, handleLoadError])
+  }, [fetchMetadata, applyMetadata, handleLoadError])
 
   // ── Effective permissions of the current role (CLS) ───
   const effectivePermissions = getEffectivePermissionsFromAuth(authPermissions, table?.slug)
@@ -167,6 +232,7 @@ export default function TableView() {
    * Cycles the sort state of a column: none → asc → desc → none.
    */
   const handleSortChange = useCallback((column) => {
+    setRecordsLoading(true)
     setSortBy(prev => {
       if (prev.column !== column) return { column, direction: 'asc' }
       if (prev.direction === 'asc') return { column, direction: 'desc' }
@@ -193,7 +259,7 @@ export default function TableView() {
 
   const handleCreateRecord = async (data) => {
     await axios.post(`${API_URL}/workspaces/${workspaceId}/data/${table.slug}`, data)
-    reload()
+    reloadRecords()
   }
 
   const deleteRecord = async (id) => {
@@ -212,7 +278,7 @@ export default function TableView() {
   const handleUpdateRecord = async (recordId, data) => {
     try {
       await axios.put(`${API_URL}/workspaces/${workspaceId}/data/${table.slug}/${recordId}`, data)
-      reload()
+      reloadRecords()
     } catch (err) {
       console.error(err)
       notify(t('error_update_record'), 'error')
@@ -228,7 +294,7 @@ export default function TableView() {
         data: { ids },
       })
       notify(t('records_deleted'), 'success')
-      reload()
+      reloadRecords()
     } catch (err) {
       console.error(err)
       notify(t('error_delete_records'), 'error')
@@ -243,7 +309,7 @@ export default function TableView() {
         field_type: type,
         meta: meta
       })
-      reload()
+      reloadMetadata()
       notify(t('column_created'), 'success')
     } catch (err) {
       console.error(err)
@@ -254,7 +320,7 @@ export default function TableView() {
   const handleDeleteColumn = async (columnId) => {
     try {
       await axios.delete(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}/columns/${columnId}`)
-      reload()
+      reloadMetadata()
       notify(t('column_deleted'), 'success')
     } catch (err) {
       console.error(err)
@@ -267,7 +333,7 @@ export default function TableView() {
       await axios.put(`${API_URL}/workspaces/${workspaceId}/tables/${tableId}/columns/${columnId}`, {
         name: newName
       })
-      reload()
+      reloadMetadata()
       notify(t('column_renamed'), 'success')
     } catch (err) {
       console.error(err)
@@ -485,7 +551,7 @@ export default function TableView() {
         workspaceId={workspaceId}
         table={table}
         columns={columns}
-        onImportComplete={reload}
+        onImportComplete={reloadRecords}
       />
     </div>
   )
