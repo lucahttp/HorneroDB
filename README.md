@@ -28,7 +28,10 @@ HorneroDB is a **security-first, self-hosted** PostgreSQL backend: a REST API, a
   * *Column-level security per operation* (control who reads, creates, updates, or deletes each field).
   * *Row-level security by owner* — in v1.0 the `own` level filters rows by `created_by`. Arbitrary custom conditions (visual rule builder) land in v1.1.
 * **Webhooks you can trust** — Transactional outbox, HMAC-signed payloads (`X-Hornero-Signature`) and SSRF protection on delivery.
+* **End-to-End OpenTelemetry Observability (Opt-In)** — Native W3C `traceparent` propagation from Web Consumers / Browser RUM (`@openobserve/browser-rum`) through HorneroDB (Go/Gin/GORM), Pocket ID, PostgreSQL 18 and async webhooks, with a turnkey **OpenObserve + OTel Collector** stack in [`deploy/observability/openobserve/`](deploy/observability/openobserve/).
 * **Excel-like Experience** — Inline cell editing, full keyboard navigation, and seamless copy/paste support.
+
+> 📋 For the full product vision, architecture diagram, subsystem status matrix, and known v1.0 caveats, see **[`docs/STATUS.md`](docs/STATUS.md)**.
 
 ## 🛠️ Developer Tools
 
@@ -331,7 +334,8 @@ HorneroDB supports rich column data types mapped directly to PostgreSQL:
 * [x] API key rate limiting (minute + hour windows) & domain restrictions
 * [x] MCP Server for AI Assistants (Streamable HTTP, SSE, stdio, OAuth2 PKCE S256 & strict workspace isolation)
 * [x] Webhooks with transactional outbox, HMAC signatures (`X-Hornero-Signature`), SSRF protection, delivery history & retry UI
-* [x] Hardened Docker image (non-root, healthcheck, `/ready`), GitHub Actions CI, backup/restore scripts and [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
+* [x] End-to-end OpenTelemetry observability (opt-in OTLP traces/metrics, `slog` correlation, GORM SQL spans, Pocket ID propagation, webhook Span Links, runtime-configured OpenObserve Browser RUM, and [`deploy/observability/openobserve/`](deploy/observability/openobserve/) stack)
+* [x] Hardened Docker image (non-root, healthcheck, `/ready`), GitHub Actions CI, backup/restore scripts, [`docs/OPERATIONS.md`](docs/OPERATIONS.md) and [`docs/STATUS.md`](docs/STATUS.md)
 
 **v1.1**
 * [ ] Entra ID and Keycloak OIDC connectors
@@ -373,7 +377,10 @@ HorneroDB es un backend **self-hosted y security-first** sobre PostgreSQL: una A
   * *Seguridad a nivel de columna por operación* (controlá quién lee, crea, actualiza o elimina cada campo).
   * *Seguridad a nivel de fila por dueño* — en la v1.0 el nivel `own` filtra por `created_by`. Las condiciones personalizadas (constructor visual) llegan en la v1.1.
 * **Webhooks en los que podés confiar** — Outbox transaccional, payloads firmados con HMAC (`X-Hornero-Signature`) y protección SSRF en la entrega.
+* **Observabilidad OpenTelemetry End-to-End (Opt-In)** — Propagación W3C `traceparent` desde Web Consumers / Browser RUM (`@openobserve/browser-rum`) hasta HorneroDB (Go/Gin/GORM), Pocket ID, PostgreSQL 18 y webhooks asíncronos, con stack listo de **OpenObserve + OTel Collector** en [`deploy/observability/openobserve/`](deploy/observability/openobserve/).
 * **Experiencia tipo Excel** — Edición de celdas en línea, navegación completa por teclado y soporte fluido para copiar/pegar.
+
+> 📋 Para ver la visión completa, arquitectura, matriz de estado por subsistema y limitaciones conocidas de la v1.0, consultá **[`docs/STATUS.md`](docs/STATUS.md)**.
 
 ## 🛠️ Herramientas para Desarrolladores
 
@@ -676,7 +683,8 @@ HorneroDB soporta tipos de datos ricos mapeados directamente a PostgreSQL:
 * [x] Rate limiting de API keys (ventanas por minuto y hora) y restricciones de dominio
 * [x] Servidor MCP para asistentes de IA (Streamable HTTP, SSE, stdio, OAuth2 PKCE S256 y aislamiento por workspace)
 * [x] Webhooks con outbox transaccional, firmas HMAC (`X-Hornero-Signature`), protección SSRF, historial de entregas y reintento en UI
-* [x] Imagen Docker endurecida (no root, healthcheck, `/ready`), CI en GitHub Actions, scripts de backup/restore y [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
+* [x] Observabilidad OpenTelemetry end-to-end (trazas/métricas OTLP opt-in, correlación `slog`, spans SQL en GORM, propagación a Pocket ID, Span Links en webhooks, OpenObserve Browser RUM por config runtime y stack en [`deploy/observability/openobserve/`](deploy/observability/openobserve/))
+* [x] Imagen Docker endurecida (no root, healthcheck, `/ready`), CI en GitHub Actions, scripts de backup/restore, [`docs/OPERATIONS.md`](docs/OPERATIONS.md) y [`docs/STATUS.md`](docs/STATUS.md)
 
 **v1.1**
 * [ ] Conectores OIDC de Entra ID y Keycloak
