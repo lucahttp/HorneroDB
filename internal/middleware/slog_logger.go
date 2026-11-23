@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"hornerodb/internal/telemetry"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -16,6 +18,8 @@ func StructuredLogger() gin.HandlerFunc {
 		// SECURITY: the raw query string is NEVER logged. It routinely carries
 		// tokens, codes, secrets and other sensitive values (?token=..., ?code=...).
 		path := c.Request.URL.Path
+		reqID := requestID(c)
+		c.Header("X-Request-ID", reqID)
 
 		c.Next()
 
@@ -31,14 +35,18 @@ func StructuredLogger() gin.HandlerFunc {
 			slog.String("ip", clientIP),
 			slog.Duration("latency", latency),
 			slog.String("user_agent", c.Request.UserAgent()),
+			slog.String("request_id", reqID),
 		}
 
 		if userID := c.GetString("user_id"); userID != "" {
 			attrs = append(attrs, slog.String("user_id", userID))
 		}
 
-		if requestID := requestID(c); requestID != "" {
-			attrs = append(attrs, slog.String("request_id", requestID))
+		if traceID, spanID := telemetry.TraceIDFromContext(c.Request.Context()); traceID != "" && spanID != "" {
+			attrs = append(attrs,
+				slog.String("trace_id", traceID),
+				slog.String("span_id", spanID),
+			)
 		}
 
 		if len(c.Errors) > 0 {

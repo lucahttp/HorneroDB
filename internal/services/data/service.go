@@ -1,6 +1,7 @@
 package data
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -84,12 +85,34 @@ type RequestContext struct {
 
 type Service struct {
 	permSvc *permission.Service
+	ctx     context.Context
 }
 
 func NewService() *Service {
 	return &Service{
 		permSvc: permission.NewService(),
 	}
+}
+
+// WithContext returns a shallow copy of Service bound to ctx so GORM queries
+// propagate the caller's context and OpenTelemetry span.
+func (s *Service) WithContext(ctx context.Context) *Service {
+	if s == nil {
+		return &Service{
+			permSvc: permission.NewService(),
+			ctx:     ctx,
+		}
+	}
+	copySvc := *s
+	copySvc.ctx = ctx
+	return &copySvc
+}
+
+func (s *Service) db() *gorm.DB {
+	if s != nil && s.ctx != nil && database.DB != nil {
+		return database.DB.WithContext(s.ctx)
+	}
+	return database.DB
 }
 
 // ListOptions agrupa los parámetros de listado: paginación, expansión,
@@ -180,7 +203,7 @@ func (s *Service) ListRecordsWithQuery(ctx RequestContext, opts ListOptions) ([]
 		orderSQL = opts.OData.OrderBy
 	}
 
-	dbQuery := database.DB.Table(ctx.TableName)
+	dbQuery := s.db().Table(ctx.TableName)
 
 	// Row level security: "own" sólo ve sus propios registros.
 	if ctx.AccessLevel == permission.AccessOwn {
@@ -508,7 +531,7 @@ func (s *Service) CreateRecord(ctx RequestContext, input map[string]interface{})
 	recordID := input["id"].(uuid.UUID).String()
 
 	var created map[string]interface{}
-	err := database.DB.Transaction(func(tx *gorm.DB) error {
+	err := s.db().Transaction(func(tx *gorm.DB) error {
 		if err := tx.Table(ctx.TableName).Create(input).Error; err != nil {
 			return err
 		}
@@ -571,7 +594,7 @@ func (s *Service) BulkCreateRecords(ctx RequestContext, inputs []map[string]inte
 
 	var created []map[string]interface{}
 
-	err = database.DB.Transaction(func(tx *gorm.DB) error {
+	err = s.db().Transaction(func(tx *gorm.DB) error {
 		for _, row := range rows {
 			if err := tx.Table(ctx.TableName).Create(row).Error; err != nil {
 				return err
@@ -678,7 +701,7 @@ func recordIDKey(value interface{}) (string, bool) {
 
 // GetRecord returns a single record by ID
 func (s *Service) GetRecord(ctx RequestContext, recordID string) (map[string]interface{}, error) {
-	dbQuery := database.DB.Table(ctx.TableName).Where("id = ?", recordID)
+	dbQuery := s.db().Table(ctx.TableName).Where("id = ?", recordID)
 
 	if ctx.AccessLevel == permission.AccessOwn {
 		dbQuery = dbQuery.Where("created_by = ?", ctx.UserID)
@@ -723,7 +746,7 @@ func (s *Service) UpdateRecord(ctx RequestContext, recordID string, input map[st
 
 	input["updated_at"] = time.Now().UTC()
 
-	return database.DB.Transaction(func(tx *gorm.DB) error {
+	return s.db().Transaction(func(tx *gorm.DB) error {
 		dbQuery := tx.Table(ctx.TableName).Where("id = ?", recordID)
 		if ctx.AccessLevel == permission.AccessOwn {
 			dbQuery = dbQuery.Where("created_by = ?", ctx.UserID)
@@ -759,7 +782,7 @@ func (s *Service) DeleteRecord(ctx RequestContext, recordID string) error {
 		return errors.New("invalid table name format")
 	}
 
-	return database.DB.Transaction(func(tx *gorm.DB) error {
+	return s.db().Transaction(func(tx *gorm.DB) error {
 		readQuery := tx.Table(ctx.TableName).Where("id = ?", recordID)
 		if ctx.AccessLevel == permission.AccessOwn {
 			readQuery = readQuery.Where("created_by = ?", ctx.UserID)
@@ -820,7 +843,7 @@ func (s *Service) BulkDeleteRecords(ctx RequestContext, ids []string) (int64, er
 
 	var deleted int64
 
-	err := database.DB.Transaction(func(tx *gorm.DB) error {
+	err := s.db().Transaction(func(tx *gorm.DB) error {
 		// 1) Leer los registros a borrar respetando el RLS.
 		readQuery := tx.Table(ctx.TableName).Where("id IN ?", normalized)
 		if ctx.AccessLevel == permission.AccessOwn {
@@ -922,7 +945,7 @@ func (s *Service) expandRecords(ctx RequestContext, records []map[string]interfa
 
 		// 1) Resolve the target table inside the current workspace.
 		var targetTable metadata.Table
-		if err := database.DB.Table("_hornero_tables").
+		if err := s.db().Table("_hornero_tables").
 			Where("workspace_id = ? AND slug = ?", ctx.WsID, targetTableSlug).
 			First(&targetTable).Error; err != nil {
 			// Unknown / cross-workspace table: never expand it.
@@ -978,7 +1001,7 @@ func (s *Service) expandRecords(ctx RequestContext, records []map[string]interfa
 		// The table name is validated above and GORM quotes it when building
 		// the FROM clause; the SELECT column is emitted as raw SQL by GORM,
 		// so it must be quoted manually (displayCol is validated too).
-		query := database.DB.Table(targetTableName).
+		query := s.db().Table(targetTableName).
 			Select("id", quoteIdentifier(displayCol)).
 			Where("id IN ?", idList)
 
@@ -1039,7 +1062,7 @@ func (s *Service) canReadColumn(ctx RequestContext, targetTable metadata.Table, 
 	// System columns always exist on every physical table.
 	if !systemColumns[columnSlug] {
 		var count int64
-		if err := database.DB.Table("_hornero_columns").
+		if err := s.db().Table("_hornero_columns").
 			Where("table_id = ? AND slug = ?", targetTable.ID, columnSlug).
 			Count(&count).Error; err != nil {
 			return false
@@ -1112,7 +1135,7 @@ func validateTypedFieldsWithColumns(columns []metadata.Column, input map[string]
 
 func (s *Service) loadTableColumns(tableID uuid.UUID) ([]metadata.Column, error) {
 	var cols []metadata.Column
-	if err := database.DB.Table("_hornero_columns").Where("table_id = ?", tableID).Find(&cols).Error; err != nil {
+	if err := s.db().Table("_hornero_columns").Where("table_id = ?", tableID).Find(&cols).Error; err != nil {
 		return nil, err
 	}
 	return cols, nil
@@ -1327,7 +1350,7 @@ func (s *Service) generateAutonumberFields(tableID uuid.UUID, input map[string]i
 
 func (s *Service) generateNextAutonumber(colID uuid.UUID) (string, error) {
 	var formattedVal string
-	err := database.DB.Transaction(func(tx *gorm.DB) error {
+	err := s.db().Transaction(func(tx *gorm.DB) error {
 		var col metadata.Column
 		if err := tx.Table("_hornero_columns").Set("gorm:query_option", "FOR UPDATE").First(&col, "id = ?", colID).Error; err != nil {
 			return err

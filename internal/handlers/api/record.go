@@ -79,7 +79,7 @@ func ListRecords(c *gin.Context) {
 		AccessLevel: ctx.AccessLevel,
 	}
 
-	records, count, err := dataService.ListRecordsWithQuery(reqCtx, data.ListOptions{
+	records, count, err := dataService.WithContext(c.Request.Context()).ListRecordsWithQuery(reqCtx, data.ListOptions{
 		Limit:   limit,
 		Offset:  offset,
 		Expand:  expandParam,
@@ -131,7 +131,7 @@ func CreateRecord(c *gin.Context) {
 		AccessLevel: ctx.AccessLevel,
 	}
 
-	created, err := dataService.CreateRecord(reqCtx, input)
+	created, err := dataService.WithContext(c.Request.Context()).CreateRecord(reqCtx, input)
 	if err != nil {
 		var valErr *data.ValidationError
 		if errors.As(err, &valErr) {
@@ -164,7 +164,7 @@ func GetRecord(c *gin.Context) {
 		AccessLevel: ctx.AccessLevel,
 	}
 
-	record, err := dataService.GetRecord(reqCtx, recordID)
+	record, err := dataService.WithContext(c.Request.Context()).GetRecord(reqCtx, recordID)
 	if err != nil {
 		if err.Error() == "RECORD_NOT_FOUND" {
 			response.NotFoundError(c, "record")
@@ -201,7 +201,7 @@ func UpdateRecord(c *gin.Context) {
 		AccessLevel: ctx.AccessLevel,
 	}
 
-	err := dataService.UpdateRecord(reqCtx, recordID, input)
+	err := dataService.WithContext(c.Request.Context()).UpdateRecord(reqCtx, recordID, input)
 	if err != nil {
 		if err.Error() == "RECORD_NOT_FOUND" {
 			response.NotFoundError(c, "record")
@@ -238,7 +238,7 @@ func DeleteRecord(c *gin.Context) {
 		AccessLevel: ctx.AccessLevel,
 	}
 
-	err := dataService.DeleteRecord(reqCtx, recordID)
+	err := dataService.WithContext(c.Request.Context()).DeleteRecord(reqCtx, recordID)
 	if err != nil {
 		if err.Error() == "RECORD_NOT_FOUND" {
 			response.NotFoundError(c, "record")
@@ -279,7 +279,7 @@ func BulkCreateRecords(c *gin.Context) {
 		AccessLevel: ctx.AccessLevel,
 	}
 
-	created, err := dataService.BulkCreateRecords(reqCtx, records)
+	created, err := dataService.WithContext(c.Request.Context()).BulkCreateRecords(reqCtx, records)
 	if err != nil {
 		if data.IsValidationError(err) {
 			response.ValidationError(c, err.Error())
@@ -325,7 +325,7 @@ func BulkDeleteRecords(c *gin.Context) {
 		AccessLevel: ctx.AccessLevel,
 	}
 
-	deleted, err := dataService.BulkDeleteRecords(reqCtx, ids)
+	deleted, err := dataService.WithContext(c.Request.Context()).BulkDeleteRecords(reqCtx, ids)
 	if err != nil {
 		if data.IsValidationError(err) {
 			response.ValidationError(c, err.Error())

@@ -1,0 +1,46 @@
+# OpenTelemetry Collector Contrib — Ubuntu host systemd agent config
+# Target path on Ubuntu host: /etc/otelcol-contrib/config.yaml
+# Requires: sudo usermod -aG docker otelcol-contrib
+
+receivers:
+  hostmetrics:
+    collection_interval: 30s
+    scrapers:
+      cpu: {}
+      memory: {}
+      disk: {}
+      filesystem: {}
+      load: {}
+      network: {}
+
+  docker_stats:
+    endpoint: unix:///var/run/docker.sock
+    collection_interval: 30s
+
+processors:
+  resourcedetection:
+    detectors: [env, system]
+    timeout: 5s
+    override: false
+
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 128
+    spike_limit_mib: 32
+
+  batch:
+    send_batch_size: 1024
+    timeout: 5s
+
+exporters:
+  otlp:
+    endpoint: 127.0.0.1:4317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    metrics:
+      receivers: [hostmetrics, docker_stats]
+      processors: [memory_limiter, resourcedetection, batch]
+      exporters: [otlp]

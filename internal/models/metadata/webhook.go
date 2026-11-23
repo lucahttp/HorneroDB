@@ -48,6 +48,10 @@ type WebhookOutboxEvent struct {
 	CompletedAt *time.Time `gorm:"column:completed_at" json:"completed_at,omitempty"`
 	FailedAt    *time.Time `gorm:"column:failed_at" json:"failed_at,omitempty"`
 
+	// Traceparent captures the W3C traceparent of the originating request so
+	// async webhook delivery spans can link back to the write trace.
+	Traceparent string `gorm:"column:traceparent;type:varchar(128)" json:"traceparent,omitempty"`
+
 	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
 }

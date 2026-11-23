@@ -24,6 +24,7 @@ import (
 	"hornerodb/internal/database"
 	"hornerodb/internal/middleware"
 	"hornerodb/internal/models/metadata"
+	"hornerodb/internal/telemetry"
 )
 
 type OIDCAuth struct {
@@ -76,7 +77,7 @@ func NewPocketIDAuth(cfg *config.OIDCProvider) (*OIDCAuth, error) {
 		return nil, fmt.Errorf("PocketID is not enabled")
 	}
 
-	ctx := context.Background()
+	ctx := oidc.ClientContext(context.Background(), telemetry.NewHTTPClient(10*time.Second))
 
 	// Bypass automatic OIDC provider discovery.
 	// We want to fetch the JWKS from the internal Docker network (IssuerURL)
@@ -161,9 +162,9 @@ func (o *OIDCAuth) ExchangeCodeWithRedirect(ctx context.Context, code, codeVerif
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	// Dedicated client with a timeout: never rely on http.DefaultClient, which
-	// has no timeout and could hang the request forever.
-	client := &http.Client{Timeout: 15 * time.Second}
+	// Dedicated instrumented client with a timeout: never rely on http.DefaultClient,
+	// which has no timeout and does not propagate trace context.
+	client := telemetry.NewHTTPClient(10 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -185,7 +186,10 @@ func (o *OIDCAuth) ExchangeCodeWithRedirect(ctx context.Context, code, codeVerif
 }
 
 func (o *OIDCAuth) VerifyIDToken(ctx context.Context, rawIDToken string) (*oidc.IDToken, error) {
-	return o.verifier.Verify(ctx, rawIDToken)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return o.verifier.Verify(oidc.ClientContext(ctx, telemetry.NewHTTPClient(10*time.Second)), rawIDToken)
 }
 
 type UserClaims struct {
@@ -320,6 +324,9 @@ func (o *OIDCAuth) HandleCallback(c *gin.Context, jwtSecret string) error {
 	}
 
 	ctx := context.Background()
+	if c != nil && c.Request != nil {
+		ctx = c.Request.Context()
+	}
 
 	// Exchange code for tokens
 	tokenResp, err := o.ExchangeCode(ctx, code, "")
@@ -396,6 +403,9 @@ func (o *OIDCAuth) HandleCallbackAndRedirect(c *gin.Context, jwtSecret, redirect
 	}
 
 	ctx := context.Background()
+	if c != nil && c.Request != nil {
+		ctx = c.Request.Context()
+	}
 
 	tokenResp, err := o.ExchangeCode(ctx, code, codeVerifier)
 	if err != nil {

@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
 import { API_URL, AUTH_TOKEN_KEY, AUTH_EXPIRED_EVENT } from '../constants'
+import { setRumUser, clearRumUser } from '../telemetry/rum'
 
 const AuthContext = createContext(null)
 
@@ -45,6 +46,7 @@ export const AuthProvider = ({ children }) => {
 
     localStorage.removeItem(AUTH_TOKEN_KEY)
     delete axios.defaults.headers.common['Authorization']
+    clearRumUser()
     setToken(null)
     setUser(null)
     setAuthLoading(false)
@@ -62,6 +64,7 @@ export const AuthProvider = ({ children }) => {
     }
     if (userData) {
       setUser(userData)
+      setRumUser(userData)
     }
   }, [])
 
@@ -85,7 +88,9 @@ export const AuthProvider = ({ children }) => {
     axios.get(`${API_URL}/auth/me`)
       .then(res => {
         if (cancelled) return
-        setUser(res.data.data)
+        const userData = res.data.data
+        setUser(userData)
+        setRumUser(userData)
         // Keep the bearer token when there is one, otherwise mark the session
         // as cookie-only.
         setToken(prev => prev || COOKIE_SESSION)
@@ -94,6 +99,7 @@ export const AuthProvider = ({ children }) => {
         if (cancelled) return
         localStorage.removeItem(AUTH_TOKEN_KEY)
         delete axios.defaults.headers.common['Authorization']
+        clearRumUser()
         setToken(null)
         setUser(null)
       })
@@ -119,6 +125,11 @@ export const AuthProvider = ({ children }) => {
     const res = await axios.get(`${API_URL}/auth/me`, config)
     const userData = res.data?.data ?? null
     setUser(userData)
+    if (userData) {
+      setRumUser(userData)
+    } else {
+      clearRumUser()
+    }
     setToken(prev => prev || COOKIE_SESSION)
     return userData
   }, [])

@@ -260,6 +260,10 @@ func Migrate() error {
 		return err
 	}
 
+	if err := DB.Exec("ALTER TABLE _hornero_webhook_events ADD COLUMN IF NOT EXISTS traceparent VARCHAR(128)").Error; err != nil {
+		return fmt.Errorf("failed to add column traceparent to _hornero_webhook_events: %w", err)
+	}
+
 	// Instance Settings
 	err = DB.Table("_hornero_instance_settings").AutoMigrate(&metadata.InstanceSettings{})
 	if err != nil {

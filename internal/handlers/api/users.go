@@ -1,9 +1,11 @@
 package api
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"hornerodb/internal/config"
@@ -14,11 +16,39 @@ import (
 	"hornerodb/internal/response"
 	"hornerodb/internal/services/audit"
 	"hornerodb/internal/services/auth"
+	"hornerodb/internal/telemetry"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
+
+type contextPropagatingTransport struct {
+	ctx  context.Context
+	base http.RoundTripper
+}
+
+func (t *contextPropagatingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.ctx != nil {
+		if _, spanID := telemetry.TraceIDFromContext(req.Context()); spanID == "" {
+			req = req.Clone(t.ctx)
+		}
+	}
+	return t.base.RoundTrip(req)
+}
+
+func newInstrumentedPocketIDClient(c *gin.Context, cfg *config.OIDCProvider) *auth.PocketIDClient {
+	client := auth.NewPocketIDClient(cfg)
+	httpClient := telemetry.NewHTTPClient(10 * time.Second)
+	if c != nil && c.Request != nil {
+		httpClient.Transport = &contextPropagatingTransport{
+			ctx:  c.Request.Context(),
+			base: httpClient.Transport,
+		}
+	}
+	client.HTTPClient = httpClient
+	return client
+}
 
 // ListWorkspaceUsers returns users who have a role in the workspace
 // It joins _hornero_user_roles with _hornero_users to get details.
@@ -119,7 +149,7 @@ func ImportUser(c *gin.Context) {
 
 		if cfg.Auth.PocketIDConfig.Enabled {
 			slog.Debug("PocketID enabled, syncing user", "email", input.Email)
-			client := auth.NewPocketIDClient(&cfg.Auth.PocketIDConfig)
+			client := newInstrumentedPocketIDClient(c, &cfg.Auth.PocketIDConfig)
 
 			// A. Try to find existing user in PocketID
 			pUsers, pErr := client.ListUsers(input.Email)
@@ -224,7 +254,7 @@ func ImportUser(c *gin.Context) {
 
 	cfg, _ := config.Load()
 	if cfg.Auth.PocketIDConfig.Enabled {
-		client := auth.NewPocketIDClient(&cfg.Auth.PocketIDConfig)
+		client := newInstrumentedPocketIDClient(c, &cfg.Auth.PocketIDConfig)
 
 		loginUrl = cfg.Auth.PocketIDConfig.PublicURL
 
@@ -275,7 +305,7 @@ func GetSystemLoginQR(c *gin.Context) {
 		return
 	}
 
-	client := auth.NewPocketIDClient(&cfg.Auth.PocketIDConfig)
+	client := newInstrumentedPocketIDClient(c, &cfg.Auth.PocketIDConfig)
 
 	loginUrl := cfg.Auth.PocketIDConfig.PublicURL
 	// Generate 256x256 QR
@@ -354,7 +384,7 @@ func GetUserRecoveryQR(c *gin.Context) {
 		return
 	}
 
-	client := auth.NewPocketIDClient(&cfg.Auth.PocketIDConfig)
+	client := newInstrumentedPocketIDClient(c, &cfg.Auth.PocketIDConfig)
 
 	loginUrl := cfg.Auth.PocketIDConfig.PublicURL
 

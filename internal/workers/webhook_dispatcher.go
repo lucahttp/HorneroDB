@@ -23,12 +23,16 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
 	"hornerodb/internal/database"
 	"hornerodb/internal/models/metadata"
 	"hornerodb/internal/services/permission"
+	"hornerodb/internal/telemetry"
 )
 
 // ---------------------------------------------------------------------------
@@ -82,7 +86,7 @@ type WebhookEvent struct {
 // through a resolver that refuses private/loopback/link-local addresses.
 var httpClient = &http.Client{
 	Timeout: webhookRequestTimeout,
-	Transport: &http.Transport{
+	Transport: telemetry.WrapTransport(&http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
 		DialContext:           safeDialContext,
 		MaxIdleConns:          webhookMaxConcurrent,
@@ -90,7 +94,7 @@ var httpClient = &http.Client{
 		IdleConnTimeout:       30 * time.Second,
 		TLSHandshakeTimeout:   5 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
-	},
+	}),
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) >= webhookMaxRedirects {
 			return fmt.Errorf("stopped after %d redirects", webhookMaxRedirects)
@@ -109,6 +113,13 @@ var permService = permission.NewService()
 // ---------------------------------------------------------------------------
 // Outbox (enqueue)
 // ---------------------------------------------------------------------------
+
+func extractTxTraceparent(tx *gorm.DB) string {
+	if tx == nil || tx.Statement == nil || tx.Statement.Context == nil {
+		return ""
+	}
+	return telemetry.InjectTraceParent(tx.Statement.Context)
+}
 
 // EnqueueWebhookTx finds the webhooks registered for the given table/change type
 // and stores one outbox event per matching webhook.
@@ -151,6 +162,7 @@ func EnqueueWebhookTx(tx *gorm.DB, workspaceID, tableID uuid.UUID, tableSlug, ch
 		return nil
 	}
 
+	traceparent := extractTxTraceparent(tx)
 	now := time.Now()
 	events := make([]metadata.WebhookOutboxEvent, 0, len(webhooks))
 
@@ -220,6 +232,7 @@ func EnqueueWebhookTx(tx *gorm.DB, workspaceID, tableID uuid.UUID, tableSlug, ch
 			Status:          "pending",
 			Attempts:        0,
 			NextAttemptAt:   now,
+			Traceparent:     traceparent,
 		})
 	}
 
@@ -465,7 +478,7 @@ func (p *webhookProcessor) deliver(e metadata.WebhookOutboxEvent, clientState st
 		return
 	}
 
-	statusCode, err := sendWebhookPayload(e, clientState)
+	statusCode, err := sendWebhookPayloadWithContext(p.ctx, e, clientState)
 	now := time.Now()
 
 	if err == nil {
@@ -573,15 +586,49 @@ func signWebhookPayload(clientState string, timestamp int64, payload []byte) str
 // It returns the HTTP status code (0 when the request never reached the
 // target) and the error, if any.
 func sendWebhookPayload(e metadata.WebhookOutboxEvent, clientState string) (int, error) {
+	return sendWebhookPayloadWithContext(context.Background(), e, clientState)
+}
+
+func sendWebhookPayloadWithContext(ctx context.Context, e metadata.WebhookOutboxEvent, clientState string) (int, error) {
 	// Defense in depth: the target is validated again right before the
 	// delivery, because the URL could have been changed since it was queued.
 	if err := ValidateWebhookURL(e.NotificationURL); err != nil {
 		return 0, fmt.Errorf("webhook target rejected: %w", err)
 	}
 
+	return deliverWebhookHTTP(ctx, httpClient, e, clientState)
+}
+
+func startWebhookDeliverySpan(ctx context.Context, e metadata.WebhookOutboxEvent) (context.Context, trace.Span) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	opts := []trace.SpanStartOption{
+		trace.WithAttributes(
+			attribute.String("webhook.id", e.WebhookID.String()),
+			attribute.Int("webhook.attempt", e.Attempts+1),
+		),
+	}
+
+	if e.Traceparent != "" {
+		if _, linkSC := telemetry.ExtractTraceContext(ctx, e.Traceparent); linkSC.IsValid() {
+			opts = append(opts, trace.WithLinks(trace.Link{SpanContext: linkSC}))
+		}
+	}
+
+	return telemetry.Tracer("hornerodb/webhooks").Start(ctx, "webhook.deliver", opts...)
+}
+
+func deliverWebhookHTTP(ctx context.Context, client *http.Client, e metadata.WebhookOutboxEvent, clientState string) (int, error) {
+	spanCtx, span := startWebhookDeliverySpan(ctx, e)
+	defer span.End()
+
 	payload := []byte(e.Payload)
-	req, err := http.NewRequest(http.MethodPost, e.NotificationURL, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(spanCtx, http.MethodPost, e.NotificationURL, bytes.NewReader(payload))
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return 0, fmt.Errorf("failed to build webhook request: %w", err)
 	}
 
@@ -593,18 +640,25 @@ func sendWebhookPayload(e metadata.WebhookOutboxEvent, clientState string) (int,
 		req.Header.Set("X-Hornero-Signature", signWebhookPayload(clientState, time.Now().Unix(), payload))
 	}
 
-	resp, err := httpClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return 0, fmt.Errorf("failed to deliver webhook: %w", err)
 	}
 	defer resp.Body.Close()
+
+	span.SetAttributes(attribute.Int("http.status_code", resp.StatusCode))
 
 	// Drain (bounded) the body so the connection can be reused, but never read
 	// more than a small amount of data from an untrusted peer.
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, webhookMaxResponseBytes))
 
 	if resp.StatusCode >= 400 {
-		return resp.StatusCode, fmt.Errorf("webhook returned HTTP %d", resp.StatusCode)
+		err := fmt.Errorf("webhook returned HTTP %d", resp.StatusCode)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return resp.StatusCode, err
 	}
 
 	return resp.StatusCode, nil

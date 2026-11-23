@@ -1,0 +1,72 @@
+services:
+  openobserve:
+    image: public.ecr.aws/zinclabs/openobserve:latest
+    container_name: hornerodb-openobserve
+    restart: unless-stopped
+    ports:
+      - "${O2_PORT:-5080}:5080"
+      - "127.0.0.1:5081:5081"
+    environment:
+      - ZO_DATA_DIR=/data
+      - ZO_ROOT_USER_EMAIL=${ZO_ROOT_USER_EMAIL:-admin@hornerodb.local}
+      - ZO_ROOT_USER_PASSWORD=${ZO_ROOT_USER_PASSWORD:?set ZO_ROOT_USER_PASSWORD}
+      - ZO_COMPACT_DATA_RETENTION_DAYS=${ZO_RETENTION_DAYS:-14}
+    volumes:
+      - openobserve_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:5080/healthz >/dev/null || wget -qO- http://localhost:5080/healthz >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.114.0
+    container_name: hornerodb-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+    environment:
+      - O2_AUTH_HEADER=${O2_AUTH_HEADER:-}
+      - O2_ORG=${O2_ORG:-default}
+      - POSTGRES_MONITOR_USER=${POSTGRES_MONITOR_USER:-otel_monitor}
+      - POSTGRES_MONITOR_PASS=${POSTGRES_MONITOR_PASS:-}
+      - POSTGRES_DB=${POSTGRES_DB:-hornero}
+    depends_on:
+      openobserve:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  hornerodb-server:
+    environment:
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-hornerodb}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-otel-collector:4317}
+      - OTEL_EXPORTER_OTLP_INSECURE=${OTEL_EXPORTER_OTLP_INSECURE:-true}
+      - OTEL_TRACES_SAMPLER_ARG=${OTEL_TRACES_SAMPLER_ARG:-1.0}
+      - O2_RUM_ENABLED=${O2_RUM_ENABLED:-false}
+      - O2_RUM_SITE=${O2_RUM_SITE:-}
+      - O2_RUM_ORG=${O2_RUM_ORG:-default}
+      - O2_RUM_APPLICATION_ID=${O2_RUM_APPLICATION_ID:-hornerodb-ui}
+      - O2_RUM_CLIENT_TOKEN=${O2_RUM_CLIENT_TOKEN:-}
+      - O2_RUM_SERVICE=${O2_RUM_SERVICE:-hornerodb-ui}
+      - O2_RUM_VERSION=${O2_RUM_VERSION:-1.0.0}
+      - O2_RUM_SESSION_REPLAY=${O2_RUM_SESSION_REPLAY:-false}
+    depends_on:
+      otel-collector:
+        condition: service_started
+
+  pocket-id:
+    environment:
+      - METRICS_ENABLED=true
+      - TRACING_ENABLED=true
+      - OTEL_SERVICE_NAME=pocket-id
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+
+volumes:
+  openobserve_data:

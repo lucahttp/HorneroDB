@@ -1,0 +1,53 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  postgresql:
+    endpoint: postgres:5432
+    transport: tcp
+    username: "${env:POSTGRES_MONITOR_USER}"
+    password: "${env:POSTGRES_MONITOR_PASS}"
+    databases:
+      - "${env:POSTGRES_DB}"
+    collection_interval: 30s
+    tls:
+      insecure: true
+
+processors:
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 256
+    spike_limit_mib: 64
+
+  batch:
+    send_batch_size: 2048
+    timeout: 5s
+
+exporters:
+  otlp/openobserve:
+    endpoint: openobserve:5081
+    tls:
+      insecure: true
+    headers:
+      Authorization: "${env:O2_AUTH_HEADER}"
+      organization: "${env:O2_ORG}"
+      stream-name: "default"
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/openobserve]
+    metrics:
+      receivers: [otlp, postgresql]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/openobserve]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/openobserve]

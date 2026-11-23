@@ -41,6 +41,9 @@ func clearEnv(t *testing.T) {
 		"DB_ALLOW_INSECURE_SSL", "DB_ALLOW_INSECURE_DB",
 		"SERVER_PORT", "VITE_SERVER_PUBLIC_URL", "HORNERO_ADMIN_URL",
 		"CORS_ORIGINS", "HORNERO_SECURE_COOKIES", "TRUSTED_PROXIES", "HORNERO_SETUP_TOKEN",
+		"OTEL_SERVICE_NAME", "OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_INSECURE", "OTEL_TRACES_SAMPLER_ARG",
+		"O2_RUM_ENABLED", "O2_RUM_SITE", "O2_RUM_ORG", "O2_RUM_APPLICATION_ID",
+		"O2_RUM_CLIENT_TOKEN", "O2_RUM_SERVICE", "O2_RUM_VERSION", "O2_RUM_SESSION_REPLAY",
 	} {
 		t.Setenv(key, "")
 	}
@@ -385,4 +388,197 @@ func TestGetNeverReturnsNilOnInvalidConfiguration(t *testing.T) {
 	if cfg == nil {
 		t.Fatal("Get() = nil, want a non-nil fallback config")
 	}
+}
+
+func TestLoadTelemetryDefaults(t *testing.T) {
+	clearEnv(t)
+	resetState(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+
+	tel := cfg.Telemetry
+	if tel.Enabled {
+		t.Fatal("Telemetry.Enabled = true, want false when OTEL_EXPORTER_OTLP_ENDPOINT is empty")
+	}
+	if tel.ServiceName != "hornerodb" {
+		t.Fatalf("ServiceName = %q, want %q", tel.ServiceName, "hornerodb")
+	}
+	if tel.OTLPEndpoint != "" {
+		t.Fatalf("OTLPEndpoint = %q, want empty", tel.OTLPEndpoint)
+	}
+	if !tel.OTLPInsecure {
+		t.Fatal("OTLPInsecure = false, want true by default")
+	}
+	if tel.SampleRatio != 1.0 {
+		t.Fatalf("SampleRatio = %v, want 1.0", tel.SampleRatio)
+	}
+	if tel.RUM.Enabled {
+		t.Fatal("RUM.Enabled = true, want false by default")
+	}
+	if tel.RUM.Organization != "default" {
+		t.Fatalf("RUM.Organization = %q, want %q", tel.RUM.Organization, "default")
+	}
+	if tel.RUM.ApplicationID != "hornerodb-ui" {
+		t.Fatalf("RUM.ApplicationID = %q, want %q", tel.RUM.ApplicationID, "hornerodb-ui")
+	}
+	if tel.RUM.Service != "hornerodb-ui" {
+		t.Fatalf("RUM.Service = %q, want %q", tel.RUM.Service, "hornerodb-ui")
+	}
+	if tel.RUM.Env != EnvironmentDevelopment {
+		t.Fatalf("RUM.Env = %q, want %q", tel.RUM.Env, EnvironmentDevelopment)
+	}
+	if tel.RUM.Version != "1.0.0" {
+		t.Fatalf("RUM.Version = %q, want %q", tel.RUM.Version, "1.0.0")
+	}
+	if tel.RUM.SessionReplay {
+		t.Fatal("RUM.SessionReplay = true, want false by default")
+	}
+}
+
+func TestLoadTelemetryConfigured(t *testing.T) {
+	clearEnv(t)
+	resetState(t)
+	t.Setenv("HORNERO_ENV", "staging")
+	t.Setenv("OTEL_SERVICE_NAME", "hornero-custom")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "  http://openobserve:5081  ")
+	t.Setenv("OTEL_EXPORTER_OTLP_INSECURE", "false")
+	t.Setenv("OTEL_TRACES_SAMPLER_ARG", "0.25")
+	t.Setenv("O2_RUM_ENABLED", "true")
+	t.Setenv("O2_RUM_SITE", "  https://o2.example.com  ")
+	t.Setenv("O2_RUM_ORG", "acme")
+	t.Setenv("O2_RUM_APPLICATION_ID", "app-123")
+	t.Setenv("O2_RUM_CLIENT_TOKEN", "tok-abc")
+	t.Setenv("O2_RUM_SERVICE", "web-ui")
+	t.Setenv("O2_RUM_VERSION", "2.3.4")
+	t.Setenv("O2_RUM_SESSION_REPLAY", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+
+	tel := cfg.Telemetry
+	if !tel.Enabled {
+		t.Fatal("Telemetry.Enabled = false, want true")
+	}
+	if tel.ServiceName != "hornero-custom" {
+		t.Fatalf("ServiceName = %q, want %q", tel.ServiceName, "hornero-custom")
+	}
+	if tel.OTLPEndpoint != "http://openobserve:5081" {
+		t.Fatalf("OTLPEndpoint = %q, want trimmed endpoint", tel.OTLPEndpoint)
+	}
+	if tel.OTLPInsecure {
+		t.Fatal("OTLPInsecure = true, want false")
+	}
+	if tel.SampleRatio != 0.25 {
+		t.Fatalf("SampleRatio = %v, want 0.25", tel.SampleRatio)
+	}
+	if !tel.RUM.Enabled {
+		t.Fatal("RUM.Enabled = false, want true")
+	}
+	if tel.RUM.Site != "https://o2.example.com" {
+		t.Fatalf("RUM.Site = %q, want trimmed site", tel.RUM.Site)
+	}
+	if tel.RUM.Organization != "acme" {
+		t.Fatalf("RUM.Organization = %q, want %q", tel.RUM.Organization, "acme")
+	}
+	if tel.RUM.ApplicationID != "app-123" {
+		t.Fatalf("RUM.ApplicationID = %q, want %q", tel.RUM.ApplicationID, "app-123")
+	}
+	if tel.RUM.ClientToken != "tok-abc" {
+		t.Fatalf("RUM.ClientToken = %q, want %q", tel.RUM.ClientToken, "tok-abc")
+	}
+	if tel.RUM.Service != "web-ui" {
+		t.Fatalf("RUM.Service = %q, want %q", tel.RUM.Service, "web-ui")
+	}
+	if tel.RUM.Env != "staging" {
+		t.Fatalf("RUM.Env = %q, want %q", tel.RUM.Env, "staging")
+	}
+	if tel.RUM.Version != "2.3.4" {
+		t.Fatalf("RUM.Version = %q, want %q", tel.RUM.Version, "2.3.4")
+	}
+	if !tel.RUM.SessionReplay {
+		t.Fatal("RUM.SessionReplay = false, want true")
+	}
+}
+
+func TestLoadTelemetryEdgeCases(t *testing.T) {
+	t.Run("whitespace endpoint disables telemetry", func(t *testing.T) {
+		clearEnv(t)
+		resetState(t)
+		t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "   ")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if cfg.Telemetry.Enabled {
+			t.Fatal("Telemetry.Enabled = true, want false for whitespace endpoint")
+		}
+	})
+
+	t.Run("invalid or out of range sampler arg falls back to 1.0", func(t *testing.T) {
+		for _, raw := range []string{"invalid", "-0.1", "1.5", "NaN", "Inf"} {
+			clearEnv(t)
+			resetState(t)
+			t.Setenv("OTEL_TRACES_SAMPLER_ARG", raw)
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.Telemetry.SampleRatio != 1.0 {
+				t.Fatalf("SampleRatio(%q) = %v, want 1.0", raw, cfg.Telemetry.SampleRatio)
+			}
+		}
+	})
+
+	t.Run("zero sampler arg is preserved", func(t *testing.T) {
+		clearEnv(t)
+		resetState(t)
+		t.Setenv("OTEL_TRACES_SAMPLER_ARG", "0")
+
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if cfg.Telemetry.SampleRatio != 0.0 {
+			t.Fatalf("SampleRatio = %v, want 0.0", cfg.Telemetry.SampleRatio)
+		}
+	})
+
+	t.Run("RUM requires enabled, site, and client token", func(t *testing.T) {
+		cases := []struct {
+			name    string
+			enabled string
+			site    string
+			token   string
+			want    bool
+		}{
+			{"missing site", "true", "", "tok", false},
+			{"missing token", "true", "https://o2.example.com", "", false},
+			{"disabled flag", "false", "https://o2.example.com", "tok", false},
+			{"all present", "true", "https://o2.example.com", "tok", true},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				clearEnv(t)
+				resetState(t)
+				t.Setenv("O2_RUM_ENABLED", tc.enabled)
+				t.Setenv("O2_RUM_SITE", tc.site)
+				t.Setenv("O2_RUM_CLIENT_TOKEN", tc.token)
+
+				cfg, err := Load()
+				if err != nil {
+					t.Fatalf("Load() error = %v", err)
+				}
+				if cfg.Telemetry.RUM.Enabled != tc.want {
+					t.Fatalf("RUM.Enabled = %v, want %v", cfg.Telemetry.RUM.Enabled, tc.want)
+				}
+			})
+		}
+	})
 }

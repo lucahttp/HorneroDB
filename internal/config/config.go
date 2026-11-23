@@ -4,7 +4,9 @@ import (
 	"crypto/rand"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -34,10 +36,32 @@ var (
 )
 
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	Auth     AuthConfig
-	S3       S3Config
+	Server    ServerConfig
+	Database  DatabaseConfig
+	Auth      AuthConfig
+	S3        S3Config
+	Telemetry TelemetryConfig
+}
+
+type TelemetryConfig struct {
+	Enabled      bool
+	ServiceName  string
+	OTLPEndpoint string
+	OTLPInsecure bool
+	SampleRatio  float64
+	RUM          RUMConfig
+}
+
+type RUMConfig struct {
+	Enabled       bool
+	Site          string
+	Organization  string
+	ApplicationID string
+	ClientToken   string
+	Service       string
+	Env           string
+	Version       string
+	SessionReplay bool
 }
 
 type ServerConfig struct {
@@ -217,6 +241,7 @@ func Load() (*Config, error) {
 			Region:    getEnv("S3_REGION", "us-east-1"),
 			UseSSL:    getEnv("S3_USE_SSL", "true") == "true",
 		},
+		Telemetry: loadTelemetryConfig(environment),
 	}
 
 	if production {
@@ -338,7 +363,58 @@ func fallbackConfig() *Config {
 			DBName:   getEnv("DB_NAME", "hornero"),
 			SSLMode:  getEnv("DB_SSLMODE", "disable"),
 		},
+		Telemetry: loadTelemetryConfig(ResolveEnvironment()),
 	}
+}
+
+func loadTelemetryConfig(environment string) TelemetryConfig {
+	endpoint := strings.TrimSpace(getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", ""))
+	serviceName := strings.TrimSpace(getEnv("OTEL_SERVICE_NAME", "hornerodb"))
+	if serviceName == "" {
+		serviceName = "hornerodb"
+	}
+
+	rumSite := strings.TrimSpace(getEnv("O2_RUM_SITE", ""))
+	rumToken := strings.TrimSpace(getEnv("O2_RUM_CLIENT_TOKEN", ""))
+	rumRequested := strings.TrimSpace(getEnv("O2_RUM_ENABLED", "false")) == "true"
+
+	return TelemetryConfig{
+		Enabled:      endpoint != "",
+		ServiceName:  serviceName,
+		OTLPEndpoint: endpoint,
+		OTLPInsecure: strings.TrimSpace(getEnv("OTEL_EXPORTER_OTLP_INSECURE", "true")) == "true",
+		SampleRatio:  parseSampleRatio(getEnv("OTEL_TRACES_SAMPLER_ARG", "1.0")),
+		RUM: RUMConfig{
+			Enabled:       rumRequested && rumSite != "" && rumToken != "",
+			Site:          rumSite,
+			Organization:  getTrimmedEnvOrDefault("O2_RUM_ORG", "default"),
+			ApplicationID: getTrimmedEnvOrDefault("O2_RUM_APPLICATION_ID", "hornerodb-ui"),
+			ClientToken:   rumToken,
+			Service:       getTrimmedEnvOrDefault("O2_RUM_SERVICE", "hornerodb-ui"),
+			Env:           environment,
+			Version:       getTrimmedEnvOrDefault("O2_RUM_VERSION", "1.0.0"),
+			SessionReplay: strings.TrimSpace(getEnv("O2_RUM_SESSION_REPLAY", "false")) == "true",
+		},
+	}
+}
+
+func getTrimmedEnvOrDefault(key, defaultValue string) string {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func parseSampleRatio(raw string) float64 {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 1.0
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0.0 || v > 1.0 {
+		return 1.0
+	}
+	return v
 }
 
 func getEnv(key, defaultValue string) string {

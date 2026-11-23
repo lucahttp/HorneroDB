@@ -1,6 +1,7 @@
 package data
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -781,4 +782,28 @@ func TestRecordIDKey(t *testing.T) {
 
 	_, ok = recordIDKey(nil)
 	assert.False(t, ok)
+}
+
+// ---------------------------------------------------------------------------
+// WithContext
+// ---------------------------------------------------------------------------
+
+func TestWithContext_ReturnsShallowCopyWithoutMutatingOriginal(t *testing.T) {
+	svc := NewService()
+	type ctxKey struct{}
+	reqCtx := context.WithValue(context.Background(), ctxKey{}, "trace-123")
+
+	bound := svc.WithContext(reqCtx)
+
+	require.NotNil(t, bound)
+	assert.NotSame(t, svc, bound)
+	assert.Nil(t, svc.ctx)
+	assert.Equal(t, reqCtx, bound.ctx)
+	assert.Same(t, svc.permSvc, bound.permSvc)
+
+	var nilSvc *Service
+	nilBound := nilSvc.WithContext(reqCtx)
+	require.NotNil(t, nilBound)
+	assert.Equal(t, reqCtx, nilBound.ctx)
+	assert.NotNil(t, nilBound.permSvc)
 }

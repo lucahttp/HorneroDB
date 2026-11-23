@@ -24,11 +24,13 @@ import (
 	"hornerodb/internal/response"
 	"hornerodb/internal/services/data"
 	"hornerodb/internal/services/permission"
+	"hornerodb/internal/telemetry"
 	"hornerodb/internal/workers"
 	"hornerodb/web"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
 
 func main() {
@@ -47,6 +49,13 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	} else {
 		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	}
+
+	// Initialize OpenTelemetry (gracefully continue if collector is unreachable)
+	shutdownTelemetry, err := telemetry.Init(context.Background(), cfg.Telemetry)
+	if err != nil {
+		slog.Warn("Failed to initialize telemetry; continuing without telemetry", "error", err)
+		shutdownTelemetry = func(context.Context) error { return nil }
 	}
 
 	// Connect to database
@@ -106,6 +115,12 @@ func main() {
 	}
 
 	// Register middlewares
+	r.Use(otelgin.Middleware(
+		cfg.Telemetry.ServiceName,
+		otelgin.WithFilter(func(req *http.Request) bool {
+			return req.URL.Path != "/health" && req.URL.Path != "/ready"
+		}),
+	))
 	r.Use(middleware.StructuredLogger()) // Production structured logging
 	r.Use(gin.Recovery())                // Recover from panics
 	r.Use(middleware.SecurityHeaders())  // Production security headers
@@ -126,8 +141,8 @@ func main() {
 			return false
 		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Content-Length", "Accept-Encoding", "X-CSRF-Token", "Authorization", "X-Workspace-ID", "X-Setup-Token", "MCP-Protocol-Version", "Mcp-Method", "Mcp-Name", "Mcp-Session-Id"},
-		ExposeHeaders:    []string{"Content-Length", "WWW-Authenticate", "MCP-Protocol-Version", "Mcp-Session-Id"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Content-Length", "Accept-Encoding", "X-CSRF-Token", "Authorization", "X-Workspace-ID", "X-Setup-Token", "MCP-Protocol-Version", "Mcp-Method", "Mcp-Name", "Mcp-Session-Id", "traceparent", "tracestate", "X-Request-ID"},
+		ExposeHeaders:    []string{"Content-Length", "WWW-Authenticate", "MCP-Protocol-Version", "Mcp-Session-Id", "X-Request-ID", "Server-Timing"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
@@ -428,6 +443,9 @@ func main() {
 	v1.GET("/auth/oidc/callback", authRateLimit, api.CallbackPocketID)
 	v1.POST("/auth/logout", api.Logout)
 
+	// === TELEMETRY CONFIG (public, safe RUM config for UI initialization) ===
+	v1.GET("/telemetry/config", api.GetTelemetryConfig)
+
 	// === STATIC FILES (PROD) ===
 	if cfg.IsProduction() {
 		distFS, err := web.GetDistFS()
@@ -539,6 +557,13 @@ func main() {
 
 	// Stop background webhook processor cleanly
 	cancelWorkers()
+
+	// Flush pending telemetry spans and metrics
+	telemetryShutdownCtx, cancelTelemetry := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelTelemetry()
+	if err := shutdownTelemetry(telemetryShutdownCtx); err != nil {
+		slog.Warn("Failed to shutdown telemetry cleanly", "error", err)
+	}
 
 	slog.Info("HorneroDB stopped cleanly")
 }

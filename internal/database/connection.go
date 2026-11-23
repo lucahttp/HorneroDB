@@ -10,6 +10,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"gorm.io/plugin/opentelemetry/tracing"
 )
 
 var DB *gorm.DB
@@ -72,6 +73,19 @@ func Connect(cfg *Config) error {
 
 	if err != nil {
 		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+
+	tracingOpts := []tracing.Option{
+		tracing.WithDBSystem("postgresql"),
+		tracing.WithoutMetrics(),
+	}
+	if isProduction() {
+		// Never include query bind variables in production spans so row values / PII
+		// cannot leak into telemetry storage.
+		tracingOpts = append(tracingOpts, tracing.WithoutQueryVariables())
+	}
+	if err := DB.Use(tracing.NewPlugin(tracingOpts...)); err != nil {
+		return fmt.Errorf("failed to register database tracing plugin: %w", err)
 	}
 
 	// Connection pool: evita agotar las conexiones de Postgres con trafico

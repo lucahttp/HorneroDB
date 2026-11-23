@@ -526,3 +526,130 @@ curl -fsS http://localhost:8080/ready
 | Rate limiting inesperado | `TRUSTED_PROXIES` demasiado amplio (spoofing de `X-Forwarded-For`) | Acotar la lista a los rangos reales del proxy. |
 | `ERR_VALIDATION` al escribir en un `select` | El valor no está en `meta.choices` | Usar el `value` de una opción, no el `label`. |
 | La relación aparece vacía | `display_column` inexistente o el rol no puede leer la tabla destino | Revisar `meta.target_table` / `meta.display_column` y los permisos de lectura del rol. |
+
+---
+
+## 8. Observability with OpenTelemetry & OpenObserve
+
+La observabilidad es **100% opt-in**: sin `OTEL_EXPORTER_OTLP_ENDPOINT`, HorneroDB corre en modo `noop` con cero overhead; sin `O2_RUM_ENABLED=true`, el navegador no intenta contactar a OpenObserve.
+
+### 8.1 Flujo de trazas end-to-end
+
+```
+Web Consumer / Browser RUM (O2_RUM_* + W3C traceparent)
+        │
+        ▼  HTTP + traceparent / tracestate
+HorneroDB Server (otelgin + otelgorm sin query vars + slog trace_id/span_id)
+        ├──► PocketID (otelhttp + OTel nativo :4318)
+        ├──► PostgreSQL (otelgorm spans + pg_monitor metrics)
+        └──► Webhooks (outbox con traceparent + Span Link en el delivery)
+        │
+        ▼  OTLP gRPC (:4317)
+otel-collector-contrib ──► OpenObserve (:5081 OTLP gRPC / :5080 UI & RUM)
+```
+
+- **Privacidad**: `otelgorm` corre sin variables de consulta (`WithoutQueryVariables()`) en producción y los query strings nunca se loguean.
+- **Correlación con logs**: cuando hay un span activo, el logger `slog` en JSON incluye `trace_id` y `span_id` junto a `request_id`.
+- **Webhooks asíncronos**: la tabla `_hornero_webhook_events` persiste el `traceparent` de la mutación original y el dispatcher enlaza la entrega mediante un **Span Link**.
+
+### 8.2 Crear el usuario read-only `otel_monitor` en PostgreSQL
+
+El `otel-collector` consulta métricas de PostgreSQL con privilegios mínimos mediante el rol de sistema `pg_monitor`:
+
+```bash
+docker compose exec -T postgres psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-hornero}" <<'SQL'
+CREATE USER otel_monitor WITH PASSWORD 'cambia-esta-clave-segura';
+GRANT pg_monitor TO otel_monitor;
+SQL
+```
+
+### 8.3 Levantar el stack overlay de observabilidad
+
+1. Configurá las variables de observabilidad en tu `.env` (o en `deploy/observability/openobserve/.env.observability` tomando como base [`deploy/observability/openobserve/.env.observability.example`](../deploy/observability/openobserve/.env.observability.example)).
+2. Calculá `O2_AUTH_HEADER` con las credenciales de `ZO_ROOT_USER_EMAIL` y `ZO_ROOT_USER_PASSWORD`:
+
+```bash
+# Linux (GNU coreutils)
+export O2_AUTH_HEADER="Basic $(printf '%s' "${ZO_ROOT_USER_EMAIL}:${ZO_ROOT_USER_PASSWORD}" | base64 -w0)"
+
+# macOS (BSD base64)
+export O2_AUTH_HEADER="Basic $(printf '%s' "${ZO_ROOT_USER_EMAIL}:${ZO_ROOT_USER_PASSWORD}" | base64)"
+```
+
+3. Levantá el stack combinado con el archivo overlay [`docker-compose.observability.yml`](../deploy/observability/openobserve/docker-compose.observability.yml):
+
+```bash
+# Usando variables en el .env raíz
+docker compose -f docker-compose.yml -f deploy/observability/openobserve/docker-compose.observability.yml up -d
+
+# O usando un archivo .env.observability separado
+docker compose --env-file .env --env-file deploy/observability/openobserve/.env.observability \
+  -f docker-compose.yml -f deploy/observability/openobserve/docker-compose.observability.yml up -d
+```
+
+4. Verificá salud del collector y de OpenObserve:
+
+```bash
+curl -fsS http://localhost:${O2_PORT:-5080}/healthz
+docker compose -f docker-compose.yml -f deploy/observability/openobserve/docker-compose.observability.yml ps
+```
+
+### 8.4 Agente nativo `otelcol-contrib` en Ubuntu (systemd)
+
+Para recolectar métricas del host (`cpu`, `memory`, `disk`, `filesystem`, `load`, `network`) y estadísticas de contenedores Docker (`docker_stats`), instalá `otelcol-contrib` directamente en el servidor Ubuntu usando [`host-otelcol-contrib.yaml`](../deploy/observability/openobserve/host-otelcol-contrib.yaml):
+
+```bash
+# 1. Instalar otelcol-contrib (ajustá la arquitectura amd64/arm64 según tu host)
+OTEL_VER=0.114.0
+curl -fsSLO "https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTEL_VER}/otelcol-contrib_${OTEL_VER}_linux_amd64.deb"
+sudo dpkg -i "otelcol-contrib_${OTEL_VER}_linux_amd64.deb"
+
+# 2. Permitir lectura de /var/run/docker.sock al servicio systemd
+sudo usermod -aG docker otelcol-contrib
+
+# 3. Instalar configuración y reiniciar el servicio
+sudo cp deploy/observability/openobserve/host-otelcol-contrib.yaml /etc/otelcol-contrib/config.yaml
+sudo systemctl enable --now otelcol-contrib
+sudo systemctl restart otelcol-contrib
+sudo systemctl status otelcol-contrib
+```
+
+El agente del host exporta por OTLP gRPC a `127.0.0.1:4317`, que está publicado en loopback por el contenedor `hornerodb-otel-collector`.
+
+### 8.5 Habilitar Browser RUM vía `.env` (sin rebuild de imagen)
+
+El frontend consulta `GET /api/v1/telemetry/config` al arrancar, por lo que podés activar o desactivar OpenObserve RUM cambiando variables de entorno y recreando sólo el contenedor `hornerodb-server`:
+
+```bash
+O2_RUM_ENABLED=true
+O2_RUM_SITE=o2.mydomain.com          # host[:port] donde el browser alcanza OpenObserve (vía HTTPS/VPN)
+O2_RUM_ORG=default
+O2_RUM_APPLICATION_ID=hornerodb-ui
+O2_RUM_CLIENT_TOKEN=rumxxxxxxxxxxxx  # token público de ingestión RUM generado en OpenObserve
+O2_RUM_SERVICE=hornerodb-ui
+O2_RUM_VERSION=1.0.0
+O2_RUM_SESSION_REPLAY=false
+```
+
+Aplicar cambios sin reconstruir la imagen:
+
+```bash
+docker compose -f docker-compose.yml -f deploy/observability/openobserve/docker-compose.observability.yml up -d hornerodb-server
+```
+
+> **Nota:** `O2_RUM_CLIENT_TOKEN` es público para el navegador. Nunca uses el password de administrador ni `O2_AUTH_HEADER` en variables `O2_RUM_*`.
+
+### 8.6 Consumidores web externos (W3C `traceparent`)
+
+Cualquier frontend externo, app móvil o backend consumidor puede propagar trazas hacia HorneroDB enviando el header estándar W3C `traceparent` (y opcionalmente `tracestate`):
+
+```http
+traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+```
+
+La configuración de CORS de HorneroDB ya incluye `traceparent`, `tracestate` y `X-Request-ID` en `AllowHeaders`, por lo que las peticiones preflight desde orígenes permitidos (`HORNERO_ADMIN_URL`, `CORS_ORIGINS` o `allowed_origins` del workspace) funcionan sin configuración adicional.
+
+### 8.7 Seguridad de OpenObserve
+
+- **Nunca expongas OpenObserve ni los puertos OTLP directamente a Internet.** En `docker-compose.observability.yml`, los puertos `4317`, `4318` y `5081` están enlazados a `127.0.0.1`. Publicá la UI/RUM (`O2_PORT`, default `5080`) únicamente detrás de **Tailscale / WireGuard / VPN** o un reverse proxy TLS privado con autenticación.
+- **SSO con PocketID**: si necesitás acceso multiusuario con OIDC/RBAC sobre OpenObserve, podés usar **OpenObserve Enterprise Self-Hosted** (gratuito hasta **50 GB/día** de ingestión) e integrarlo directamente con tu instancia existente de PocketID como proveedor OIDC.

@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 // capturingHandler records the attributes of every log record.
@@ -109,6 +110,7 @@ func TestStructuredLogger_IncludesUserAndRequestID(t *testing.T) {
 	requestID, ok := handler.attrValue("request_id")
 	assert.True(t, ok, "the request_id attribute must be present")
 	assert.Equal(t, "req-abc-123", requestID)
+	assert.Equal(t, "req-abc-123", w.Header().Get("X-Request-ID"))
 }
 
 // TestStructuredLogger_GeneratesRequestID verifies a request id is generated
@@ -131,6 +133,41 @@ func TestStructuredLogger_GeneratesRequestID(t *testing.T) {
 	requestID, ok := handler.attrValue("request_id")
 	assert.True(t, ok, "a request id must be generated")
 	assert.NotEmpty(t, requestID)
+	assert.Equal(t, requestID, w.Header().Get("X-Request-ID"))
+}
+
+// TestStructuredLogger_IncludesTraceAndSpanID verifies trace_id and span_id are
+// appended to log attributes when a valid OpenTelemetry span is active in context.
+func TestStructuredLogger_IncludesTraceAndSpanID(t *testing.T) {
+	handler := &capturingHandler{}
+	original := slog.Default()
+	slog.SetDefault(slog.New(handler))
+	defer slog.SetDefault(original)
+
+	tp := sdktrace.NewTracerProvider()
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	ctx, span := tp.Tracer("test").Start(context.Background(), "http-request")
+	defer span.End()
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(StructuredLogger())
+	r.GET("/api/traced", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "/api/traced", nil)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	traceID, ok := handler.attrValue("trace_id")
+	assert.True(t, ok, "trace_id attribute must be present when span is active")
+	assert.Equal(t, span.SpanContext().TraceID().String(), traceID)
+
+	spanID, ok := handler.attrValue("span_id")
+	assert.True(t, ok, "span_id attribute must be present when span is active")
+	assert.Equal(t, span.SpanContext().SpanID().String(), spanID)
 }
 
 // TestSetSecureCookie_PreservesPreviousCookies is the regression test for the

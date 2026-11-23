@@ -12,6 +12,8 @@
     "test:ui": "playwright test --ui"
   },
   "dependencies": {
+    "@openobserve/browser-logs": "^0.4.3",
+    "@openobserve/browser-rum": "^0.4.3",
     "@tanstack/react-table": "^8.21.3",
     "axios": "^1.13.5",
     "framer-motion": "^12.34.0",

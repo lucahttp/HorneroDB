@@ -119,7 +119,11 @@ web_modules/
 # dotenv environment variable files
 .env
 .env.*
+.env.observability
+deploy/observability/**/.env*
 !.env.example
+!.env.*.example
+!deploy/observability/**/.env*.example
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
