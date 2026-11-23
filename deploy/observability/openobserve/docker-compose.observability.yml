@@ -60,6 +60,9 @@ services:
     environment:
       - METRICS_ENABLED=true
       - TRACING_ENABLED=true
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=otlp
+      - OTEL_LOGS_EXPORTER=otlp
       - OTEL_SERVICE_NAME=pocket-id
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
