@@ -66,10 +66,21 @@ type MCPError struct {
 	Data    interface{} `json:"data,omitempty"`
 }
 
+type ToolAnnotations struct {
+	Title           string `json:"title,omitempty"`
+	ReadOnlyHint    *bool  `json:"readOnlyHint,omitempty"`
+	DestructiveHint *bool  `json:"destructiveHint,omitempty"`
+	IdempotentHint  *bool  `json:"idempotentHint,omitempty"`
+	OpenWorldHint   *bool  `json:"openWorldHint,omitempty"`
+}
+
+func boolPtr(v bool) *bool { return &v }
+
 type Tool struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	InputSchema InputSchema `json:"inputSchema"`
+	Name        string           `json:"name"`
+	Description string           `json:"description"`
+	InputSchema InputSchema      `json:"inputSchema"`
+	Annotations *ToolAnnotations `json:"annotations,omitempty"`
 }
 
 type InputSchema struct {
@@ -372,6 +383,8 @@ func (s *Server) HandleRequestWithContext(ctx ToolContext, req MCPRequest) MCPRe
 			return MCPResponse{JSONRPC: "2.0", ID: req.ID, Error: &MCPError{Code: -32001, Message: "Authentication required"}}
 		}
 		return s.handleResourcesRead(ctx, req)
+	case "prompts/list":
+		return MCPResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]interface{}{"prompts": []interface{}{}}}
 	case "ping":
 		return MCPResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]interface{}{}}
 	default:
@@ -384,14 +397,22 @@ func (s *Server) HandleRequestWithContext(ctx ToolContext, req MCPRequest) MCPRe
 }
 
 func (s *Server) handleInitialize(req MCPRequest) MCPResponse {
+	negotiatedVersion := defaultInitializeProtocolVersion
+	if req.Params != nil {
+		if requested, ok := req.Params["protocolVersion"].(string); ok && isSupportedProtocolVersion(requested) {
+			negotiatedVersion = requested
+		}
+	}
+
 	return MCPResponse{
 		JSONRPC: "2.0",
 		ID:      req.ID,
 		Result: map[string]interface{}{
-			"protocolVersion": "2025-03-26",
+			"protocolVersion": negotiatedVersion,
 			"capabilities": map[string]interface{}{
-				"tools":     map[string]interface{}{"listChanged": true},
+				"tools":     map[string]interface{}{"listChanged": false},
 				"resources": map[string]interface{}{"subscribe": false, "listChanged": false},
+				"prompts":   map[string]interface{}{"listChanged": false},
 			},
 			"serverInfo": map[string]string{
 				"name":    "hornerodb-mcp",
@@ -401,13 +422,51 @@ func (s *Server) handleInitialize(req MCPRequest) MCPResponse {
 	}
 }
 
+func toolAnnotationsFor(name string) *ToolAnnotations {
+	switch name {
+	case "list_workspaces", "list_tables", "list_columns", "list_records", "get_record":
+		return &ToolAnnotations{
+			ReadOnlyHint:    boolPtr(true),
+			DestructiveHint: boolPtr(false),
+			IdempotentHint:  boolPtr(true),
+			OpenWorldHint:   boolPtr(false),
+		}
+	case "delete_record", "delete_table", "delete_column", "delete_role":
+		return &ToolAnnotations{
+			ReadOnlyHint:    boolPtr(false),
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  boolPtr(false),
+			OpenWorldHint:   boolPtr(false),
+		}
+	case "update_record", "rename_table", "update_column", "set_role_permissions":
+		return &ToolAnnotations{
+			ReadOnlyHint:    boolPtr(false),
+			DestructiveHint: boolPtr(false),
+			IdempotentHint:  boolPtr(true),
+			OpenWorldHint:   boolPtr(false),
+		}
+	default:
+		return &ToolAnnotations{
+			ReadOnlyHint:    boolPtr(false),
+			DestructiveHint: boolPtr(false),
+			IdempotentHint:  boolPtr(false),
+			OpenWorldHint:   boolPtr(false),
+		}
+	}
+}
+
 func (s *Server) handleToolsList(req MCPRequest) MCPResponse {
 	tools := make([]map[string]interface{}, len(s.tools))
 	for i, tool := range s.tools {
+		ann := tool.Annotations
+		if ann == nil {
+			ann = toolAnnotationsFor(tool.Name)
+		}
 		tools[i] = map[string]interface{}{
 			"name":        tool.Name,
 			"description": tool.Description,
 			"inputSchema": tool.InputSchema,
+			"annotations": ann,
 		}
 	}
 
@@ -475,10 +534,19 @@ func (s *Server) handleToolCallWithContext(ctx ToolContext, req MCPRequest) MCPR
 	}
 
 	if err != nil {
+		// Per MCP spec, tool execution errors (validation, permission denial,
+		// not found) are returned inside the result with isError: true so the
+		// model can inspect the error and recover, reserving JSON-RPC errors
+		// for protocol-level issues (invalid tool name, auth failure).
 		return MCPResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
-			Error:   &MCPError{Code: -32000, Message: err.Error()},
+			Result: map[string]interface{}{
+				"isError": true,
+				"content": []map[string]interface{}{
+					{"type": "text", "text": err.Error()},
+				},
+			},
 		}
 	}
 
@@ -1038,6 +1106,12 @@ func (s *Server) Run(ctx ToolContext) {
 				break
 			}
 			log.Printf("Error decoding: %v", err)
+			continue
+		}
+
+		// JSON-RPC 2.0 notifications (e.g. notifications/initialized) MUST NOT
+		// receive a response over stdio.
+		if req.ID == nil {
 			continue
 		}
 

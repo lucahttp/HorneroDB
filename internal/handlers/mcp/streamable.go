@@ -20,36 +20,57 @@ import (
 )
 
 const (
-	// MCPProtocolVersion is the required protocol version per MCP spec 2026-07-28
-	MCPProtocolVersion = "2026-07-28"
+	// MCPProtocolVersion is the latest supported MCP protocol version.
+	MCPProtocolVersion = "2025-11-25"
+	// defaultInitializeProtocolVersion is returned when the client does not
+	// negotiate a specific supported version.
+	defaultInitializeProtocolVersion = "2025-03-26"
 )
 
-// HandleStreamable implements the MCP Streamable HTTP transport (MCP spec 2026-07-28).
+// supportedProtocolVersions lists every MCP protocol revision accepted in
+// MCP-Protocol-Version headers and negotiated during initialize.
+var supportedProtocolVersions = map[string]bool{
+	"2024-11-05": true,
+	"2025-03-26": true,
+	"2025-06-18": true,
+	"2025-11-25": true,
+	"2026-07-28": true, // legacy alias kept for backwards compatibility
+}
+
+func isSupportedProtocolVersion(v string) bool {
+	return supportedProtocolVersions[v]
+}
+
+// HandleStreamable implements the MCP Streamable HTTP transport
+// (MCP 2025-03-26 / 2025-06-18 / 2025-11-25).
 //
-// Single endpoint: POST /api/v1/mcp/stream
+// Endpoints: POST/DELETE /api/v1/mcp and /api/v1/mcp/stream
 //
-// Required headers:
-//   - MCP-Protocol-Version: 2026-07-28
-//   - Mcp-Method: method name
-//   - Mcp-Name: for tools/call, resources/read, prompts/get
-//   - Authorization: Bearer <token>
-//
-// Request body: JSON-RPC 2.0 message (or batch).
-// Response: application/json (or text/event-stream if client requests streaming via Accept).
+// Request body: JSON-RPC 2.0 message, notification, or batch.
+// Response: application/json, text/event-stream (if requested via Accept),
+// or 202 Accepted for notifications.
 func (s *Server) HandleStreamable(c *gin.Context) {
-	// Reject any non-POST per spec 2026-07-28
-	if c.Request.Method != http.MethodPost {
-		c.Header("Allow", "POST")
-		c.JSON(http.StatusMethodNotAllowed, jsonRPCError(nil, -32600, "method not allowed; use POST"))
+	// DELETE terminates a Streamable HTTP session per MCP spec.
+	if c.Request.Method == http.MethodDelete {
+		if !isOriginAllowed(c) {
+			c.JSON(http.StatusForbidden, jsonRPCError(nil, -32603, "origin not allowed"))
+			return
+		}
+		c.Status(http.StatusNoContent)
 		return
 	}
 
-	// 1. Validate MCP-Protocol-Version header (default to MCPProtocolVersion if omitted)
+	// Reject GET / other unsupported methods per spec (no standalone GET SSE stream).
+	if c.Request.Method != http.MethodPost {
+		c.Header("Allow", "POST, DELETE")
+		c.JSON(http.StatusMethodNotAllowed, jsonRPCError(nil, -32600, "method not allowed; use POST or DELETE"))
+		return
+	}
+
+	// 1. Validate MCP-Protocol-Version header (default when omitted)
 	protocolVersion := c.GetHeader("MCP-Protocol-Version")
-	if protocolVersion == "" {
-		protocolVersion = MCPProtocolVersion
-	} else if protocolVersion != MCPProtocolVersion && protocolVersion != "2025-03-26" {
-		c.JSON(http.StatusBadRequest, jsonRPCError(nil, -32600, fmt.Sprintf("unsupported protocol version: %s (expected: %s)", protocolVersion, MCPProtocolVersion)))
+	if protocolVersion != "" && !isSupportedProtocolVersion(protocolVersion) {
+		c.JSON(http.StatusBadRequest, jsonRPCError(nil, -32600, fmt.Sprintf("unsupported protocol version: %s", protocolVersion)))
 		return
 	}
 
@@ -76,10 +97,10 @@ func (s *Server) HandleStreamable(c *gin.Context) {
 	// 5. Extract Bearer token from Authorization header and build tool context
 	tc := buildToolContextFromAuth(c)
 
-	// Negotiate response format per MCP spec 2026-07-28:
-	//   Accept: application/json               -> single JSON response
+	// Negotiate response format per MCP Streamable HTTP spec:
+	//   Accept: application/json                    -> single JSON response
 	//   Accept: application/json, text/event-stream -> SSE stream
-	//   Accept: text/event-stream             -> SSE stream
+	//   Accept: text/event-stream                   -> SSE stream
 	accept := c.GetHeader("Accept")
 	useSSE := strings.Contains(accept, "text/event-stream")
 
@@ -120,6 +141,16 @@ func (s *Server) HandleStreamable(c *gin.Context) {
 			}
 			req.Params["name"] = mcpName
 		}
+		// JSON-RPC 2.0 notifications (e.g. notifications/initialized,
+		// notifications/cancelled) have no id and MUST receive 202 Accepted
+		// with an empty body per MCP Streamable HTTP spec.
+		if req.ID == nil {
+			if sessionID := c.GetHeader("MCP-Session-Id"); sessionID != "" {
+				c.Header("MCP-Session-Id", sessionID)
+			}
+			c.Status(http.StatusAccepted)
+			return
+		}
 		responses = []MCPResponse{s.HandleRequestWithContext(tc, req)}
 	}
 
@@ -129,10 +160,12 @@ func (s *Server) HandleStreamable(c *gin.Context) {
 		return
 	}
 
-	// Send back session id. The session identifier is opaque and random: it
-	// must never embed the identity of the caller.
+	// Send back session id. Echo an existing client session id, or mint an
+	// opaque random UUID on initial requests (never embedding caller identity).
 	if sessionID := c.GetHeader("MCP-Session-Id"); sessionID == "" {
 		c.Header("MCP-Session-Id", uuid.New().String())
+	} else {
+		c.Header("MCP-Session-Id", sessionID)
 	}
 
 	// SSE responses are scoped per-request (no independent streams)
@@ -147,28 +180,28 @@ func (s *Server) HandleStreamable(c *gin.Context) {
 // Returns true if origin is allowed or if no Origin header is present (same-origin request).
 // Returns false and sets 403 if origin is present but not in the allowed list.
 func isOriginAllowed(c *gin.Context) bool {
-	origin := c.GetHeader("Origin")
+	origin := strings.TrimRight(strings.TrimSpace(c.GetHeader("Origin")), "/")
 	if origin == "" {
-		// No Origin header = same-origin request, always allowed
+		// No Origin header = same-origin / CLI / native client, always allowed
 		return true
 	}
 
-	cfg, err := config.Load()
-	if err != nil {
-		// Config load failed, deny by default for security
+	cfg := config.Get()
+	if cfg == nil {
 		return false
 	}
 
-	allowedOrigins := cfg.Server.CORSOrigins
-	if len(allowedOrigins) == 0 {
-		// No allowed origins configured = only same-origin requests allowed
-		return false
+	candidates := make([]string, 0, len(cfg.Server.CORSOrigins)+2)
+	candidates = append(candidates, cfg.Server.CORSOrigins...)
+	if cfg.Server.AdminURL != "" {
+		candidates = append(candidates, cfg.Server.AdminURL)
+	}
+	if cfg.Server.PublicURL != "" {
+		candidates = append(candidates, cfg.Server.PublicURL)
 	}
 
-	// Check against configured allowed origins
-	originLower := strings.ToLower(origin)
-	for _, allowed := range allowedOrigins {
-		if strings.ToLower(allowed) == originLower {
+	for _, allowed := range candidates {
+		if strings.EqualFold(strings.TrimRight(strings.TrimSpace(allowed), "/"), origin) {
 			return true
 		}
 	}

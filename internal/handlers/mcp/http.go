@@ -168,6 +168,11 @@ func (s *Server) HandleMessage(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
 		return
 	}
+	// JSON-RPC 2.0 notifications (no id) require no response frame on the SSE stream.
+	if req.ID == nil {
+		c.Status(http.StatusAccepted)
+		return
+	}
 	// Extract authentication context from gin.Context.
 	// These values are set by the AuthRequired middleware: user_id, role,
 	// workspace_id and auth_source.

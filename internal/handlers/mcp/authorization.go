@@ -16,20 +16,7 @@ func NewProtectedResourceHandler(publicURL string) *ProtectedResourceHandler {
 }
 
 func (h *ProtectedResourceHandler) baseURL(c *gin.Context) string {
-	if h.PublicURL != "" && strings.HasPrefix(h.PublicURL, "https://") {
-		return strings.TrimSuffix(h.PublicURL, "/")
-	}
-
-	host := c.Request.Host
-	if xfh := c.GetHeader("X-Forwarded-Host"); xfh != "" {
-		host = xfh
-	}
-
-	scheme := "http://"
-	if c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https") || !strings.Contains(host, "localhost") && !strings.Contains(host, "127.0.0.1") {
-		scheme = "https://"
-	}
-	return scheme + host
+	return baseURL(c, h.PublicURL)
 }
 
 func (h *ProtectedResourceHandler) Discovery(c *gin.Context) {
@@ -42,24 +29,61 @@ func (h *ProtectedResourceHandler) Discovery(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"resource":                               base + reqPath,
-		"authorization_servers":                  []string{base},
-		"scopes_supported":                       []string{"mcp:read", "mcp:write", "mcp:admin"},
-		"bearer_methods_supported":               []string{"header"},
-		"resource_signing_alg_values_supported":  []string{"RS256", "ES256"},
-		"mcp_server_name":                        "hornerodb-mcp",
-		"mcp_server_version":                     "1.1.0",
+		"resource":                              base + reqPath,
+		"authorization_servers":                 []string{base},
+		"scopes_supported":                      []string{"mcp:read", "mcp:write", "mcp:admin"},
+		"bearer_methods_supported":              []string{"header"},
+		"resource_signing_alg_values_supported": []string{"RS256", "ES256"},
+		"mcp_server_name":                       "hornerodb-mcp",
+		"mcp_server_version":                    "1.1.0",
 	})
+}
+
+// wwwAuthenticateWriter intercepts WriteHeader so the RFC 9728 WWW-Authenticate
+// header is attached BEFORE the HTTP status line and headers are flushed on 401.
+// Setting headers after c.Next() is too late once AuthRequired writes a JSON body.
+type wwwAuthenticateWriter struct {
+	gin.ResponseWriter
+	resourceMetadataURL string
+	wroteHeader         bool
+}
+
+func (w *wwwAuthenticateWriter) WriteHeader(code int) {
+	if !w.wroteHeader {
+		w.wroteHeader = true
+		if code == http.StatusUnauthorized && w.Header().Get("WWW-Authenticate") == "" {
+			w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+w.resourceMetadataURL+`"`)
+		}
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *wwwAuthenticateWriter) WriteHeaderNow() {
+	if !w.wroteHeader {
+		w.wroteHeader = true
+		if w.Status() == http.StatusUnauthorized && w.Header().Get("WWW-Authenticate") == "" {
+			w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+w.resourceMetadataURL+`"`)
+		}
+	}
+	w.ResponseWriter.WriteHeaderNow()
+}
+
+func (w *wwwAuthenticateWriter) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(w.Status())
+	}
+	return w.ResponseWriter.Write(b)
 }
 
 func ProtectedResourceHeader(publicURL string) gin.HandlerFunc {
 	h := &ProtectedResourceHandler{PublicURL: publicURL}
 	return func(c *gin.Context) {
-		c.Next()
-		if c.Writer.Status() == 401 {
-			base := h.baseURL(c)
-			resourceMetadataURL := base + "/.well-known/oauth-protected-resource"
-			c.Header("WWW-Authenticate", `Bearer resource_metadata="`+resourceMetadataURL+`"`)
+		base := h.baseURL(c)
+		resourceMetadataURL := base + "/.well-known/oauth-protected-resource"
+		c.Writer = &wwwAuthenticateWriter{
+			ResponseWriter:      c.Writer,
+			resourceMetadataURL: resourceMetadataURL,
 		}
+		c.Next()
 	}
 }

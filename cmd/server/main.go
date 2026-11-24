@@ -403,16 +403,26 @@ func main() {
 		userRoutes.GET("/auth/me", api.GetCurrentUser)
 		userRoutes.GET("/auth/permissions", api.GetMyPermissions)
 		userRoutes.GET("/auth/qr", api.GetSystemLoginQR)
+	}
 
-		// === MCP (Model Context Protocol) ===
-		protected.GET("/mcp/sse", mcpRateLimit, mcp.ProtectedResourceHeader(cfg.Server.PublicURL), mcpServer.HandleSSE)
-		protected.POST("/mcp/message", mcpRateLimit, mcp.ProtectedResourceHeader(cfg.Server.PublicURL), mcpServer.HandleMessage)
-		// Streamable HTTP transport (MCP 2025-03-26) — preferred by Copilot Studio / Claude Code
-		// RFC 9728: Add WWW-Authenticate header on 401 for MCP resources
-		protected.POST("/mcp/stream", mcpRateLimit, mcp.ProtectedResourceHeader(cfg.Server.PublicURL), mcpServer.HandleStreamable)
-		protected.GET("/mcp/stream", mcpRateLimit, mcp.ProtectedResourceHeader(cfg.Server.PublicURL), mcpServer.HandleStreamable)
-		protected.POST("/mcp", mcpRateLimit, mcp.ProtectedResourceHeader(cfg.Server.PublicURL), mcpServer.HandleStreamable)
-		protected.GET("/mcp", mcpRateLimit, mcp.ProtectedResourceHeader(cfg.Server.PublicURL), mcpServer.HandleStreamable)
+	// === MCP (Model Context Protocol) ===
+	// RFC 9728: ProtectedResourceHeader MUST run BEFORE AuthRequired so that
+	// 401 responses emitted by AuthRequired carry `WWW-Authenticate: Bearer
+	// resource_metadata="..."` for automatic OAuth discovery by MCP clients.
+	mcpGroup := v1.Group("/mcp")
+	mcpGroup.Use(mcpRateLimit)
+	mcpGroup.Use(mcp.ProtectedResourceHeader(cfg.Server.PublicURL))
+	mcpGroup.Use(middleware.AuthRequired(cfg.Auth.JWTSecret))
+	{
+		mcpGroup.GET("/sse", mcpServer.HandleSSE)
+		mcpGroup.POST("/message", mcpServer.HandleMessage)
+		// Streamable HTTP transport (MCP 2025-03-26 / 2025-06-18 / 2025-11-25)
+		mcpGroup.POST("/stream", mcpServer.HandleStreamable)
+		mcpGroup.GET("/stream", mcpServer.HandleStreamable)
+		mcpGroup.DELETE("/stream", mcpServer.HandleStreamable)
+		mcpGroup.POST("", mcpServer.HandleStreamable)
+		mcpGroup.GET("", mcpServer.HandleStreamable)
+		mcpGroup.DELETE("", mcpServer.HandleStreamable)
 	}
 
 	// === MCP OpenAPI schema (public, for Power Apps custom connector import) ===

@@ -179,6 +179,9 @@ func validateRedirectURI(raw string) error {
 			return nil
 		}
 		return errors.New("http redirect_uri is only allowed for localhost/127.0.0.1")
+	case "vscode", "cursor", "windsurf", "claude":
+		// Custom URI schemes used by native MCP desktop/IDE clients (RFC 8252).
+		return nil
 	default:
 		return fmt.Errorf("unsupported redirect_uri scheme %q", parsed.Scheme)
 	}

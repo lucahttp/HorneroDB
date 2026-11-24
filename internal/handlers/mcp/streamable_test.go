@@ -38,8 +38,8 @@ func TestStreamable_RejectsGET(t *testing.T) {
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", w.Code)
 	}
-	if w.Header().Get("Allow") != "POST" {
-		t.Fatalf("expected Allow: POST header, got %q", w.Header().Get("Allow"))
+	if w.Header().Get("Allow") != "POST, DELETE" {
+		t.Fatalf("expected Allow: POST, DELETE header, got %q", w.Header().Get("Allow"))
 	}
 }
 
@@ -655,5 +655,158 @@ func TestStreamable_SSESurvivesServerWriteTimeout(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected ping response in streamable SSE stream")
+	}
+}
+
+func TestProtectedResourceHeader_SetsWWWAuthenticateOn401(t *testing.T) {
+	r := gin.New()
+	r.Use(ProtectedResourceHeader("https://mcp.example.com"))
+	r.POST("/api/v1/mcp", func(c *gin.Context) {
+		// Mirror AuthRequired writing a JSON 401 and aborting.
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+	want := `Bearer resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource"`
+	if got := w.Header().Get("WWW-Authenticate"); got != want {
+		t.Fatalf("WWW-Authenticate = %q, want %q", got, want)
+	}
+}
+
+func TestStreamable_ProtocolVersionNegotiation(t *testing.T) {
+	srv := newTestServer()
+	r := gin.New()
+	r.POST("/mcp", srv.HandleStreamable)
+
+	for _, ver := range []string{"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25", "2026-07-28"} {
+		body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"` + ver + `"}}`
+		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("MCP-Protocol-Version", ver)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("version %s: expected 200, got %d (body=%s)", ver, w.Code, w.Body.String())
+		}
+		var resp MCPResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("version %s: invalid JSON: %v", ver, err)
+		}
+		res, _ := resp.Result.(map[string]interface{})
+		if res["protocolVersion"] != ver {
+			t.Fatalf("version %s: negotiated protocolVersion = %v, want %s", ver, res["protocolVersion"], ver)
+		}
+	}
+
+	// Unsupported header version still fails with 400.
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`))
+	req.Header.Set("MCP-Protocol-Version", "1999-01-01")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("unsupported version: expected 400, got %d", w.Code)
+	}
+}
+
+func TestStreamable_NotificationInitializedReturns202(t *testing.T) {
+	srv := newTestServer()
+	r := gin.New()
+	r.POST("/mcp", srv.HandleStreamable)
+
+	body := `{"jsonrpc":"2.0","method":"notifications/initialized"}`
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("MCP-Session-Id", "sess-abc")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 Accepted for notification, got %d (body=%s)", w.Code, w.Body.String())
+	}
+	if w.Body.Len() != 0 {
+		t.Fatalf("expected empty body for notification, got %q", w.Body.String())
+	}
+	if got := w.Header().Get("MCP-Session-Id"); got != "sess-abc" {
+		t.Fatalf("expected MCP-Session-Id echo, got %q", got)
+	}
+}
+
+func TestStreamable_DeleteTerminatesSession(t *testing.T) {
+	srv := newTestServer()
+	r := gin.New()
+	r.DELETE("/mcp", srv.HandleStreamable)
+
+	req := httptest.NewRequest(http.MethodDelete, "/mcp", nil)
+	req.Header.Set("MCP-Session-Id", "sess-abc")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 No Content on DELETE, got %d", w.Code)
+	}
+}
+
+func TestToolsCall_ExecutionErrorReturnsIsErrorTrue(t *testing.T) {
+	srv := New(nil, nil)
+	tc := ToolContext{UserID: "user-1", RoleName: "admin", AuthSource: "oidc"}
+	// Invalid workspace_id triggers a tool-level validation error (no DB needed).
+	resp := srv.HandleRequestWithContext(tc, MCPRequest{
+		JSONRPC: "2.0",
+		ID:      1,
+		Method:  "tools/call",
+		Params: map[string]interface{}{
+			"name":      "list_tables",
+			"arguments": map[string]interface{}{"workspace_id": "not-a-uuid"},
+		},
+	})
+	if resp.Error != nil {
+		t.Fatalf("tool execution error should be returned as result.isError=true, not JSON-RPC error: %+v", resp.Error)
+	}
+	res, ok := resp.Result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map result, got %T", resp.Result)
+	}
+	if isErr, _ := res["isError"].(bool); !isErr {
+		t.Fatalf("expected isError=true, got %+v", res)
+	}
+}
+
+func TestToolsList_IncludesAnnotationsAndPromptsList(t *testing.T) {
+	srv := New(nil, nil)
+
+	listResp := srv.handleToolsList(MCPRequest{ID: 1})
+	resMap := listResp.Result.(map[string]interface{})
+	tools := resMap["tools"].([]map[string]interface{})
+	for _, tool := range tools {
+		ann, ok := tool["annotations"].(*ToolAnnotations)
+		if !ok || ann == nil || ann.ReadOnlyHint == nil || ann.DestructiveHint == nil {
+			t.Fatalf("tool %v missing annotations: %+v", tool["name"], tool["annotations"])
+		}
+		if tool["name"] == "list_records" && !*ann.ReadOnlyHint {
+			t.Fatalf("expected list_records readOnlyHint=true")
+		}
+		if tool["name"] == "delete_record" && !*ann.DestructiveHint {
+			t.Fatalf("expected delete_record destructiveHint=true")
+		}
+	}
+
+	promptsResp := srv.HandleRequestWithContext(ToolContext{}, MCPRequest{JSONRPC: "2.0", ID: 2, Method: "prompts/list"})
+	if promptsResp.Error != nil {
+		t.Fatalf("prompts/list failed: %+v", promptsResp.Error)
+	}
+}
+
+func TestValidateRedirectURI_AllowsIDECustomSchemes(t *testing.T) {
+	for _, uri := range []string{"vscode://ms-vscode.copilot/callback", "cursor://anysphere.cursor/callback", "claude://callback"} {
+		if err := validateRedirectURI(uri); err != nil {
+			t.Errorf("validateRedirectURI(%q) unexpected err: %v", uri, err)
+		}
 	}
 }
